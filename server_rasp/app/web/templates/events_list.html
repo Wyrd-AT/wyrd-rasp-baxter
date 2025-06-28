@@ -1,0 +1,45 @@
+{# app/web/templates/events_list.html #}
+{% extends "base.html" %}
+
+{% block content %}
+  <h2>Histórico de Eventos</h2>
+
+  <p><a href="{{ url_for('download_events_csv') }}">📥 Baixar CSV</a></p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Data/Hora (BR)</th>
+        <th>ESP ID</th>
+        <th>Quarto</th>
+        <th>Cama</th>
+        <th>Status</th>
+        <th>RSSI</th>
+        <th>Wi-Fi</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for evt in events %}
+        <tr>
+          <td>{{ evt.data_on_str }}</td>
+          <td>{{ evt.esp_id }}</td>
+          <td>{{ evt.quarto }}</td>
+          <td>{{ evt.cama }}</td>
+          <td>{{ evt.status }}</td>
+          <td>{{ evt.rssi }}</td>
+          <td>{{ evt.wifi }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="pagination">
+    {% if page > 1 %}
+      <a href="{{ url_for('list_events') }}?page={{ page - 1 }}">« Anterior</a>
+    {% endif %}
+    <span>Página {{ page }}</span>
+    {% if has_next %}
+      <a href="{{ url_for('list_events') }}?page={{ page + 1 }}">Próxima »</a>
+    {% endif %}
+  </div>
+{% endblock %}

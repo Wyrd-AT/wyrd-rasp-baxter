@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Camas cadastradas</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>MAC</th>
+        <th>Nome</th>
+        <th>Quarto</th>
+        <th>Beacon</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for bed in beds %}
+        <tr>
+          <td>{{ bed.mac_address }}</td>
+          <td>{{ bed.nome_cama }}</td>
+          <td>{{ bed.quarto }}</td>
+          <td>{{ bed.mac_beacon }}</td>
+          <td>
+            <a href="{{ url_for('edit_bed', bed_id=bed.id) }}">✏️</a>
+            <a href="{{ url_for('delete_bed', bed_id=bed.id) }}">🗑️</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>{% if bed %}Editar{% else %}Adicionar{% endif %} Cama</h3>
+  {% include "bed_form.html" %}
+{% endblock %}

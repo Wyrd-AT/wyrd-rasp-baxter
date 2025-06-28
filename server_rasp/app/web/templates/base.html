@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}Meu App{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header>
+    <h1>Servidor Intermediário Wyrd-Baxter</h1>
+    <nav>
+      <a href="{{ url_for('main') }}">Início</a> |
+      <a href="{{ url_for('list_beds') }}">Camas</a> |
+      <a href="{{ url_for('list_embarcados') }}">Embarcados</a> |
+      <a href="{{ url_for('list_events') }}">Historiador</a>
+    </nav>
+    <hr>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    <hr>
+    <p>© 2025 Minha Empresa</p>
+  </footer>
+</body>
+</html>

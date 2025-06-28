@@ -1,0 +1,12 @@
+<form action="{{ form_action }}" method="post">
+  <label>MAC da Cama:</label>
+  <input name="mac" value="{{ bed.mac_address if bed else '' }}" required><br>
+
+  <label>Nome:</label>
+  <input name="nome" value="{{ bed.nome_cama if bed else '' }}" required><br>
+
+  <label>MAC do Beacon:</label>
+  <input name="mac_beacon" value="{{ bed.mac_beacon if bed else '' }}"><br>
+
+  <button type="submit">{{ 'Atualizar' if bed else 'Salvar' }}</button>
+</form>

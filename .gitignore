@@ -1,0 +1,50 @@
+# Ambiente Virtual
+# Nunca envie sua pasta de ambiente virtual!
+.venv/
+venv/
+ENV/
+env/
+
+# Arquivos de Cache do Python
+# São gerados automaticamente e não precisam ser versionados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Arquivos de Banco de Dados
+# O banco de dados muda constantemente e não deve ser versionado.
+# O que se versiona é o código que o cria (models.py).
+*.db
+*.sqlite3
+beds.db
+
+# Arquivos de configuração de IDE e S.O.
+# Específicos do ambiente de cada desenvolvedor
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.user
+
+# Arquivos de dependências e pacotes
+# A lista de pacotes está no requirements.txt, não os pacotes em si.
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+include/
+lib/
+lib64/
+
+# Arquivos de ambiente e segredos
+# NUNCA envie senhas, chaves de API ou outros segredos!
+.env
+.env.*
+!.env.example 
+# A linha acima é uma exceção: se você tiver um .env.example, ele será incluído.
+
+# Logs
+*.log

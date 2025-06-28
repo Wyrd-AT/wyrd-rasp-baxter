@@ -1,0 +1,9 @@
+<form action="{{ form_action }}" method="post">
+  <label>ID da ESP:</label>
+  <input name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" required><br>
+
+  <label>Quarto:</label>
+  <input name="quarto" value="{{ embarcado.quarto if embarcado else '' }}" required><br>
+
+  <button type="submit">{{ 'Atualizar' if embarcado else 'Salvar' }}</button>
+</form>
