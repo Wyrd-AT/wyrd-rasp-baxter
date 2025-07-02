@@ -1,3 +1,5 @@
+# presence
+
 from .nmap_scan import get_connected_macs
 from .config import NETWORK_RANGE
 

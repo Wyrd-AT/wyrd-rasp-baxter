@@ -24,6 +24,8 @@ from .models import (
     ReceivedEvent,
     init_db
 )
+
+from .presence import check_presence
 from .aggregator import start_aggregator
 from .tcp_server import start_server
 from .auth import authenticate_admin
@@ -312,23 +314,24 @@ async def update_bed_from_json(data: dict = Body(...)):
     quarto = data.get("quarto")
     status = data.get("status")
 
-    # Verifica se a cama está conectada
-    if not is_mac_connected(cama_mac):
-        raise HTTPException(status_code=404, detail="Cama não está conectada à rede")
+    if not check_presence(cama_mac):
+        raise HTTPException(status_code=404, detail=f"Cama com MAC {cama_mac} não está conectada à rede")
 
-    if status == "GET":
-        db = SessionLocal()
+    db = SessionLocal()
+    try:
         bed = db.query(Bed).filter(Bed.mac_address == cama_mac).first()
         
         if not bed:
-            raise HTTPException(status_code=404, detail="Cama não encontrada.")
+            raise HTTPException(status_code=404, detail=f"Cama com MAC {cama_mac} não encontrada no banco de dados.")
         
         bed.quarto = quarto
         db.commit()
         
+        print(f"[main] Cama '{bed.nome_cama}' (MAC: {cama_mac}) atualizada para o quarto '{quarto}' com sucesso.")
+        
         return {"message": "Cama atualizada com sucesso", "cama": cama_mac, "status": status, "quarto": quarto}
-
-    return {"message": "Ação não executada", "status": status}
+    finally:
+        db.close()
 
 # ─── EXECUÇÃO DIRETA ───────────────────────────────────────────────────────────
 if __name__ == "__main__":
