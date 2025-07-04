@@ -40,12 +40,12 @@ def get_macs_via_arp_parallel(network_prefix=NETWORK_PREFIX):
                             stderr=subprocess.PIPE,
                             text=True)
     output = result.stdout
-    print(f"[nmap_scan] Saída do arp -a:\n{output}")
+    #print(f"[nmap_scan] Saída do arp -a:\n{output}")
 
     macs = re.findall(r"([0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5})", output)
     # Converte '-' para ':' e lower
     macs = [m.replace("-", ":").lower() for m in macs]
-    print(f"[nmap_scan] MACs encontrados (ARP): {macs}")
+    #print(f"[nmap_scan] MACs encontrados (ARP): {macs}")
     return macs
 
 # -----------------------------------------------------------------------------

@@ -1,147 +1,149 @@
-# aggregator
+# aggregator.py (versão concorrente com asyncio)
 
-import time
-import threading
+import asyncio
+from collections import defaultdict
 from .presence import check_presence
 from .dispatcher import dispatch_event
 from .models import SessionLocal, Embarcado, Bed
 
-# quantos segundos esperar entre tentativas do mesmo evento
+# --- Configurações ---
 RETRY_INTERVAL = 5
+EXPIRY = 20
 
-# quando expira todo evento (em segundos)
-EXPIRY = 15
-
-# buffer de eventos com metadados
+# --- Estruturas de Dados em Memória ---
+# Buffer de eventos recebidos
 _buffer = []
+# Conjunto para rastrear quais camas já estão a ser processadas
+_beds_in_process = set()
 
 def enqueue_event(evt):
-    now = time.time()
-    evt["received_at"]  = now
-    evt["expire_at"]    = now + EXPIRY
-    evt["next_attempt"] = now
+    """ Coloca um novo evento no buffer. É thread-safe. """
+    evt["received_at"] = asyncio.get_event_loop().time()
     _buffer.append(evt)
-    print(f"[aggregator] enqueue: {evt}")
+    #print(f"[aggregator] enqueue: {evt}")
 
-def _process_next():
-    now = time.time()
+async def process_bed_events(cama_nome: str):
+    """
+    Função 'worker' que processa todos os eventos de UMA ÚNICA cama.
+    Esta função é executada como uma tarefa independente para cada cama.
+    """
+    print(f"[aggregator] Iniciando processamento para a cama: {cama_nome}")
+    _beds_in_process.add(cama_nome)
+    
     db = SessionLocal()
-
     try:
-        # --- TRATAMENTO DE EVENTOS 'OUT' (Casos 5 e 6) ---
-        # Estes são tratados primeiro porque são explícitos e não precisam de 'check_presence'.
-        eventos_out = [e for e in list(_buffer) if e.get("status") == "OUT"]
-        for evt in eventos_out:
-            cama_nome = evt["cama"]
-            bed = db.query(Bed).filter(Bed.nome_cama == cama_nome).first()
+        now = asyncio.get_event_loop().time()
+        
+        # Filtra apenas os eventos relevantes para esta cama
+        events_for_bed = [e for e in _buffer if e.get("cama") == cama_nome]
+        if not events_for_bed:
+            return
 
+        # --- LÓGICA DE 'OUT' EXPLÍCITO ---
+        eventos_out = [e for e in events_for_bed if e.get("status") == "OUT"]
+        if eventos_out:
+            # Pega o primeiro evento de OUT como referência para o payload
+            evt_out = eventos_out[0]
+            bed = db.query(Bed).filter(Bed.nome_cama == cama_nome).first()
             if bed and bed.quarto is not None:
-                # --- Caso 5: Chega OUT e a cama está num quarto ---
-                print(f"[aggregator] Recebido 'OUT' para a cama '{cama_nome}' que estava no quarto '{bed.quarto}'.")
+                print(f"[aggregator] Recebido 'OUT' para '{cama_nome}'. Removendo do quarto '{bed.quarto}'.")
                 bed.quarto = None
                 db.commit()
-                # Encaminha o evento 'OUT' para o servidor final
-                dispatch_event({
-                    "cama": cama_nome,
+
+                # --- CORREÇÃO AQUI ---
+                # Monta o payload completo usando os dados do evento 'OUT'
+                dispatch_payload = evt_out.copy()
+                dispatch_payload.update({
                     "quarto": None,
                     "status": "OUT",
                     "mac_address": bed.mac_address
                 })
-            else:
-                # --- Caso 6: Chega OUT e a cama já não está num quarto ---
-                print(f"[aggregator] Recebido 'OUT' para a cama '{cama_nome}' que já estava sem quarto. Evento ignorado.")
-            
-            _buffer.remove(evt) # Remove o evento 'OUT' após o tratamento
+                dispatch_event(dispatch_payload)
 
-        # --- TRATAMENTO DE EVENTOS EXPIRADOS (Fallback para o 'OUT') ---
-        eventos_expirados = [e for e in list(_buffer) if now > e["expire_at"]]
-        for e in eventos_expirados:
-            cama_nome = e["cama"]
-            print(f"[aggregator] Evento para a cama '{cama_nome}' expirou (tentativas de 'GET' falharam).")
-            dispatch_event({"cama": cama_nome, "status": "WARNING", "esp_id": e["esp_id"]})
-            _buffer.remove(e)
-
-            # Lógica 'OUT' por expiração: se este era o último evento para a cama
-            if not any(evt for evt in _buffer if evt["cama"] == cama_nome):
-                bed = db.query(Bed).filter(Bed.nome_cama == cama_nome).first()
-                if bed and bed.quarto is not None:
-                    print(f"[aggregator] Todos os eventos para '{cama_nome}' expiraram. Removendo do quarto '{bed.quarto}'.")
-                    bed.quarto = None
-                    db.commit()
-
-        # --- TRATAMENTO DE EVENTOS 'GET' (Casos 1, 2, 3 e 4) ---
-        due = [e for e in _buffer if now >= e["next_attempt"] and e.get("status") == "GET"]
-        if not due:
+            # Remove todos os eventos (GET e OUT) desta cama do buffer
+            for ev in events_for_bed: _buffer.remove(ev)
             return
 
-        # A lógica de seleção do melhor candidato continua
-        best_by_cama, best_by_esp = {}, {}
-        for e in due:
-            cama = e["cama"]
-            rssi = e.get("RSSI", 0)
-            if cama not in best_by_cama or rssi > best_by_cama[cama].get("RSSI", 0): best_by_cama[cama] = e
-        for e in best_by_cama.values():
-            esp = e["esp_id"]
-            rssi = e.get("RSSI", 0)
-            if esp not in best_by_esp or rssi > best_by_esp[esp].get("RSSI", 0): best_by_esp[esp] = e
-        
-        if not best_by_esp: return
-        
-        candidatos = list(best_by_esp.values())
-        candidatos.sort(key=lambda ev: ev["received_at"])
-        evt = candidatos[0]
+        # --- LÓGICA DE 'GET' ---
+        best_event = min(events_for_bed, key=lambda e: e.get("RSSI", 1000))
+        print(f"[aggregator] FILTRO PARA '{cama_nome}': {len(events_for_bed)} eventos na disputa. "
+              f"Vencedor: ESP '{best_event['esp_id']}' com RSSI {best_event['RSSI']}.")
 
-        # Processa o melhor candidato 'GET'
-        esp_id = evt["esp_id"]
-        cama_nome = evt["cama"]
+
+        if now > best_event.get("received_at", 0) + EXPIRY:
+            print(f"[aggregator] Evento principal para '{cama_nome}' expirou. Despachando WARNING.")
+            
+            # --- CORREÇÃO AQUI ---
+            # Usa o 'best_event' como base para o payload de WARNING
+            dispatch_payload = best_event.copy()
+            dispatch_payload.update({"status": "WARNING"})
+            dispatch_event(dispatch_payload)
+            
+            bed = db.query(Bed).filter(Bed.nome_cama == cama_nome).first()
+            if bed and bed.quarto is not None:
+                print(f"[aggregator] '{cama_nome}' expirou. Removendo do quarto '{bed.quarto}'.")
+                bed.quarto = None
+                db.commit()
+            
+            for ev in events_for_bed: _buffer.remove(ev)
+            return
+
+        esp_id = best_event["esp_id"]
         emb = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
         bed = db.query(Bed).filter(Bed.nome_cama == cama_nome).first()
-        
+
         if not bed or not emb:
-            print(f"[aggregator] Cama ou ESP não cadastrado para o evento {evt}. Removendo.")
-            _buffer.remove(evt)
+            print(f"[aggregator] Cama ou ESP não cadastrado para {best_event}. Removendo eventos.")
+            for ev in events_for_bed: _buffer.remove(ev)
             return
 
-        # Verifica a presença na rede
-        mac_presente = check_presence(bed.mac_address)
+        if check_presence(bed.mac_address):
+            # --- CORREÇÃO AQUI ---
+            # Prepara o payload final usando o 'best_event' como base
+            dispatch_payload = best_event.copy()
 
-        if mac_presente: # Cama está no Wi-Fi
             if bed.quarto is None:
-                # --- Caso 1: Chega GET, cama no wifi, sem quarto ---
-                print(f"[aggregator] Associando cama '{cama_nome}' ao quarto '{emb.quarto}'.")
+                print(f"[aggregator] Associando '{cama_nome}' ao quarto '{emb.quarto}'.")
                 bed.quarto = emb.quarto
                 db.commit()
-                dispatch_event({
-                    "cama": cama_nome, "quarto": bed.quarto, "status": "IN", 
-                    "mac_address": bed.mac_address, "esp_id": esp_id
+                # Atualiza o payload com o novo estado e despacha
+                dispatch_payload.update({
+                    "quarto": bed.quarto,
+                    "status": "GET", # Muda o status para 'GET' para indicar a entrada
+                    "mac_address": bed.mac_address
                 })
-                _buffer.remove(evt)
+                dispatch_event(dispatch_payload)
+            elif bed.quarto != emb.quarto:
+                print(f"[aggregator] Conflito Ignorado: '{cama_nome}' já em '{bed.quarto}', detectada em '{emb.quarto}'.")
             else:
-                # --- Caso 2: Chega GET, cama no wifi, já com quarto (conflito ou confirmação) ---
-                if bed.quarto == emb.quarto:
-                    print(f"[aggregator] Confirmação de '{cama_nome}' no quarto '{bed.quarto}'. Evento processado.")
-                else:
-                    print(f"[aggregator] Conflito Ignorado: '{cama_nome}' já está em '{bed.quarto}', detectada em '{emb.quarto}'.")
-                _buffer.remove(evt) # Remove o evento para não reprocessar
-
-        else: # Cama NÃO está no Wi-Fi
-            if bed.quarto is not None:
-                # --- Caso 4: Chega GET, cama não está no wifi, mas tem quarto ---
-                print(f"[aggregator] Deteção de '{cama_nome}' (offline) por '{esp_id}' ignorada, pois já tem quarto '{bed.quarto}'.")
-                _buffer.remove(evt)
-            else:
-                # --- Caso 3: Chega GET, cama não está no wifi e não tem quarto ---
-                print(f"[aggregator] Cama '{cama_nome}' não encontrada na rede. Agendando retry.")
-                evt["next_attempt"] = now + RETRY_INTERVAL
-    
+                print(f"[aggregator] Confirmação de '{cama_nome}' no quarto '{bed.quarto}'.")
+            
+            for ev in events_for_bed: _buffer.remove(ev)
+        else:
+            print(f"[aggregator] Presença de '{cama_nome}' não detectada. Nenhum estado será alterado.")
+            
     finally:
         db.close()
+        _beds_in_process.remove(cama_nome)
+        print(f"[aggregator] Finalizado processamento para a cama: {cama_nome}")
+
+async def main_aggregator_loop():
+    """ O loop principal que orquestra as tarefas. """
+    print("[aggregator] Agregador Concorrente iniciado.")
+    while True:
+        await asyncio.sleep(1) # Intervalo do ciclo
         
+        # Agrupa todos os eventos pendentes por nome da cama
+        pending_events_by_bed = defaultdict(list)
+        for evt in _buffer:
+            pending_events_by_bed[evt["cama"]].append(evt)
+            
+        # Para cada cama com eventos, lança uma tarefa se não estiver a ser processada
+        for cama_nome, events in pending_events_by_bed.items():
+            if cama_nome not in _beds_in_process:
+                asyncio.create_task(process_bed_events(cama_nome))
+
 def start_aggregator():
-    print(f"[aggregator] iniciado (EXPIRY={EXPIRY}s, RETRY={RETRY_INTERVAL}s)")
-    def loop():
-        while True:
-            _process_next()
-            time.sleep(1)
-    t = threading.Thread(target=loop, daemon=True)
-    t.start()
+    """ Função chamada pelo main.py para iniciar o agregador. """
+    # No novo modelo, o main.py (que já tem um loop asyncio) vai gerir a tarefa
+    pass

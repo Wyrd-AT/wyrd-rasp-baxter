@@ -26,7 +26,7 @@ from .models import (
 )
 
 from .presence import check_presence
-from .aggregator import start_aggregator
+from .aggregator import main_aggregator_loop, enqueue_event 
 from .tcp_server import start_server
 from .auth import authenticate_admin
 from .config import (
@@ -181,7 +181,7 @@ def start_cleanup_scheduler():
 @app.on_event("startup")
 async def on_startup():
     print("[main] Startup: agregador, servidor TCP e cleanup")
-    start_aggregator()
+    asyncio.create_task(main_aggregator_loop())
     asyncio.create_task(start_server())
     start_cleanup_scheduler()
 

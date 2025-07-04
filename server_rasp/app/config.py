@@ -4,6 +4,7 @@
 IP = "192.168.1.213"
 FINAL_IP = "192.168.1.183"
 PORT = 9500
+FINAL_PORT = 9501
 
 # Rede usada nos scans
 NETWORK_RANGE = "192.168.1.0/24"

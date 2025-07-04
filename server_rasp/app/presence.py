@@ -9,5 +9,6 @@ def check_presence(mac):
     """
     connected_macs = get_connected_macs(NETWORK_RANGE)
     presente = mac.lower() in connected_macs
-    print(f"[presence] MAC {mac} {'está' if presente else 'não está'} conectado. Dispositivos: {connected_macs}")
+    print(f"[presence] MAC {mac} {'está' if presente else 'não está'} conectado.")
+    #print(f"Dispositivos: {connected_macs}")
     return presente
