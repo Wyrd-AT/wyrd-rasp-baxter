@@ -1,103 +1,122 @@
-# WYRD_RASP_BAXTER
+🏥 Baxter - Sistema de Localização de Camas em Tempo Real
+Um sistema de IoT para monitoramento em tempo real da localização de camas hospitalares, construído com FastAPI, MQTT e ESP32.
 
-Um servidor de monitoramento rodando em um Raspberry Pi, construído com FastAPI, para gerenciar e visualizar o estado de leitos e dispositivos embarcados em uma rede local.
+✨ Funcionalidades Principais
+Localização em Tempo Real: Determina em qual quarto cada cama está, com base na intensidade do sinal de beacons Bluetooth.
 
-## ✨ Funcionalidades Principais
+Sincronização via MQTT: Utiliza um broker MQTT para enviar em tempo real a lista de camas disponíveis para todos os dispositivos, evitando conflitos e leituras duplicadas.
 
-* **Interface Web:** Painel para visualização e gerenciamento de dispositivos.
-* **Gerenciamento de Leitos:** Cadastro, edição e listagem de leitos monitorados.
-* **Gerenciamento de Embarcados:** Cadastro e listagem de dispositivos IoT/embarcados.
-* **Visualização de Eventos:** Log de eventos importantes que ocorrem no sistema.
-* **Escaneamento de Rede:** Módulo para identificar dispositivos na rede local (usando Nmap).
-* **Servidor TCP:** Para comunicação direta com os dispositivos embarcados.
-* **API RESTful:** Endpoints para interagir com o sistema de forma programática.
+Interface Web de Gestão: Painel administrativo para cadastrar, editar e visualizar o estado de Camas e Dispositivos ESP.
 
-## 🛠️ Tecnologias Utilizadas
+Histórico de Eventos: Log completo de todos os eventos de GET e OUT recebidos, com informações de RSSI, WiFi, e data.
 
-* **Backend:** Python 3, FastAPI
-* **Servidor ASGI:** Uvicorn
-* **Frontend:** HTML5, CSS3, Jinja2
-* **Banco de Dados:** SQLite (inferido pelo arquivo `beds.db`)
-* **Utilitários:** Nmap (para escaneamento de rede)
+Validação de Presença na Rede: Confirma se o módulo Wi-Fi de uma cama está ativo na rede (nmap/arp) antes de associá-la a um quarto, aumentando a confiabilidade.
 
-## 📂 Estrutura do Projeto
+Lógica de Agregação Inteligente: Processa eventos de múltiplas fontes, elegendo o ESP com o sinal mais forte como a localização correta da cama.
 
-```
+🛠️ Tecnologias Utilizadas
+Backend: Python 3, FastAPI
+
+Servidor ASGI: Uvicorn
+
+Banco de Dados: SQLite
+
+Mensageria: MQTT (com o broker Mosquitto)
+
+Hardware: ESP32, Beacons BLE
+
+Frontend (Admin): HTML5, CSS3, Jinja2
+
+Bibliotecas Python Notáveis: SQLAlchemy, Paho-MQTT, Nmap
+
+📂 Estrutura do Projeto
 WYRD_RASP_BAXTER/
 ├── .venv/                  # Ambiente virtual Python
 ├── server_rasp/            # Código fonte principal do servidor
-│   ├── app/                # Módulo da aplicação web (rotas, templates)
+│   ├── app/                # Módulo da aplicação
 │   │   ├── web/
 │   │   │   ├── static/     # Arquivos estáticos (CSS, JS, Imagens)
 │   │   │   └── templates/  # Templates HTML (Jinja2)
-│   │   └── __init__.py
-│   ├── aggregator.py       # (Descreva a função deste arquivo)
-│   ├── auth.py             # Lógica de autenticação
-│   ├── config.py           # Configurações do projeto
-│   ├── dispatcher.py       # (Descreva a função deste arquivo)
-│   ├── main.py             # Ponto de entrada da aplicação FastAPI
-│   ├── models.py           # Modelos de dados (ex: SQLAlchemy)
-│   ├── nmap_scan.py        # Lógica para o escaneamento com Nmap
-│   ├── presence.py         # Lógica de detecção de presença
-│   └── tcp_server.py       # Implementação do servidor TCP
+│   │   ├── __init__.py
+│   └── │   └── ...
+│   ├── aggregator.py       # Cérebro do sistema. Processa eventos, resolve conflitos e atualiza o estado.
+│   ├── auth.py             # Lógica de autenticação para as rotas de admin.
+│   ├── config.py           # Configurações do projeto (IPs, portas, tópicos MQTT).
+│   ├── dispatcher.py       # Envia o estado final para um sistema externo (servidor Connecta).
+│   ├── main.py             # Ponto de entrada da aplicação FastAPI e rotas.
+│   ├── models.py           # Modelos de dados do SQLAlchemy (Bed, Embarcado).
+│   ├── nmap_scan.py        # Lógica para o escaneamento de rede.
+│   ├── presence.py         # Lógica de verificação de presença de MAC na rede.
+│   ├── tcp_server.py       # (Depreciado) Servidor TCP original.
+│   └── mqtt_client.py  # Lógica do cliente MQTT para publicar atualizações
 ├── beds.db                 # Banco de dados SQLite
 ├── README.md               # Este arquivo
-└── requirements.txt        # Dependências do projeto
-```
+└── requirements.txt        # Dependências do projeto Python
 
-## 🚀 Instalação e Execução
+🚀 Instalação e Execução
+Siga os passos abaixo para configurar e rodar o ambiente completo.
 
-Siga os passos abaixo para configurar e rodar o ambiente de desenvolvimento.
+1. Broker MQTT (Mosquitto)
+Instale o Mosquitto no seu sistema operacional.
 
-**1. Clone o repositório:**
-```bash
-git clone [URL_DO_SEU_REPOSITORIO]
-cd WYRD_RASP_BAXTER
-```
+Edite o arquivo mosquitto.conf para permitir acesso pela rede (adicione as linhas abaixo):
 
-**2. Crie e ative o ambiente virtual:**
-```bash
-# Criar o venv (só na primeira vez)
+Snippet de código
+
+listener 1883 0.0.0.0
+allow_anonymous true
+Inicie o serviço do Mosquitto. No Windows, use net start mosquitto em um terminal de administrador.
+
+2. Backend (Servidor FastAPI)
+Clone o repositório:
+
+Bash
+
+git clone <URL_DO_SEU_REPOSITORIO>
+cd WYRD_RASP_BAXTER/server_rasp
+Crie e ative o ambiente virtual:
+
+Bash
+
+# Criar (só na primeira vez)
 python -m venv .venv
 
-# Ativar o venv (sempre que for trabalhar no projeto)
+# Ativar (sempre que for trabalhar no projeto)
 # Windows
 .\.venv\Scripts\activate
 # Linux / macOS
 source .venv/bin/activate
-```
+Instale as dependências:
 
-**3. Instale as dependências:**
-```bash
+Bash
+
 pip install -r requirements.txt
-```
+Execute a aplicação:
 
-**4. Configure as variáveis de ambiente:**
-O projeto utiliza um arquivo `.env` para configurações. Crie uma cópia do arquivo `.env.example` (se você tiver um, é uma boa prática criá-lo) e o renomeie para `.env`.
-```bash
-# Exemplo de como poderia ser o conteúdo do .env
-DATABASE_URL="sqlite:///./beds.db"
-SECRET_KEY="uma_chave_secreta_muito_forte"
-```
+Bash
 
-**5. Rode a aplicação:**
-O ponto de entrada é o `server_rasp/main.py`. Para rodar o servidor FastAPI em modo de desenvolvimento:
-```bash
-uvicorn server_rasp.main:app --reload
-```
-* `--reload`: faz o servidor reiniciar automaticamente após qualquer alteração no código.
+# O --host 0.0.0.0 é crucial para que as ESPs possam acessar o servidor
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+Acesse a aplicação: Abra seu navegador e acesse http://127.0.0.1:8000.
 
-**6. Acesse a aplicação:**
-Abra seu navegador e acesse [http://127.0.0.1:8000](http://127.0.0.1:8000).
+3. Cliente (ESP32)
+Abra o arquivo .ino na Arduino IDE.
 
----
-## 📝 Endpoints da API
+Instale as bibliotecas pelo "Gerenciador de Bibliotecas":
 
-A documentação interativa da API (gerada automaticamente pelo FastAPI) está disponível em:
-* **Swagger UI:** [/docs](http://127.0.0.1:8000/docs)
-* **ReDoc:** [/redoc](http://127.0.0.1:8000/redoc)
+PubSubClient (de Nick O'Leary)
 
----
+ArduinoJson
 
-## Licença
-Distribuído sob a licença MIT. Veja `LICENSE` para mais informações.
+Configure as variáveis no topo do ficheiro para corresponder à sua rede: SSID, PASSWORD, SERVER_IP, e MQTT_BROKER_HOST.
+
+Grave o firmware na sua placa ESP32.
+
+Abra o Monitor Serial a uma velocidade de 115200 baud para ver os logs e depurar.
+
+📝 Documentação da API
+A documentação interativa da API (gerada automaticamente pelo FastAPI) está disponível nos seguintes endpoints quando o servidor está rodando:
+
+Swagger UI: /docs
+
+ReDoc: /redoc

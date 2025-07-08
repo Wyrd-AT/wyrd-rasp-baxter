@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from typing import Optional
+from typing import Optional, Dict
 from datetime import datetime, timedelta, timezone
 import csv
 from io import StringIO
@@ -28,11 +28,14 @@ from .models import (
 from .presence import check_presence
 from .aggregator import main_aggregator_loop, enqueue_event 
 from .tcp_server import start_server
+from . import mqtt_client # <-- Importe o novo módulo
+from sqlalchemy import event # <--- NOVO IMPORT
+from .mqtt_client import publish_available_beds
 from .auth import authenticate_admin
 from .config import (
     HISTORY_RETENTION_DAYS,
     EVENT_PAGE_SIZE,
-    CLEANUP_INTERVAL_SEC
+    CLEANUP_INTERVAL_SEC, IP
 )
 from sqladmin import Admin, ModelView
 
@@ -59,6 +62,20 @@ async def protect_admin_routes(request: Request, call_next):
             )
     return await call_next(request)
 
+def bed_state_change_listener(mapper, connection, target):
+    """
+    Função chamada após um insert, update ou delete na tabela Bed.
+    """
+    print(f"[DB_EVENT] Mudança detectada na tabela de camas. Publicando nova lista.")
+    # Chamamos nossa função para publicar a lista atualizada via MQTT.
+    publish_available_beds()
+
+# Aqui, "anexamos" nossa função aos eventos do modelo Bed.
+# A função será chamada APÓS qualquer operação de INSERT, UPDATE ou DELETE.
+event.listen(Bed, 'after_insert', bed_state_change_listener)
+event.listen(Bed, 'after_update', bed_state_change_listener)
+event.listen(Bed, 'after_delete', bed_state_change_listener)
+
 # sub-app do SQLAdmin
 admin_app = FastAPI()
 admin = Admin(admin_app, engine, base_url="/")
@@ -84,6 +101,47 @@ templates = Jinja2Templates(directory="app/web/templates")
 def validate_bed_data(data: dict):
     if "cama" not in data or "quarto" not in data or "status" not in data:
         raise HTTPException(status_code=400, detail="Dados da cama incompletos.")
+
+# ==========================================================
+# NOVO ENDPOINT HTTP PARA RECEBER EVENTOS DOS ESPs
+# ==========================================================
+@app.post("/event")
+async def receive_event(event_data: Dict):
+    """
+    Recebe um evento de um ESP32 via HTTP POST.
+    """
+    print(f"[main] Evento HTTP recebido: {event_data}")
+
+    # Validação básica para garantir que os campos essenciais estão presentes
+    required_keys = ["esp_id", "cama", "status"]
+    if not all(key in event_data for key in required_keys):
+        raise HTTPException(status_code=400, detail="Payload incompleto. Faltando chaves essenciais.")
+
+    # Salva o evento bruto no banco de dados para histórico
+    db = SessionLocal()
+    try:
+        db_event = ReceivedEvent(
+            esp_id=event_data.get("esp_id"),
+            cama=event_data.get("cama"),
+            status=event_data.get("status"),
+            rssi=event_data.get("RSSI"),
+            wifi=event_data.get("wifi"),
+            data_on=datetime.fromisoformat(event_data.get("data_on").replace("Z", "+00:00")),
+            raw=event_data
+        )
+        db.add(db_event)
+        db.commit()
+    except Exception as e:
+        print(f"[main] Erro ao salvar evento no DB: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Erro ao processar e salvar o evento.")
+    finally:
+        db.close()
+
+    # Enfileira o evento para o agregador processar
+    enqueue_event(event_data)
+    
+    return {"status": "success", "message": "Evento recebido e enfileirado"}
 
 # lista eventos, usando data_on como timestamp principal
 @app.get("/events", name="list_events")
@@ -182,7 +240,8 @@ def start_cleanup_scheduler():
 async def on_startup():
     print("[main] Startup: agregador, servidor TCP e cleanup")
     asyncio.create_task(main_aggregator_loop())
-    asyncio.create_task(start_server())
+    mqtt_client.connect_mqtt() 
+    #asyncio.create_task(start_server())
     start_cleanup_scheduler()
 
 @app.get("/", name="main")
@@ -335,4 +394,4 @@ async def update_bed_from_json(data: dict = Body(...)):
 
 # ─── EXECUÇÃO DIRETA ───────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host=IP, port=8000, reload=True)
