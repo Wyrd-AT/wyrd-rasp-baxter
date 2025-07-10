@@ -1,136 +1,170 @@
-# aggregator.py (versão com gatilhos MQTT manuais e corretos)
+# app/aggregator.py
 
 import asyncio
 from collections import defaultdict
-from .presence import check_presence
-from .dispatcher import dispatch_event
-from .models import SessionLocal, Embarcado, Bed
-from .mqtt_client import publish_available_beds # <--- IMPORTA A FUNÇÃO
+from datetime import datetime, timezone
 
-# --- Configurações e Estruturas de Dados (sem alteração) ---
-RETRY_PRESENCE_FREQUENCY_SEC = 60
-_buffer = []
-_beds_in_process = set()
-_pending_mac_checks = {}
+from .dispatcher import dispatch_event
+from .models import SessionLocal, Bed, Embarcado
+from .presence import check_presence
+from .mqtt_client import publish_available_beds
+
+# --- Configurações ---
+RETRY_PRESENCE_FREQUENCY_SEC = 300  # Tentar novamente a cada 60 segundos
+AGGREGATOR_LOOP_INTERVAL_SEC = 2   # O agregador processa o buffer a cada 2 segundos
+
+# --- Estruturas de Dados em Memória ---
+_buffer = []  # Fila de eventos brutos vindos da ESP
+_pending_mac_checks = {}  # Dicionário para rastrear tarefas de retry {mac_wifi: asyncio.Task}
 
 def enqueue_event(evt):
+    """ Coloca um novo evento no buffer para ser processado. """
     _buffer.append(evt)
-    print(f"[aggregator] enqueue: {evt}")
+    print(f"[aggregator] Evento enfileirado: {evt}")
 
-async def retry_mac_check(wifi_mac_address: str, event_data: dict):
-    mac_beacon = event_data.get("cama")
-    print(f"[aggregator-retry] Iniciada tarefa para Beacon '{mac_beacon}' (verificando Wi-Fi MAC: {wifi_mac_address}).")
+
+async def _retry_presence_task(wifi_mac: str, beacon_mac: str, original_event: dict):
+    """
+    Tarefa que fica em segundo plano, tentando verificar a presença de um MAC Wi-Fi.
+    """
+    print(f"[aggregator-retry] Iniciada tarefa para Beacon '{beacon_mac}' (verificando Wi-Fi MAC: {wifi_mac}).")
     
     while True:
         await asyncio.sleep(RETRY_PRESENCE_FREQUENCY_SEC)
-        db = SessionLocal()
-        try:
-            if check_presence(wifi_mac_address):
-                print(f"[aggregator-retry] SUCESSO! MAC Wi-Fi '{wifi_mac_address}' encontrado.")
-                
-                bed = db.query(Bed).filter(Bed.mac_beacon == mac_beacon).first()
-                emb = db.query(Embarcado).filter(Embarcado.id_esp == event_data["esp_id"]).first()
-                
+        
+        print(f"[aggregator-retry] Tentando verificar presença do MAC Wi-Fi '{wifi_mac}'...")
+        if check_presence(wifi_mac):
+            print(f"[aggregator-retry] SUCESSO! MAC Wi-Fi '{wifi_mac}' encontrado na rede.")
+            db = SessionLocal()
+            try:
+                bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
+                emb = db.query(Embarcado).filter(Embarcado.id_esp == original_event["esp_id"]).first()
+
                 if emb and bed and bed.quarto is None:
-                    print(f"[aggregator-retry] Associando cama '{bed.nome_cama}' via retry ao quarto '{emb.quarto}'.")
+                    print(f"[aggregator-retry] Associando cama '{bed.nome_cama}' ao quarto '{emb.quarto}' via retry.")
                     bed.quarto = emb.quarto
                     db.commit()
-                    publish_available_beds() # <--- GATILHO MQTT ADICIONADO AQUI
+                    
+                    # Dispara a atualização da lista de camas disponíveis
+                    publish_available_beds()
 
-                    dispatch_payload = event_data.copy()
-                    dispatch_payload.update({"quarto": bed.quarto, "status": "GET", "mac_address": bed.mac_address, "cama": bed.nome_cama})
+                    # Monta e despacha o evento final
+                    dispatch_payload = {
+                        "quarto": bed.quarto,
+                        "cama": bed.nome_cama,
+                        "status": "IN",
+                        "dataOn": datetime.now(timezone.utc).isoformat(),
+                        "wifi": original_event.get("wifi")
+                    }
                     dispatch_event(dispatch_payload)
                 
-                break
+                # Se encontrou o MAC, a tarefa termina com sucesso.
+                break 
+
+            finally:
+                db.close()
+    
+    # Limpa a si mesma do dicionário de tarefas pendentes ao terminar
+    if wifi_mac in _pending_mac_checks:
+        del _pending_mac_checks[wifi_mac]
+    print(f"[aggregator-retry] Finalizada tarefa de verificação para MAC Wi-Fi '{wifi_mac}'.")
+
+
+def _process_events_batch(events: list):
+    """
+    Processa um lote de eventos que foram agrupados por beacon.
+    """
+    # 1. Lógica de 'OUT': Se qualquer evento for 'OUT', cancela tudo e desassocia.
+    if any(e.get("status") == "OUT" for e in events):
+        beacon_mac = events[0].get("cama")
+        print(f"[aggregator] Evento 'OUT' detectado para o beacon '{beacon_mac}'.")
+        
+        db = SessionLocal()
+        try:
+            bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
+            if bed:
+                # Cancela qualquer tarefa de retry pendente para esta cama
+                if bed.mac_address in _pending_mac_checks:
+                    print(f"[aggregator] Cancelando tarefa de retry pendente para MAC Wi-Fi '{bed.mac_address}'.")
+                    _pending_mac_checks[bed.mac_address].cancel()
+                    del _pending_mac_checks[bed.mac_address]
+                
+                # Se a cama estava associada a um quarto, desassocia.
+                if bed.quarto is not None:
+                    print(f"[aggregator] Desassociando cama '{bed.nome_cama}' do quarto '{bed.quarto}'.")
+                    bed.quarto = None
+                    db.commit()
+                    publish_available_beds() # Atualiza a lista MQTT
+
         finally:
             db.close()
+        return # Termina o processamento para este beacon
 
-    if wifi_mac_address in _pending_mac_checks:
-        del _pending_mac_checks[wifi_mac_address]
-    print(f"[aggregator-retry] Finalizada tarefa para Beacon '{mac_beacon}'.")
+    # 2. Lógica de 'GET': Encontra o melhor sinal
+    get_events = [e for e in events if e.get("status") == "GET"]
+    if not get_events:
+        return
 
+    best_event = max(get_events, key=lambda e: e.get("RSSI", -1000))
+    beacon_mac = best_event.get("cama")
+    print(f"[aggregator] Melhor sinal para beacon '{beacon_mac}': RSSI {best_event['RSSI']} do ESP '{best_event['esp_id']}'.")
 
-async def process_bed_events(mac_beacon: str):
-    _beds_in_process.add(mac_beacon)
+    # 3. Verifica a presença do MAC Wi-Fi associado
     db = SessionLocal()
     try:
-        events_for_bed = [e for e in _buffer if e.get("cama") == mac_beacon]
-        if not events_for_bed: return
+        bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
+        emb = db.query(Embarcado).filter(Embarcado.id_esp == best_event['esp_id']).first()
 
-        bed = db.query(Bed).filter(Bed.mac_beacon == mac_beacon).first()
-        if not bed:
-            for ev in list(_buffer):
-                if ev.get("cama") == mac_beacon: _buffer.remove(ev)
+        if not bed or not emb:
+            print(f"[aggregator] ERRO: Cama (beacon: {beacon_mac}) ou ESP ({best_event['esp_id']}) não cadastrados.")
             return
 
-        wifi_mac_address = bed.mac_address
-
-        if any(e.get("status") == "OUT" for e in events_for_bed):
-            if wifi_mac_address in _pending_mac_checks:
-                _pending_mac_checks[wifi_mac_address].cancel()
-                del _pending_mac_checks[wifi_mac_address]
-            
-            if bed.quarto is not None:
-                print(f"[aggregator] Recebido 'OUT' para beacon '{mac_beacon}' (Cama: {bed.nome_cama}). Removendo do quarto '{bed.quarto}'.")
-                bed.quarto = None
-                db.commit()
-                publish_available_beds() # <--- GATILHO MQTT ADICIONADO AQUI
-            
-            for ev in list(_buffer):
-                if ev.get("cama") == mac_beacon: _buffer.remove(ev)
-            return
-
-        best_event = max(events_for_bed, key=lambda e: e.get("RSSI", -1000))
-        print(f"[aggregator] FILTRO PARA BEACON '{mac_beacon}': {len(events_for_bed)} eventos. Vencedor: ESP '{best_event['esp_id']}' com RSSI {best_event['RSSI']}.")
-        
-        esp_id = best_event["esp_id"]
-        emb = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
-
-        if not emb:
-            for ev in list(_buffer):
-                if ev.get("cama") == mac_beacon: _buffer.remove(ev)
+        # Se a cama já está no quarto correto, não faz nada.
+        if bed.quarto == emb.quarto:
+            print(f"[aggregator] Confirmação: Cama '{bed.nome_cama}' já está corretamente no quarto '{emb.quarto}'.")
             return
         
-        if check_presence(wifi_mac_address):
-            if wifi_mac_address in _pending_mac_checks:
-                _pending_mac_checks[wifi_mac_address].cancel()
-                del _pending_mac_checks[wifi_mac_address]
-
-            if bed.quarto is None:
-                print(f"[aggregator] Associando cama '{bed.nome_cama}' ao quarto '{emb.quarto}'.")
+        # Se a cama está vaga, tenta associá-la
+        if bed.quarto is None:
+            if check_presence(bed.mac_address):
+                print(f"[aggregator] Presença da cama '{bed.nome_cama}' (MAC: {bed.mac_address}) confirmada. Associando ao quarto '{emb.quarto}'.")
                 bed.quarto = emb.quarto
                 db.commit()
-                publish_available_beds() # <--- GATILHO MQTT ADICIONADO AQUI
-            
-            elif bed.quarto != emb.quarto:
-                print(f"[aggregator] Conflito Ignorado: Cama '{bed.nome_cama}' já está em '{bed.quarto}', mas foi detectada em '{emb.quarto}'.")
-            
-            for ev in list(_buffer):
-                if ev.get("cama") == mac_beacon: _buffer.remove(ev)
-        else:
-            if wifi_mac_address not in _pending_mac_checks:
-                task = asyncio.create_task(retry_mac_check(wifi_mac_address, best_event))
-                _pending_mac_checks[wifi_mac_address] = task
-            
-            for ev in list(_buffer):
-                if ev.get("cama") == mac_beacon: _buffer.remove(ev)
-            
+                publish_available_beds()
+                
+                dispatch_payload = {"quarto": bed.quarto, "cama": bed.nome_cama, "status": "IN", "dataOn": datetime.now(timezone.utc).isoformat(), "wifi": best_event.get("wifi")}
+                dispatch_event(dispatch_payload)
+            else:
+                # Se a presença falhar, inicia a tarefa de retry (se já não houver uma)
+                print(f"[aggregator] Presença da cama '{bed.nome_cama}' (MAC: {bed.mac_address}) FALHOU.")
+                if bed.mac_address not in _pending_mac_checks:
+                    task = asyncio.create_task(_retry_presence_task(bed.mac_address, beacon_mac, best_event))
+                    _pending_mac_checks[bed.mac_address] = task
+                else:
+                    print(f"[aggregator] Tarefa de retry para MAC Wi-Fi '{bed.mac_address}' já está em andamento.")
     finally:
         db.close()
-        if mac_beacon in _beds_in_process:
-            _beds_in_process.remove(mac_beacon)
 
 
 async def main_aggregator_loop():
-    print("[aggregator] Agregador Orientado a Eventos iniciado.")
+    """ O loop principal que orquestra as tarefas. """
+    print(f"[aggregator] Agregador com lógica de retry iniciado. Loop a cada {AGGREGATOR_LOOP_INTERVAL_SEC}s.")
+    
     while True:
-        await asyncio.sleep(1)
+        await asyncio.sleep(AGGREGATOR_LOOP_INTERVAL_SEC)
         
-        pending_events_by_beacon = defaultdict(list)
-        for evt in _buffer:
-            if "cama" in evt:
-                pending_events_by_beacon[evt["cama"]].append(evt)
-            
-        for mac_beacon, events in pending_events_by_beacon.items():
-            if mac_beacon not in _beds_in_process:
-                asyncio.create_task(process_bed_events(mac_beacon))
+        if not _buffer:
+            continue
+
+        # Copia o buffer e o limpa para não processar os mesmos eventos duas vezes
+        events_to_process = list(_buffer)
+        _buffer.clear()
+
+        # Agrupa os eventos por beacon para processar em lotes
+        events_by_beacon = defaultdict(list)
+        for evt in events_to_process:
+            events_by_beacon[evt["cama"]].append(evt)
+        
+        print(f"\n[aggregator] Processando {len(events_to_process)} eventos para {len(events_by_beacon)} beacons...")
+        for beacon_mac, events in events_by_beacon.items():
+            _process_events_batch(events)

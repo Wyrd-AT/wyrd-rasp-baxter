@@ -1,101 +1,91 @@
-/* reset simples */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* ==========================================================================
+   BAXTER WYRD - FOLHA DE ESTILOS UNIFICADA E FINAL
+   ========================================================================== */
+
+/* --- Reset Básico, Fontes e Variáveis de Cor --- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lexend+Deca:wght@500&family=Lexend:wght@400&display=swap');
+
+:root {
+  --primary-color: #0466C8;
+  --primary-dark: #002855;
+  --background-color: #FFFFFF;
+  --sidebar-bg: #F0F2F5;
+  --text-primary: #000000;
+  --text-secondary: #5C677D;
+  --text-placeholder: #979DAC;
+  --border-color: #dee2e6;
+  --card-border: #7D8597;
+  --active-nav-bg: #0353A4;
+  --button-primary-bg: #002855;
+  --status-red: #FF3B30;
+  --status-green: #34C759;
 }
 
-body {
-  font-family: Arial, sans-serif;
-  margin: 0;
-  padding: 1rem;
-  background: #f5f5f5;
-  color: #333;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--text-primary); font-size: 16px; overflow: hidden; }
+h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
+.container { display: flex; height: 100vh; width: 100vw; }
+.main-content { flex-grow: 1; display: flex; flex-direction: column; padding: 2rem 3rem; overflow: hidden; }
 
-header {
-  margin-bottom: 1rem;
-}
+/* --- Sidebar --- */
+.sidebar { flex-shrink: 0; width: 83px; background-color: var(--sidebar-bg); padding: 1.5rem 0; display: flex; flex-direction: column; align-items: center; transition: width 0.3s ease; border-right: 1px solid var(--border-color); }
+.sidebar-header { padding-bottom: 2rem; }
+.sidebar-nav { flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 2rem; margin-top: 2rem; }
+.nav-item { display: flex; justify-content: center; align-items: center; width: 50px; height: 50px; border-radius: 8px; text-decoration: none; color: var(--text-primary); }
+.nav-item.active { background-color: var(--active-nav-bg); }
+.nav-item.active .feather, .nav-item.active .emoji-icon, .nav-item.active svg { color: white; stroke: white; }
+.nav-item .feather, .nav-item svg { width: 28px; height: 28px; }
+.emoji-icon { font-size: 28px; line-height: 1; }
+.sidebar-footer { margin-top: auto; padding-bottom: 1rem; }
+.sidebar .nav-text { display: none; margin-left: 1rem; font-weight: 500; white-space: nowrap; }
+.sidebar.expanded { width: 256px; align-items: flex-start; padding: 1.5rem; }
+.sidebar.expanded .nav-item { width: 100%; justify-content: flex-start; padding: 0 1rem; }
+.sidebar.expanded .nav-text { display: inline; }
 
-header h1 {
-  font-size: 1.5rem;
-}
+/* --- Cabeçalho do Conteúdo --- */
+.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; flex-shrink: 0; }
+.content-header h1 { font-size: 28px; position: relative; }
+.content-header h1::after { content: ''; position: absolute; bottom: -1.5rem; left: 0; width: 50px; height: 4px; background-color: var(--primary-color); }
+.btn-primary { background-color: var(--button-primary-bg); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 16px; font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none; }
 
-nav {
-  margin-top: 0.5rem;
-}
+/* --- Layout de Página com Formulário --- */
+.page-with-form { display: grid; grid-template-columns: 2.5fr 1fr; gap: 2rem; flex-grow: 1; overflow: hidden; }
+.list-column { overflow-y: auto; padding-right: 1.5rem; }
+.form-column { /* Coluna do formulário fica estática */ }
 
-nav a {
-  margin-right: 0.75rem;
-  text-decoration: none;
-  color: #0366d6;
-}
+/* --- Barra de Ferramentas e Filtros --- */
+.table-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; }
+.search-bar { display: flex; align-items: center; border-bottom: 1px solid var(--text-secondary); padding-bottom: 0.5rem; width: 432px; }
+.search-bar input { border: none; background: transparent; outline: none; width: 100%; font-family: 'Lexend Deca'; font-size: 14px; color: var(--text-secondary); margin-left: 0.5rem; }
+.search-bar .feather { color: var(--text-secondary); }
+.toolbar-actions { display: flex; gap: 1rem; }
+.icon-btn { background: none; border: none; padding: 0.5rem; cursor: pointer; display: flex; color: var(--text-secondary); }
+.icon-btn:hover { color: var(--text-primary); }
 
-nav a:hover {
-  text-decoration: underline;
-}
+/* --- Estilos da Tabela --- */
+.data-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.data-table th, .data-table td { padding: 1.2rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
+.data-table th { font-weight: 600; font-size: 14px; color: var(--text-secondary); text-transform: uppercase; }
 
-main {
-  background: #fff;
-  padding: 1rem;
-  border-radius: 4px;
-  box-shadow: 0 0 5px rgba(0,0,0,0.1);
-}
+/* --- Estilos do Formulário --- */
+.form-card { border: 1px solid var(--card-border); border-radius: 6px; padding: 2rem; }
+.form-card h3 { font-family: 'Lexend'; font-size: 18px; text-align: center; margin-bottom: 2.5rem; }
+.form-card form { display: flex; flex-direction: column; gap: 2.5rem; }
+.form-group { width: 100%; }
+.form-group label { display: block; font-weight: 700; font-size: 16px; color: var(--text-secondary); margin-bottom: 0.5rem; }
+.form-group input { width: 100%; padding: 0.5rem 0.2rem; border: none; border-bottom: 1px solid #001233; outline: none; background: transparent; font-size: 16px; }
+.form-group input::placeholder { color: var(--text-placeholder); }
+.form-btn { width: 100%; padding: 0.8rem; background-color: var(--primary-color); color: white; border: none; border-radius: 16px; margin-top: 1rem; cursor: pointer; font-weight: 700; }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 1.5rem;
-}
-
-th, td {
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  text-align: left;
-}
-
-th {
-  background: #eee;
-}
-
-tr:nth-child(even) {
-  background: #fafafa;
-}
-
-form label {
-  display: block;
-  margin-top: 0.75rem;
-  font-weight: bold;
-}
-
-form input[type="text"],
-form input[type="password"],
-form input[type="number"] {
-  width: 100%;
-  padding: 0.5rem;
-  margin-top: 0.25rem;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-}
-
-button {
-  margin-top: 1rem;
-  padding: 0.5rem 1rem;
-  background: #0366d6;
-  color: #fff;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-button:hover {
-  background: #024ea2;
-}
-
-footer {
-  text-align: center;
-  font-size: 0.85rem;
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid #ddd;
-}
+/* --- Estilos Específicos da Página de Histórico (Status) --- */
+.filters-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3rem; }
+.filter-group-left, .filter-group-right { display: flex; align-items: center; gap: 1rem; }
+.filter-dropdown-main { border: none; border-bottom: 1px solid var(--text-secondary); padding: 0.5rem 0; font-family: 'Lexend Deca'; font-weight: 500; font-size: 14px; color: var(--text-secondary); -webkit-appearance: none; appearance: none; background: transparent url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1.2em; padding-right: 2rem; }
+.filter-btn { padding: 0.5rem 1rem; border: 1px solid var(--border-color); border-radius: 23px; background: white; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary); }
+.filter-btn > input { border:none; outline:none; width:50px; }
+.filter-search-btn { background: none; border: none; cursor: pointer; }
+.history-table th, .history-table td { text-align: center; }
+.status-conectado, .status-in { color: var(--status-green); font-weight: 600; }
+.status-desconectado, .status-warning, .status-warning-expired, .status-out { color: var(--status-red); font-weight: 600; }
+.pagination { text-align: center; padding-top: 2rem; }
+.pagination a, .pagination span { margin: 0 0.5rem; }

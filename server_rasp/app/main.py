@@ -5,7 +5,7 @@ import threading
 import time
 import uvicorn
 
-from fastapi import FastAPI, Request, Response, Form, HTTPException, Body
+from fastapi import FastAPI, Request, Response, Form, HTTPException, Body, Query, Depends
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -25,11 +25,19 @@ from .models import (
     init_db
 )
 
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 from .presence import check_presence
 from .aggregator import main_aggregator_loop, enqueue_event 
-from .tcp_server import start_server
 from . import mqtt_client # <-- Importe o novo módulo
+from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change
 from sqlalchemy import event # <--- NOVO IMPORT
+from sqlalchemy.orm import Session
 from .mqtt_client import publish_available_beds
 from .auth import authenticate_admin
 from .config import (
@@ -62,19 +70,11 @@ async def protect_admin_routes(request: Request, call_next):
             )
     return await call_next(request)
 
-def bed_state_change_listener(mapper, connection, target):
-    """
-    Função chamada após um insert, update ou delete na tabela Bed.
-    """
-    print(f"[DB_EVENT] Mudança detectada na tabela de camas. Publicando nova lista.")
-    # Chamamos nossa função para publicar a lista atualizada via MQTT.
-    publish_available_beds()
+def structural_bed_change_listener(mapper, connection, target):
+    trigger_mqtt_update_on_bed_change()
 
-# Aqui, "anexamos" nossa função aos eventos do modelo Bed.
-# A função será chamada APÓS qualquer operação de INSERT, UPDATE ou DELETE.
-event.listen(Bed, 'after_insert', bed_state_change_listener)
-event.listen(Bed, 'after_update', bed_state_change_listener)
-event.listen(Bed, 'after_delete', bed_state_change_listener)
+event.listen(Bed, 'after_insert', structural_bed_change_listener)
+event.listen(Bed, 'after_delete', structural_bed_change_listener)
 
 # sub-app do SQLAdmin
 admin_app = FastAPI()
@@ -145,38 +145,61 @@ async def receive_event(event_data: Dict):
 
 # lista eventos, usando data_on como timestamp principal
 @app.get("/events", name="list_events")
-def list_events(request: Request, page: int = 1):
-    db = SessionLocal()
-    total = db.query(ReceivedEvent).count()
+def list_events(
+    request: Request,
+    page: int = 1,
+    # Novos parâmetros para os filtros, vindos da URL
+    filter_cama: Optional[str] = Query(None, description="Filtrar por nome da cama"),
+    filter_quarto: Optional[str] = Query(None, description="Filtrar por quarto"),
+    filter_status: Optional[str] = Query(None, description="Filtrar por status"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(ReceivedEvent)
+
+    # Aplica os filtros à consulta do banco de dados se eles foram fornecidos
+    if filter_cama:
+        query = query.filter(ReceivedEvent.cama == filter_cama)
+    if filter_quarto:
+        query = query.filter(ReceivedEvent.raw['quarto'].as_string() == filter_quarto)
+    if filter_status:
+        query = query.filter(ReceivedEvent.status == filter_status)
+
+    total = query.count()
     evts = (
-        db.query(ReceivedEvent)
-          .order_by(ReceivedEvent.data_on.desc())
-          .offset((page - 1) * EVENT_PAGE_SIZE)
-          .limit(EVENT_PAGE_SIZE)
-          .all()
+        query.order_by(ReceivedEvent.data_on.desc())
+             .offset((page - 1) * EVENT_PAGE_SIZE)
+             .limit(EVENT_PAGE_SIZE)
+             .all()
     )
     has_next = total > page * EVENT_PAGE_SIZE
 
-    # mapa de esp_id -> quarto
-    esp2quarto = {e.id_esp: e.quarto for e in db.query(Embarcado).all()}
+    # Prepara dados para os dropdowns dos filtros
+    all_beds = [b.nome_cama for b in db.query(Bed).distinct(Bed.nome_cama).order_by(Bed.nome_cama).all()]
+    all_status = [e.status for e in db.query(ReceivedEvent).distinct(ReceivedEvent.status).order_by(ReceivedEvent.status).all()]
 
     brasil_tz = timezone(timedelta(hours=-3))
     for e in evts:
-        # converte data_on UTC→Brasília
+        # Formatação de data e hora
         do = e.data_on
-        if do.tzinfo is None:
-            do = do.replace(tzinfo=timezone.utc)
-        local = do.astimezone(brasil_tz)
-        # formata só data e hora
-        e.data_on_str = local.strftime("%Y-%m-%d %H:%M:%S")
-        # injeta quarto
-        e.quarto = esp2quarto.get(e.esp_id, "—")
-
+        if do and do.tzinfo is None: do = do.replace(tzinfo=timezone.utc)
+        local = do.astimezone(brasil_tz) if do else None
+        e.data_str = local.strftime("%Y / %m / %d") if local else "N/A"
+        e.hora_str = local.strftime("%H : %M : %S") if local else "N/A"
+        
+        # Obtenção de quarto e andar
+        e.quarto = e.raw.get("quarto", "---")
+        e.andar = e.quarto.split('-')[0] if e.quarto and '-' in e.quarto else 'N/A'
+    
     return templates.TemplateResponse("events_list.html", {
-        "request":  request,
-        "events":   evts,
-        "page":     page,
-        "has_next": has_next
+        "request": request,
+        "events": evts,
+        "page": page,
+        "has_next": has_next,
+        "all_beds": all_beds,
+        "all_status": all_status,
+        "current_filters": {
+            "cama": filter_cama, "quarto": filter_quarto, "status": filter_status
+        }
     })
 
 # rota para download CSV
@@ -296,8 +319,18 @@ def update_bed(
 ):
     db = SessionLocal()
     bed = db.query(Bed).get(bed_id)
-    bed.mac_address, bed.nome_cama, bed.mac_beacon, bed.quarto = mac, nome, mac_beacon, quarto
+    bed.mac_address = mac
+    bed.nome_cama = nome
+    
+    if bed.mac_beacon != mac_beacon:
+        bed.mac_beacon = mac_beacon
+        trigger_mqtt_update_on_bed_change()
+
     db.commit()
+    db.close()
+
+    update_bed_assignment(bed_id=bed_id, new_room=quarto)
+    
     return RedirectResponse(request.url_for("list_beds"), status_code=303)
 
 @app.get("/beds/{bed_id}/delete", name="delete_bed")
@@ -377,20 +410,17 @@ async def update_bed_from_json(data: dict = Body(...)):
         raise HTTPException(status_code=404, detail=f"Cama com MAC {cama_mac} não está conectada à rede")
 
     db = SessionLocal()
-    try:
-        bed = db.query(Bed).filter(Bed.mac_address == cama_mac).first()
-        
-        if not bed:
-            raise HTTPException(status_code=404, detail=f"Cama com MAC {cama_mac} não encontrada no banco de dados.")
-        
-        bed.quarto = quarto
-        db.commit()
-        
-        print(f"[main] Cama '{bed.nome_cama}' (MAC: {cama_mac}) atualizada para o quarto '{quarto}' com sucesso.")
-        
-        return {"message": "Cama atualizada com sucesso", "cama": cama_mac, "status": status, "quarto": quarto}
-    finally:
-        db.close()
+    bed = db.query(Bed).filter(Bed.mac_address == cama_mac).first()
+    db.close()
+    
+    if not bed:
+        raise HTTPException(status_code=404, detail=f"Cama com MAC {cama_mac} não encontrada no banco de dados.")
+    
+    # Usamos o serviço para garantir a atualização e publicação corretas
+    new_room = quarto if status == "IN" else None
+    update_bed_assignment(bed_id=bed.id, new_room=new_room)
+    
+    return {"message": "Cama atualizada com sucesso", "cama": cama_mac, "status": status, "quarto": new_room}
 
 # ─── EXECUÇÃO DIRETA ───────────────────────────────────────────────────────────
 if __name__ == "__main__":

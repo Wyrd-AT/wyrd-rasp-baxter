@@ -1,8 +1,22 @@
 {% extends "base.html" %}
 
-{% block title %}Página Inicial{% endblock %}
+{% block title %}Dashboard Principal{% endblock %}
 
 {% block content %}
-  <h2>Bem-vindo!</h2>
-  <p>Use o menu acima para gerenciar camas e beacons.</p>
+<div class="content-header">
+  <h1>Dashboard</h1>
+</div>
+
+<div class="dashboard-container">
+  <div class="dashboard-card">
+    <h2>Bem-vindo ao Baxter</h2>
+    <p>Este é o painel de controlo do servidor intermediário para o projeto WYRD.</p>
+    <p>Utilize o menu lateral para navegar entre as secções:</p>
+    <ul>
+      <li><strong>Status:</strong> Visualize o histórico de todos os eventos recebidos.</li>
+      <li><strong>Embarcados:</strong> Faça a gestão dos dispositivos ESP na sua rede.</li>
+      <li><strong>Camas:</strong> Faça a gestão das camas e dos beacons associados.</li>
+    </ul>
+  </div>
+</div>
 {% endblock %}

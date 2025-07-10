@@ -1,28 +1,47 @@
 {% extends "base.html" %}
-{% block content %}
-  <h2>Embarcados cadastrados</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>ID da ESP</th>
-        <th>Quarto</th>
-        <th>Ações</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for emb in embarcados %}
-        <tr>
-          <td>{{ emb.id_esp }}</td>
-          <td>{{ emb.quarto }}</td>
-          <td>
-            <a href="{{ url_for('edit_embarcado', id_esp=emb.id_esp) }}">✏️</a>
-            <a href="{{ url_for('delete_embarcado', id_esp=emb.id_esp) }}">🗑️</a>
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
 
-  <h3>{% if embarcado %}Editar{% else %}Adicionar{% endif %} Embarcado</h3>
-  {% include "embarcado_form.html" %}
+{% block title %}Gestão de Embarcados{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Embarcados</h1>
+    <a href="{{ url_for('download_events_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+</div>
+
+<div class="page-with-form">
+    
+    <div class="list-column">
+        <div class="table-toolbar">
+            <div class="search-bar">
+                <input type="text" placeholder="Pesquisa">
+                <i data-feather="search"></i>
+            </div>
+            <div class="toolbar-actions">
+                <button class="icon-btn" title="Editar"><i data-feather="edit-2"></i></button>
+                <button class="icon-btn" title="Apagar"><i data-feather="trash-2"></i></button>
+            </div>
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID da ESP</th>
+                    <th>QUARTO</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for emb in embarcados %}
+                <tr>
+                    <td>{{ emb.id_esp }}</td>
+                    <td>{{ emb.quarto }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="form-column">
+        {% include 'embarcado_form.html' %}
+    </div>
+
+</div>
 {% endblock %}

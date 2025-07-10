@@ -1,12 +1,18 @@
-<form action="{{ form_action }}" method="post">
-  <label>MAC da Cama:</label>
-  <input name="mac" value="{{ bed.mac_address if bed else '' }}" required><br>
-
-  <label>Nome:</label>
-  <input name="nome" value="{{ bed.nome_cama if bed else '' }}" required><br>
-
-  <label>MAC do Beacon:</label>
-  <input name="mac_beacon" value="{{ bed.mac_beacon if bed else '' }}"><br>
-
-  <button type="submit">{{ 'Atualizar' if bed else 'Salvar' }}</button>
-</form>
+<div class="form-card">
+    <h3>{% if bed %}Editar Cama{% else %}Cadastro de Cama{% endif %}</h3>
+    <form action="{{ form_action }}" method="post">
+        <div class="form-group">
+            <label for="nome">Nome</label>
+            <input type="text" id="nome" name="nome" value="{{ bed.nome_cama if bed else '' }}" placeholder="insira um nome para esse ativo" required>
+        </div>
+        <div class="form-group">
+            <label for="mac">MAC da cama</label>
+            <input type="text" id="mac" name="mac_address" value="{{ bed.mac_address if bed else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
+        </div>
+        <div class="form-group">
+            <label for="mac_beacon">MAC do Beacon</label>
+            <input type="text" id="mac_beacon" name="mac_beacon" value="{{ bed.mac_beacon if bed else '' }}" placeholder="XX:XX:XX:XX:XX:XX">
+        </div>
+        <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if bed else 'Salvar' }}</button>
+    </form>
+</div>

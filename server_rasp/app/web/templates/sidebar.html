@@ -1,0 +1,29 @@
+<aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <button class="icon-btn" id="sidebar-toggle" title="Menu">
+            <i data-feather="menu"></i>
+        </button>
+    </div>
+    <nav class="sidebar-nav">
+        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Status">
+            <i data-feather="clock"></i>
+            <span class="nav-text">Status</span>
+        </a>
+        
+        <a href="{{ url_for('list_embarcados') }}" class="nav-item {% if 'embarcados' in request.url.path %}active{% endif %}" title="Embarcados">
+            <i data-feather="cpu"></i>
+            <span class="nav-text">Embarcados</span>
+        </a>
+        
+        <a href="{{ url_for('list_beds') }}" class="nav-item {% if 'beds' in request.url.path %}active{% endif %}" title="Camas">
+            <i data-feather="activity"></i>
+            <span class="nav-text">Camas</span>
+        </a>
+    </nav>
+    <div class="sidebar-footer">
+        <a href="#" class="nav-item" title="Sair">
+            <i data-feather="log-out"></i>
+            <span class="nav-text">Sair</span>
+        </a>
+    </div>
+</aside>

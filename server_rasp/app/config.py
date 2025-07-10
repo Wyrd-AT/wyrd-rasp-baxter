@@ -1,9 +1,9 @@
 # config.py
 
 # Endereço e porta do servidor TCP
-IP = "10.0.0.149"
+IP = "192.168.0.5"
 FINAL_IP = "10.0.0.126"
-PORT = 9500
+PORT = 8000
 FINAL_PORT = 9501
 
 # Rede usada nos scans

@@ -1,30 +1,36 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-  <meta charset="UTF-8">
-  <title>{% block title %}Meu App{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
-  {% block head %}{% endblock %}
+    <meta charset="UTF-8">
+    <title>{% block title %}Baxter Wyrd{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+    <script src="https://unpkg.com/feather-icons"></script>
 </head>
 <body>
-  <header>
-    <h1>Servidor Intermediário Wyrd-Baxter</h1>
-    <nav>
-      <a href="{{ url_for('main') }}">Início</a> |
-      <a href="{{ url_for('list_beds') }}">Camas</a> |
-      <a href="{{ url_for('list_embarcados') }}">Embarcados</a> |
-      <a href="{{ url_for('list_events') }}">Historiador</a>
-    </nav>
-    <hr>
-  </header>
+    <div class="container">
+        
+        {% include 'sidebar.html' %}
 
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+        <div class="overlay" id="overlay"></div>
 
-  <footer>
-    <hr>
-    <p>© 2025 Minha Empresa</p>
-  </footer>
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script>
+        // Ativa os ícones da biblioteca Feather
+        feather.replace();
+
+        // Script para expandir/recolher a sidebar
+        const sidebar = document.getElementById('sidebar');
+        const toggleButton = document.getElementById('sidebar-toggle');
+
+        if (toggleButton && sidebar) {
+            toggleButton.addEventListener('click', () => {
+                sidebar.classList.toggle('expanded');
+            });
+        }
+    </script>
 </body>
 </html>

@@ -1,45 +1,77 @@
-{# app/web/templates/events_list.html #}
 {% extends "base.html" %}
 
+{% block title %}Status dos Eventos{% endblock %}
+
 {% block content %}
-  <h2>Histórico de Eventos</h2>
+<div class="content-header">
+    <h1>Status</h1>
+    <a href="{{ url_for('download_events_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+</div>
 
-  <p><a href="{{ url_for('download_events_csv') }}">📥 Baixar CSV</a></p>
+<form class="filters-toolbar" method="get" action="{{ url_for('list_events') }}">
+    <div class="filter-group-left">
+        <select name="filter_cama" class="filter-dropdown-main" onchange="this.form.submit()">
+            <option value="">Todas as Camas</option>
+            {% for cama in all_beds %}
+            <option value="{{ cama }}" {% if current_filters.cama == cama %}selected{% endif %}>{{ cama }}</option>
+            {% endfor %}
+        </select>
+    </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Data/Hora (BR)</th>
-        <th>ESP ID</th>
-        <th>Quarto</th>
-        <th>Cama</th>
-        <th>Status</th>
-        <th>RSSI</th>
-        <th>Wi-Fi</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for evt in events %}
-        <tr>
-          <td>{{ evt.data_on_str }}</td>
-          <td>{{ evt.esp_id }}</td>
-          <td>{{ evt.quarto }}</td>
-          <td>{{ evt.cama }}</td>
-          <td>{{ evt.status }}</td>
-          <td>{{ evt.rssi }}</td>
-          <td>{{ evt.wifi }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <div class="filter-group-right">
+        <button type="button" class="filter-btn">data e hora <i data-feather="chevron-down"></i></button>
+        <button type="button" class="filter-btn">andar <i data-feather="chevron-down"></i></button>
+        <input type="text" name="filter_quarto" class="filter-btn" placeholder="quarto" value="{{ current_filters.quarto or '' }}">
+        
+        <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
+            <option value="">status</option>
+            {% for status in all_status %}
+            <option value="{{ status }}" {% if current_filters.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+        </select>
+        
+        <button type="submit" class="filter-search-btn" title="Aplicar Filtros">
+            <i data-feather="search"></i>
+        </button>
+    </div>
+</form>
 
-  <div class="pagination">
+<div class="history-table-container">
+    <table class="data-table history-table">
+        <thead>
+            <tr>
+                <th>DATA</th>
+                <th>HORA</th>
+                <th>ANDAR</th>
+                <th>QUARTO</th>
+                <th>INTENSIDADE DO SINAL</th>
+                <th>STATUS</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for event in events %}
+            <tr>
+                <td>{{ event.data_str }}</td>
+                <td>{{ event.hora_str }}</td>
+                <td>{{ event.andar }}</td>
+                <td>{{ event.quarto }}</td>
+                <td>{{ event.rssi or '0' }}</td>
+                <td>
+                    <span class="status-{{ event.status | lower | replace('_', '-') }}">{{ event.status }}</span>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="pagination">
     {% if page > 1 %}
-      <a href="{{ url_for('list_events') }}?page={{ page - 1 }}">« Anterior</a>
+    <a href="{{ request.url.replace_query_params(page=page-1) }}">Anterior</a>
     {% endif %}
     <span>Página {{ page }}</span>
     {% if has_next %}
-      <a href="{{ url_for('list_events') }}?page={{ page + 1 }}">Próxima »</a>
+    <a href="{{ request.url.replace_query_params(page=page+1) }}">Próxima</a>
     {% endif %}
-  </div>
+</div>
 {% endblock %}
