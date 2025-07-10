@@ -5,17 +5,17 @@
 {% block content %}
 <div class="content-header">
     <h1>Embarcados</h1>
-    <a href="{{ url_for('download_events_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+    <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
 </div>
 
 <div class="page-with-form">
     
     <div class="list-column">
         <div class="table-toolbar">
-            <div class="search-bar">
-                <input type="text" placeholder="Pesquisa">
-                <i data-feather="search"></i>
-            </div>
+            <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
+                <input type="text" name="search" placeholder="Pesquisar" value="{{ search or '' }}">
+                <button type="submit" class="icon-btn" title="Pesquisar"><i data-feather="search"></i></button>
+            </form>
             <div class="toolbar-actions">
                 <button class="icon-btn" title="Editar"><i data-feather="edit-2"></i></button>
                 <button class="icon-btn" title="Apagar"><i data-feather="trash-2"></i></button>
@@ -26,14 +26,14 @@
                 <tr>
                     <th>ID da ESP</th>
                     <th>QUARTO</th>
-                </tr>
+                    <th>ANDAR</th> </tr>
             </thead>
             <tbody>
                 {% for emb in embarcados %}
-                <tr>
+                <tr class="selectable-row" data-id="{{ emb.id_esp }}">
                     <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto }}</td>
-                </tr>
+                    <td>{{ emb.andar or '---' }}</td> </tr>
                 {% endfor %}
             </tbody>
         </table>

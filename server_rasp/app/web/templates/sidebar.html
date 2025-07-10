@@ -5,18 +5,18 @@
         </button>
     </div>
     <nav class="sidebar-nav">
-        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Status">
-            <i data-feather="clock"></i>
-            <span class="nav-text">Status</span>
+        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/hist.svg') }})"></span>
+            <span class="nav-text">Histórico</span>
         </a>
         
         <a href="{{ url_for('list_embarcados') }}" class="nav-item {% if 'embarcados' in request.url.path %}active{% endif %}" title="Embarcados">
-            <i data-feather="cpu"></i>
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/emb.svg') }})"></span>
             <span class="nav-text">Embarcados</span>
         </a>
         
         <a href="{{ url_for('list_beds') }}" class="nav-item {% if 'beds' in request.url.path %}active{% endif %}" title="Camas">
-            <i data-feather="activity"></i>
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/bed.svg') }})"></span>
             <span class="nav-text">Camas</span>
         </a>
     </nav>

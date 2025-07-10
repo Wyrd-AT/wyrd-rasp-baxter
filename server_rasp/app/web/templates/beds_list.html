@@ -5,15 +5,15 @@
 {% block content %}
 <div class="content-header">
     <h1>Camas</h1>
-    <button class="btn-primary">DOWNLOAD CSV</button>
+    <a href="{{ url_for('download_beds_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
 </div>
 <div class="page-with-form">
     <div class="list-column">
         <div class="table-toolbar">
-            <div class="search-bar">
-                <input type="text" placeholder="Pesquisa">
-                <i data-feather="search"></i>
-            </div>
+            <form method="get" action="{{ url_for('list_beds') }}" class="search-bar">
+                <input type="text" name="search" placeholder="Pesquisar" value="{{ search or '' }}">
+                <button type="submit" class="icon-btn" title="Pesquisar"><i data-feather="search"></i></button>
+            </form>
             <div class="toolbar-actions">
                 <button class="icon-btn" title="Editar"><i data-feather="edit-2"></i></button>
                 <button class="icon-btn" title="Apagar"><i data-feather="trash-2"></i></button>
@@ -30,12 +30,11 @@
             </thead>
             <tbody>
                 {% for bed in beds %}
-                <tr>
-                    <td>{{ bed.mac_address }}</td>
+                <tr class="selectable-row" data-id="{{ bed.id }}">  <td>{{ bed.mac_address }}</td>
                     <td>{{ bed.nome_cama }}</td>
                     <td>{{ bed.quarto or '---' }}</td>
                     <td>{{ bed.mac_beacon or '---' }}</td>
-                    </tr>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>

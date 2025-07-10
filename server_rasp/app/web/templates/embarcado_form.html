@@ -9,6 +9,10 @@
             <label for="quarto">Quarto</label>
             <input type="text" id="quarto" name="quarto" value="{{ embarcado.quarto if embarcado else '' }}" placeholder="Informe o quarto" required>
         </div>
+        <div class="form-group">
+            <label for="andar">Andar</label>
+            <input type="text" id="andar" name="andar" value="{{ embarcado.andar if embarcado else '' }}" placeholder="Informe o andar">
+        </div>
         <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if embarcado else 'Salvar' }}</button>
     </form>
 </div>

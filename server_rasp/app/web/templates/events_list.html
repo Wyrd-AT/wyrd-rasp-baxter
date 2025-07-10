@@ -5,30 +5,48 @@
 {% block content %}
 <div class="content-header">
     <h1>Status</h1>
-    <a href="{{ url_for('download_events_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+    <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">DOWNLOAD CSV</a>
 </div>
 
 <form class="filters-toolbar" method="get" action="{{ url_for('list_events') }}">
     <div class="filter-group-left">
         <select name="filter_cama" class="filter-dropdown-main" onchange="this.form.submit()">
             <option value="">Todas as Camas</option>
-            {% for cama in all_beds %}
-            <option value="{{ cama }}" {% if current_filters.cama == cama %}selected{% endif %}>{{ cama }}</option>
+            {% for nome, mac in all_beds %}
+            <option value="{{ mac }}" {% if current_filters.cama == mac %}selected{% endif %}>{{ nome }}</option>
             {% endfor %}
         </select>
     </div>
 
     <div class="filter-group-right">
-        <button type="button" class="filter-btn">data e hora <i data-feather="chevron-down"></i></button>
-        <button type="button" class="filter-btn">andar <i data-feather="chevron-down"></i></button>
-        <input type="text" name="filter_quarto" class="filter-btn" placeholder="quarto" value="{{ current_filters.quarto or '' }}">
+        <select name="time_filter" class="filter-btn" onchange="this.form.submit()">
+            <option value="all" {% if not current_filters.time_filter or current_filters.time_filter == 'all' %}selected{% endif %}>data e hora</option>
+            <option value="daily" {% if current_filters.time_filter == 'daily' %}selected{% endif %}>Últimas 24h</option>
+            <option value="weekly" {% if current_filters.time_filter == 'weekly' %}selected{% endif %}>Últimos 7 dias</option>
+            <option value="monthly" {% if current_filters.time_filter == 'monthly' %}selected{% endif %}>Últimos 30 dias</option>
+        </select>
         
-        <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
-            <option value="">status</option>
-            {% for status in all_status %}
-            <option value="{{ status }}" {% if current_filters.status == status %}selected{% endif %}>{{ status }}</option>
+        <select name="filter_andar" class="filter-btn" onchange="this.form.submit()">
+            <option value="">andar</option>
+            {% for andar in all_andares %}
+            <option value="{{ andar }}" {% if current_filters.andar == andar %}selected{% endif %}>{{ andar }}º</option>
             {% endfor %}
         </select>
+
+        <select name="filter_quarto" class="filter-btn" onchange="this.form.submit()">
+            <option value="">quarto</option>
+            {% for quarto in all_quartos %}
+            <option value="{{ quarto }}" {% if current_filters.quarto == quarto %}selected{% endif %}>{{ quarto }}</option>
+            {% endfor %}
+        </select>
+        
+        <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
+          <option value="">status</option>
+          
+          {% for value, name in all_status_options %}
+          <option value="{{ value }}" {% if current_filters.status == value %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+      </select>
         
         <button type="submit" class="filter-search-btn" title="Aplicar Filtros">
             <i data-feather="search"></i>
@@ -42,6 +60,7 @@
             <tr>
                 <th>DATA</th>
                 <th>HORA</th>
+                <th>CAMA</th>
                 <th>ANDAR</th>
                 <th>QUARTO</th>
                 <th>INTENSIDADE DO SINAL</th>
@@ -53,11 +72,20 @@
             <tr>
                 <td>{{ event.data_str }}</td>
                 <td>{{ event.hora_str }}</td>
-                <td>{{ event.andar }}</td>
+                <td>{{ event.nome_cama }}</td>
+                <td>{{ event.andar or '---' }}</td>
                 <td>{{ event.quarto }}</td>
                 <td>{{ event.rssi or '0' }}</td>
                 <td>
-                    <span class="status-{{ event.status | lower | replace('_', '-') }}">{{ event.status }}</span>
+                    {% if event.status == 'GET' %}
+                        <span class="status-conectado">conectou</span>
+                    {% elif event.status == 'OUT' %}
+                        <span class="status-desconectado">desconectou</span>
+                    {% elif event.status == 'WARNING' %}
+                        <span class="status-erro-wifi">erro de wifi</span>
+                    {% else %}
+                        <span>{{ event.status }}</span>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -66,12 +94,8 @@
 </div>
 
 <div class="pagination">
-    {% if page > 1 %}
-    <a href="{{ request.url.replace_query_params(page=page-1) }}">Anterior</a>
-    {% endif %}
+    {% if page > 1 %}<a href="{{ request.url.replace_query_params(page=page-1) }}">Anterior</a>{% endif %}
     <span>Página {{ page }}</span>
-    {% if has_next %}
-    <a href="{{ request.url.replace_query_params(page=page+1) }}">Próxima</a>
-    {% endif %}
+    {% if has_next %}<a href="{{ request.url.replace_query_params(page=page+1) }}">Próxima</a>{% endif %}
 </div>
 {% endblock %}

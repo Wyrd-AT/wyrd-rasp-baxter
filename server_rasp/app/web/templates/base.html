@@ -19,18 +19,116 @@
     </div>
 
     <script>
-        // Ativa os ícones da biblioteca Feather
-        feather.replace();
+    // Ativa os ícones da biblioteca Feather
+    feather.replace();
 
-        // Script para expandir/recolher a sidebar
-        const sidebar = document.getElementById('sidebar');
-        const toggleButton = document.getElementById('sidebar-toggle');
+    // --- Script da Sidebar e Overlay ---
+    const sidebar = document.getElementById('sidebar');
+    const toggleButton = document.getElementById('sidebar-toggle');
+    const overlay = document.getElementById('overlay'); // Pega o elemento do overlay
 
-        if (toggleButton && sidebar) {
-            toggleButton.addEventListener('click', () => {
-                sidebar.classList.toggle('expanded');
-            });
+    function toggleSidebar() {
+        sidebar.classList.toggle('expanded');
+        overlay.classList.toggle('active'); // Ativa/desativa o overlay junto com a sidebar
+    }
+
+    if (toggleButton && sidebar && overlay) {
+        // Abre/Fecha ao clicar no botão do menu
+        toggleButton.addEventListener('click', toggleSidebar);
+
+        // Fecha a sidebar se o usuário clicar no overlay (fundo escuro)
+        overlay.addEventListener('click', toggleSidebar);
+    }
+    
+    // --- Script de Interatividade da Tabela (do passo anterior) ---
+    document.addEventListener('DOMContentLoaded', function() {
+        // ... (o código da tabela que adicionamos antes continua aqui, sem alterações)
+        const table = document.querySelector('.data-table');
+        if (!table) return; 
+
+        const editBtn = document.querySelector('.toolbar-actions .icon-btn[title="Editar"]');
+        const deleteBtn = document.querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
+        const modal = document.getElementById('time-filter-modal');
+        const btn = document.getElementById('time-filter-btn');
+        const closeBtn = document.getElementById('close-modal-btn');
+            
+        if (modal && btn && closeBtn) {
+            // Abre o modal
+            btn.onclick = function() {
+                modal.style.display = "block";
+            }
+            // Fecha o modal pelo botão 'x'
+            closeBtn.onclick = function() {
+                modal.style.display = "none";
+            }
+            // Fecha o modal se clicar fora dele
+            window.onclick = function(event) {
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            }
         }
-    </script>
-</body>
+            let selectedRow = null;
+
+            table.addEventListener('click', (event) => {
+                const row = event.target.closest('.selectable-row');
+                if (!row) return;
+
+                if (selectedRow) {
+                    selectedRow.style.backgroundColor = '';
+                }
+
+                row.style.backgroundColor = '#e0eafc'; 
+                selectedRow = row;
+            });
+
+            if (editBtn) {
+                editBtn.addEventListener('click', () => {
+                    if (!selectedRow) {
+                        alert('Por favor, selecione um item na tabela para editar.');
+                        return;
+                    }
+                    const itemId = selectedRow.dataset.id;
+                    const pageTitle = document.querySelector('h1').textContent.toLowerCase();
+                    let editUrl = '';
+
+                    if (pageTitle.includes('camas')) {
+                        editUrl = `/beds/${itemId}/edit`;
+                    } else if (pageTitle.includes('embarcados')) {
+                        editUrl = `/embarcados/${itemId}/edit`;
+                    }
+                    
+                    if (editUrl) {
+                        window.location.href = editUrl;
+                    }
+                });
+            }
+
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', () => {
+                    if (!selectedRow) {
+                        alert('Por favor, selecione um item na tabela para apagar.');
+                        return;
+                    }
+
+                    if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
+                        const itemId = selectedRow.dataset.id;
+                        const pageTitle = document.querySelector('h1').textContent.toLowerCase();
+                        let deleteUrl = '';
+
+                        if (pageTitle.includes('camas')) {
+                            deleteUrl = `/beds/${itemId}/delete`;
+                        } else if (pageTitle.includes('embarcados')) {
+                            deleteUrl = `/embarcados/${itemId}/delete`;
+                        }
+
+                        if (deleteUrl) {
+                            window.location.href = deleteUrl;
+                        }
+                    }
+                });
+            }
+        });
+</script>
+    </body>
 </html>

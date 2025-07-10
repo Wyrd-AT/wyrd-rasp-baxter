@@ -25,6 +25,7 @@ class Embarcado(Base):
     id     = Column(Integer, primary_key=True, index=True)
     id_esp = Column(String, unique=True, nullable=False, index=True)
     quarto = Column(String, nullable=False)
+    andar  = Column(String, nullable=True) # <-- NOVA LINHA
 
 class ReceivedEvent(Base):
     __tablename__ = "received_events"

@@ -16,7 +16,7 @@
   --border-color: #dee2e6;
   --card-border: #7D8597;
   --active-nav-bg: #0353A4;
-  --button-primary-bg: #002855;
+  --button-primary-bg: #002966;
   --status-red: #FF3B30;
   --status-green: #34C759;
 }
@@ -24,17 +24,54 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--text-primary); font-size: 16px; overflow: hidden; }
 h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
-.container { display: flex; height: 100vh; width: 100vw; }
-.main-content { flex-grow: 1; display: flex; flex-direction: column; padding: 2rem 3rem; overflow: hidden; }
+
+/* [ALTERADO] Removido 'display: flex' para permitir a sobreposição */
+.container {
+    display: block;
+    position: relative;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* [ALTERADO] Adicionado padding-left para compensar a sidebar recolhida */
+.main-content {
+    height: 100%;
+    padding: 2rem 3rem 2rem 105px; /* 83px da sidebar + 22px de margem */
+    overflow-y: auto; /* Permite scroll apenas no conteúdo principal */
+}
 
 /* --- Sidebar --- */
-.sidebar { flex-shrink: 0; width: 83px; background-color: var(--sidebar-bg); padding: 1.5rem 0; display: flex; flex-direction: column; align-items: center; transition: width 0.3s ease; border-right: 1px solid var(--border-color); }
+/* [ALTERADO] Adicionado position: fixed e z-index para flutuar acima de tudo */
+.sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    z-index: 1000; /* Z-index alto para ficar na frente de tudo */
+    width: 83px;
+    background-color: var(--sidebar-bg);
+    padding: 1.5rem 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transition: width 0.3s ease;
+    border-right: 1px solid var(--border-color);
+}
+
 .sidebar-header { padding-bottom: 2rem; }
 .sidebar-nav { flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 2rem; margin-top: 2rem; }
 .nav-item { display: flex; justify-content: center; align-items: center; width: 50px; height: 50px; border-radius: 8px; text-decoration: none; color: var(--text-primary); }
 .nav-item.active { background-color: var(--active-nav-bg); }
-.nav-item.active .feather, .nav-item.active .emoji-icon, .nav-item.active svg { color: white; stroke: white; }
-.nav-item .feather, .nav-item svg { width: 28px; height: 28px; }
+.nav-item.active .feather, 
+.nav-item.active .emoji-icon, 
+.nav-item.active .svg-icon {
+    color: white;
+    stroke: white;
+    fill: white; /* <-- ADICIONE ESTA LINHA */
+}.nav-item .feather, .nav-item svg { width: 28px; height: 28px; }
+.nav-item.active .nav-text {
+    color: white;
+}
 .emoji-icon { font-size: 28px; line-height: 1; }
 .sidebar-footer { margin-top: auto; padding-bottom: 1rem; }
 .sidebar .nav-text { display: none; margin-left: 1rem; font-weight: 500; white-space: nowrap; }
@@ -42,10 +79,29 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .sidebar.expanded .nav-item { width: 100%; justify-content: flex-start; padding: 0 1rem; }
 .sidebar.expanded .nav-text { display: inline; }
 
+/* [NOVO] Estilos para o overlay (fundo escurecido) */
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999; /* Z-index um pouco menor que o da sidebar */
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.overlay.active {
+    opacity: 1;
+    visibility: visible;
+}
+
 /* --- Cabeçalho do Conteúdo --- */
 .content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; flex-shrink: 0; }
 .content-header h1 { font-size: 28px; position: relative; }
-.content-header h1::after { content: ''; position: absolute; bottom: -1.5rem; left: 0; width: 50px; height: 4px; background-color: var(--primary-color); }
+.content-header h1::after { content: ''; position: absolute; bottom: -1.5rem; left: 0; width: 100px; height: 4px; background-color: var(--primary-color); }
 .btn-primary { background-color: var(--button-primary-bg); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 16px; font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none; }
 
 /* --- Layout de Página com Formulário --- */
@@ -89,3 +145,115 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .status-desconectado, .status-warning, .status-warning-expired, .status-out { color: var(--status-red); font-weight: 600; }
 .pagination { text-align: center; padding-top: 2rem; }
 .pagination a, .pagination span { margin: 0 0.5rem; }
+
+/* Cor para o novo status de erro */
+.status-erro-wifi {
+    color: #FF9500; /* Laranja/Amarelo */
+    font-weight: 600;
+}
+
+.svg-icon {
+    width: 34px;
+    height: 34px;
+    display: inline-block; /* Necessário para o span */
+
+    background-color: var(--text-primary); 
+    
+    mask-image: var(--icon-url);
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+
+    -webkit-mask-image: var(--icon-url);
+    -webkit-mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+}
+
+.nav-item.active .svg-icon {
+    background-color: white; /* Cor do ícone no estado ativo */
+}
+
+/* Estilo para botões de filtro que não são interativos (apenas visuais) */
+.filter-btn-static {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 23px;
+    background: #f8f9fa; /* Um cinza claro para indicar que está desativado */
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+}
+
+/* Ajuste fino para que os selects pareçam com botões */
+.filters-toolbar .filter-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    background: white url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1em;
+    padding-right: 2rem;
+}
+
+.modal {
+    display: none; /* Escondido por defeito */
+    position: fixed;
+    z-index: 2000; /* Acima de tudo, até da sidebar */
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.4); /* Fundo semi-transparente */
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #888;
+    width: 40%;
+    max-width: 400px;
+    border-radius: 8px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 1rem;
+}
+
+.close-btn {
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.close-btn:hover, .close-btn:focus {
+    color: black;
+}
+
+.modal-body {
+    padding-top: 1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-link {
+    padding: 12px 0;
+    text-decoration: none;
+    color: var(--primary-dark);
+    font-weight: 500;
+    border-bottom: 1px solid #eee;
+}
+.modal-link:last-child {
+    border-bottom: none;
+}
+.modal-link:hover {
+    background-color: #f0f2f5;
+}

@@ -36,7 +36,7 @@ from .presence import check_presence
 from .aggregator import main_aggregator_loop, enqueue_event 
 from . import mqtt_client # <-- Importe o novo módulo
 from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change
-from sqlalchemy import event # <--- NOVO IMPORT
+from sqlalchemy import event, or_ # <--- NOVO IMPORT
 from sqlalchemy.orm import Session
 from .mqtt_client import publish_available_beds
 from .auth import authenticate_admin
@@ -139,6 +139,7 @@ async def receive_event(event_data: Dict):
         db.close()
 
     # Enfileira o evento para o agregador processar
+    print(event_data)
     enqueue_event(event_data)
     
     return {"status": "success", "message": "Evento recebido e enfileirado"}
@@ -148,21 +149,40 @@ async def receive_event(event_data: Dict):
 def list_events(
     request: Request,
     page: int = 1,
-    # Novos parâmetros para os filtros, vindos da URL
-    filter_cama: Optional[str] = Query(None, description="Filtrar por nome da cama"),
-    filter_quarto: Optional[str] = Query(None, description="Filtrar por quarto"),
-    filter_status: Optional[str] = Query(None, description="Filtrar por status"),
+    filter_cama: Optional[str] = Query(None),
+    filter_quarto: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
+    filter_andar: Optional[str] = Query(None),
+    time_filter: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
+    # ... (toda a lógica de mapas e filtros continua exatamente igual) ...
+    embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
+    beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
     query = db.query(ReceivedEvent)
 
-    # Aplica os filtros à consulta do banco de dados se eles foram fornecidos
+    # ... (filtros) ...
     if filter_cama:
         query = query.filter(ReceivedEvent.cama == filter_cama)
+    if time_filter:
+        now = datetime.now(timezone.utc)
+        if time_filter == 'daily':
+            start_date = now - timedelta(days=1)
+            query = query.filter(ReceivedEvent.data_on >= start_date)
+        elif time_filter == 'weekly':
+            start_date = now - timedelta(weeks=1)
+            query = query.filter(ReceivedEvent.data_on >= start_date)
+        elif time_filter == 'monthly':
+            start_date = now - timedelta(days=30)
+            query = query.filter(ReceivedEvent.data_on >= start_date)
     if filter_quarto:
-        query = query.filter(ReceivedEvent.raw['quarto'].as_string() == filter_quarto)
+        esps_no_quarto = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
+        query = query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else query.filter(False)
     if filter_status:
         query = query.filter(ReceivedEvent.status == filter_status)
+    if filter_andar:
+        esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
+        query = query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else query.filter(False)
 
     total = query.count()
     evts = (
@@ -173,74 +193,187 @@ def list_events(
     )
     has_next = total > page * EVENT_PAGE_SIZE
 
-    # Prepara dados para os dropdowns dos filtros
-    all_beds = [b.nome_cama for b in db.query(Bed).distinct(Bed.nome_cama).order_by(Bed.nome_cama).all()]
-    all_status = [e.status for e in db.query(ReceivedEvent).distinct(ReceivedEvent.status).order_by(ReceivedEvent.status).all()]
+    all_beds = db.query(Bed.nome_cama, Bed.mac_beacon).filter(Bed.mac_beacon.isnot(None)).distinct().order_by(Bed.nome_cama).all()
+    all_status_options = [("GET", "conectou"), ("OUT", "desconectou"), ("WARNING", "erro de wifi")]
+    all_andares = sorted([str(a[0]) for a in db.query(Embarcado.andar).distinct().filter(Embarcado.andar.isnot(None)).all()])
+    all_quartos = sorted([str(q[0]) for q in db.query(Embarcado.quarto).distinct().filter(Embarcado.quarto.isnot(None)).all()])
 
-    brasil_tz = timezone(timedelta(hours=-3))
+    # [CORREÇÃO APLICADA AQUI]
+    # Enriquecimento dos dados do evento para o template
     for e in evts:
-        # Formatação de data e hora
-        do = e.data_on
-        if do and do.tzinfo is None: do = do.replace(tzinfo=timezone.utc)
-        local = do.astimezone(brasil_tz) if do else None
-        e.data_str = local.strftime("%Y / %m / %d") if local else "N/A"
-        e.hora_str = local.strftime("%H : %M : %S") if local else "N/A"
+        # A conversão de fuso foi totalmente removida.
+        # Agora formatamos a data/hora diretamente do que vem do banco de dados.
+        e.data_str = e.data_on.strftime("%Y / %m / %d") if e.data_on else "N/A"
+        e.hora_str = e.data_on.strftime("%H : %M : %S") if e.data_on else "N/A"
         
-        # Obtenção de quarto e andar
-        e.quarto = e.raw.get("quarto", "---")
-        e.andar = e.quarto.split('-')[0] if e.quarto and '-' in e.quarto else 'N/A'
-    
+        # O resto do loop para obter quarto, andar e nome da cama continua igual
+        emb_data = embarcados_map.get(e.esp_id)
+        if emb_data:
+            e.quarto = emb_data.get("quarto", "---")
+            e.andar = emb_data.get("andar", "---")
+        else:
+            e.quarto, e.andar = "---", "---"
+
+        e.nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
+
     return templates.TemplateResponse("events_list.html", {
-        "request": request,
-        "events": evts,
-        "page": page,
-        "has_next": has_next,
-        "all_beds": all_beds,
-        "all_status": all_status,
+        "request": request, "events": evts, "page": page, "has_next": has_next,
+        "all_beds": all_beds, "all_status_options": all_status_options, "all_andares": all_andares,
+        "all_quartos": all_quartos,
         "current_filters": {
-            "cama": filter_cama, "quarto": filter_quarto, "status": filter_status
+            "cama": filter_cama, "quarto": filter_quarto, "status": filter_status,
+            "andar": filter_andar, "time_filter": time_filter
         }
     })
 
-# rota para download CSV
-@app.get("/events/download", name="download_events_csv")
-def download_events_csv():
+# ==========================================================
+# ROTA PARA DOWNLOAD CSV DE CAMAS
+# ==========================================================
+@app.get("/beds/download", name="download_beds_csv")
+def download_beds_csv():
     db = SessionLocal()
+    try:
+        beds = db.query(Bed).order_by(Bed.nome_cama).all()
 
-    # Busca todos os eventos e ordena por data_on
-    events = db.query(ReceivedEvent).order_by(ReceivedEvent.data_on).all()
-    # Mapa de esp_id → quarto
-    esp2quarto = {e.id_esp: e.quarto for e in db.query(Embarcado).all()}
+        def iter_csv():
+            buf = StringIO()
+            writer = csv.writer(buf)
 
-    def iter_csv():
-        buf = StringIO()
-        writer = csv.writer(buf)
-
-        # Cabeçalho
-        writer.writerow(["Data/Hora UTC", "ESP ID", "Quarto", "Cama", "Status", "RSSI", "Wi-Fi"])
-        yield buf.getvalue()
-        buf.seek(0); buf.truncate(0)
-
-        for e in events:
-            # Data/Hora em UTC ISO
-            data_utc = e.data_on.isoformat() if e.data_on else ""
-            quarto   = esp2quarto.get(e.esp_id, "")
-            writer.writerow([
-                data_utc,
-                e.esp_id,
-                quarto,
-                e.cama,
-                e.status,
-                e.rssi,
-                e.wifi
-            ])
+            # Cabeçalho
+            writer.writerow(["MAC", "NOME", "QUARTO", "BEACON"])
             yield buf.getvalue()
             buf.seek(0); buf.truncate(0)
+
+            for bed in beds:
+                writer.writerow([
+                    bed.mac_address,
+                    bed.nome_cama,
+                    bed.quarto or "",
+                    bed.mac_beacon or ""
+                ])
+                yield buf.getvalue()
+                buf.seek(0); buf.truncate(0)
+    finally:
+        db.close()
 
     return StreamingResponse(
         iter_csv(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=events_history.csv"}
+        headers={"Content-Disposition": "attachment; filename=camas_export.csv"}
+    )
+
+# ==========================================================
+# ROTA PARA DOWNLOAD CSV DE EMBARCADOS
+# ==========================================================
+@app.get("/embarcados/download", name="download_embarcados_csv")
+def download_embarcados_csv():
+    db = SessionLocal()
+    try:
+        embarcados = db.query(Embarcado).order_by(Embarcado.quarto).all()
+
+        def iter_csv():
+            buf = StringIO()
+            writer = csv.writer(buf)
+
+            # Cabeçalho
+            writer.writerow(["ID da ESP", "QUARTO"])
+            yield buf.getvalue()
+            buf.seek(0); buf.truncate(0)
+
+            for emb in embarcados:
+                writer.writerow([
+                    emb.id_esp,
+                    emb.quarto
+                ])
+                yield buf.getvalue()
+                buf.seek(0); buf.truncate(0)
+    finally:
+        db.close()
+
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=embarcados_export.csv"}
+    )
+
+# rota para download CSV
+@app.get("/events/download", name="download_events_csv")
+def download_events_csv(
+    # 1. A função agora aceita os mesmos parâmetros de filtro
+    db: Session = Depends(get_db),
+    filter_cama: Optional[str] = Query(None),
+    filter_quarto: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
+    filter_andar: Optional[str] = Query(None),
+    time_filter: Optional[str] = Query(None)
+):
+    try:
+        # 2. Copiamos a mesma lógica de mapas da list_events
+        embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
+        beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
+
+        # 3. Construímos a query com os filtros, exatamente como em list_events
+        query = db.query(ReceivedEvent)
+
+        if filter_cama:
+            query = query.filter(ReceivedEvent.cama == filter_cama)
+        if time_filter:
+            now = datetime.now(timezone.utc)
+            if time_filter == 'daily':
+                start_date = now - timedelta(days=1)
+                query = query.filter(ReceivedEvent.data_on >= start_date)
+            elif time_filter == 'weekly':
+                start_date = now - timedelta(weeks=1)
+                query = query.filter(ReceivedEvent.data_on >= start_date)
+            elif time_filter == 'monthly':
+                start_date = now - timedelta(days=30)
+                query = query.filter(ReceivedEvent.data_on >= start_date)
+        if filter_quarto:
+            esps_no_quarto = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
+            query = query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else query.filter(False)
+        if filter_status:
+            query = query.filter(ReceivedEvent.status == filter_status)
+        if filter_andar:
+            esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
+            query = query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else query.filter(False)
+
+        # A busca agora é feita na query já filtrada
+        events = query.order_by(ReceivedEvent.data_on).all()
+
+        def iter_csv():
+            buf = StringIO()
+            writer = csv.writer(buf)
+
+            # 4. Atualizamos o cabeçalho do CSV
+            writer.writerow(["Data/Hora", "Nome da Cama", "Andar", "Quarto", "Status", "RSSI", "Wi-Fi"])
+            yield buf.getvalue()
+            buf.seek(0); buf.truncate(0)
+
+            for e in events:
+                # 5. Buscamos os dados enriquecidos para cada linha
+                emb_data = embarcados_map.get(e.esp_id, {})
+                quarto = emb_data.get("quarto", "")
+                andar = emb_data.get("andar", "")
+                nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
+
+                writer.writerow([
+                    e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
+                    nome_cama,
+                    andar,
+                    quarto,
+                    e.status,
+                    e.rssi,
+                    e.wifi
+                ])
+                yield buf.getvalue()
+                buf.seek(0); buf.truncate(0)
+    finally:
+        db.close()
+
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
     )
 
 # limpeza periódica usando data_on
@@ -273,25 +406,40 @@ def main(request: Request):
 
 # ─── CRUD CAMAS ────────────────────────────────────────────────────────────────
 @app.get("/beds", name="list_beds")
-def list_beds(request: Request):
+def list_beds(request: Request, search: Optional[str] = Query(None)):
     db = SessionLocal()
-    beds = db.query(Bed).all()
+    
+    query = db.query(Bed)
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Bed.nome_cama.ilike(search_term),
+                Bed.mac_address.ilike(search_term),
+                Bed.quarto.ilike(search_term)
+            )
+        )
+    
+    beds = query.all()
+    
     return templates.TemplateResponse("beds_list.html", {
         "request": request,
         "beds": beds,
         "form_action": request.url_for("create_bed"),
-        "bed": None
+        "bed": None,
+        "search": search # Envia o termo de pesquisa
     })
 
 @app.post("/beds", name="create_bed")
 def create_bed(
     request: Request,
-    mac: str = Form(...),
+    mac_address: str = Form(...),
     nome: str = Form(...),
     mac_beacon: Optional[str] = Form("Nenhum")
 ):
     db = SessionLocal()
-    bed = Bed(mac_address=mac, nome_cama=nome, mac_beacon=mac_beacon)
+    bed = Bed(mac_address=mac_address, nome_cama=nome, mac_beacon=mac_beacon)
     db.add(bed)
     db.commit()
     return RedirectResponse(request.url_for("list_beds"), status_code=303)
@@ -312,14 +460,14 @@ def edit_bed(request: Request, bed_id: int):
 def update_bed(
     request: Request,
     bed_id: int,
-    mac: str = Form(...),
+    mac_address: str = Form(...),
     nome: str = Form(...),
     mac_beacon: Optional[str] = Form(None),
     quarto: Optional[str] = Form(None)
 ):
     db = SessionLocal()
     bed = db.query(Bed).get(bed_id)
-    bed.mac_address = mac
+    bed.mac_address = mac_address
     bed.nome_cama = nome
     
     if bed.mac_beacon != mac_beacon:
@@ -343,24 +491,39 @@ def delete_bed(request: Request, bed_id: int):
 
 # ─── CRUD Embarcados (HTML) ────────────────────────────────────────────────────
 @app.get("/embarcados", name="list_embarcados")
-def list_embarcados(request: Request):
+def list_embarcados(request: Request, search: Optional[str] = Query(None)):
     db = SessionLocal()
-    embarcados = db.query(Embarcado).all()
+    
+    query = db.query(Embarcado)
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Embarcado.id_esp.ilike(search_term),
+                Embarcado.quarto.ilike(search_term)
+            )
+        )
+        
+    embarcados = query.all()
+
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
         "embarcados": embarcados,
         "form_action": request.url_for("create_embarcado_html"),
-        "embarcado": None
+        "embarcado": None,
+        "search": search
     })
 
 @app.post("/embarcados", name="create_embarcado_html")
 def create_embarcado_html(
     request: Request,
     id_esp: str = Form(...),
-    quarto: str = Form(...)
+    quarto: str = Form(...),
+    andar: Optional[str] = Form(None) # <-- NOVO PARÂMETRO
 ):
     db = SessionLocal()
-    emb = Embarcado(id_esp=id_esp, quarto=quarto)
+    emb = Embarcado(id_esp=id_esp, quarto=quarto, andar=andar) # <-- SALVANDO O NOVO CAMPO
     db.add(emb)
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
@@ -381,11 +544,13 @@ def edit_embarcado(request: Request, id_esp: str):
 def update_embarcado_html(
     request: Request,
     id_esp: str,
-    quarto: str = Form(...)
+    quarto: str = Form(...),
+    andar: Optional[str] = Form(None) # <-- NOVO PARÂMETRO
 ):
     db = SessionLocal()
     emb = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
     emb.quarto = quarto
+    emb.andar = andar # <-- ATUALIZANDO O NOVO CAMPO
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
