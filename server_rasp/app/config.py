@@ -13,7 +13,7 @@ NETWORK_PREFIX = "10.0.0."
 
 # Historiador
 HISTORY_RETENTION_DAYS = 7       # mantém apenas 7 dias de eventos
-EVENT_PAGE_SIZE         = 50     # linhas por página em /events
+EVENT_PAGE_SIZE         = 20     # linhas por página em /events
 CLEANUP_INTERVAL_SEC    = 3600   # a cada hora roda a limpeza
 
 # MQTT

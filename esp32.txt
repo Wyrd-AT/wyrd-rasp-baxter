@@ -1,0 +1,317 @@
+// ==========================================================
+// = BAXTER - CÓDIGO FINAL DA ESP32 (RASTREAMENTO MÚLTIPLO E RESILIENTE) =
+// ==========================================================
+
+#include <BLEDevice.h>
+#include <WiFi.h>
+#include <PubSubClient.h>   
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// ============ CONFIGURAÇÕES GLOBAIS ============
+const char* SSID              = "MVISIA_2.4GHz";
+const char* PASSWORD          = "mvisia2020";
+const char* idESP             = "WRD00000003";
+const char* SERVER_IP         = "10.0.0.149";
+const uint16_t SERVER_PORT    = 8000;
+const char* MQTT_BROKER_HOST  = "10.0.0.149";
+const uint16_t MQTT_BROKER_PORT = 1883;
+const char* MQTT_BED_LIST_TOPIC = "wyrd/baxter/beds/available";
+
+// --- Configurações de Lógica ---
+#define RSSI_THRESHOLD          -60
+#define INERCIA_CHEGADA         30000
+#define TEMPO_SAIDA             30000
+#define RSSI_HISTORY_SIZE       5
+#define BEACON_SCAN_TIME        4
+
+// --- Configurações NTP ---
+const char* NTP_SERVER          = "pool.ntp.org";
+const long  GMT_OFFSET_SEC      = -3 * 3600;
+const int   DAYLIGHT_OFFSET_SEC = 0;
+
+// ============ ESTRUTURAS DE DADOS E VARIÁVEIS GLOBAIS ============
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+struct TargetBed {
+    String mac = "";
+    int rssiHistory[RSSI_HISTORY_SIZE];
+    uint8_t index = 0;
+    bool isFull = false;
+    unsigned long inicioInercia = 0;
+    int mediaRSSI = -100;
+};
+
+struct LockedBed {
+    String mac = "";
+    bool confirmada = false;
+    unsigned long ultimaPresenca = 0;
+} lockedBed;
+
+#define MAX_AVAILABLE_BEDS 50
+TargetBed potentialTargets[MAX_AVAILABLE_BEDS];
+int potentialTargetsCount = 0;
+
+// ============ PROTÓTIPOS DE FUNÇÕES ============
+void mqtt_callback(char* topic, byte* payload, unsigned int length);
+void conectarWiFi();
+String obterDataAtualISO8601();
+// --- MUDANÇA NA ASSINATURA DA FUNÇÃO ---
+bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi);
+void processarLogicaCama();
+void configurarNTP();
+void reconnect_mqtt();
+
+// ... (mqtt_callback e a classe MyAdvertisedDeviceCallbacks continuam iguais) ...
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+    Serial.println("------------------------------------");
+    Serial.printf("Mensagem recebida no tópico: %s\n", topic);
+
+    if (lockedBed.confirmada) {
+        Serial.printf("ESP já está travada na cama %s. Ignorando nova lista.\n", lockedBed.mac.c_str());
+        Serial.println("------------------------------------");
+        return;
+    }
+    
+    potentialTargetsCount = 0;
+    StaticJsonDocument<2048> doc;
+    deserializeJson(doc, payload, length);
+    JsonArray macArray = doc.as<JsonArray>();
+
+    Serial.println("Inicializando nova lista de alvos potenciais:");
+    for (JsonVariant v : macArray) {
+        if (potentialTargetsCount < MAX_AVAILABLE_BEDS) {
+            String mac = v.as<String>();
+            potentialTargets[potentialTargetsCount] = TargetBed(); 
+            potentialTargets[potentialTargetsCount].mac = mac;
+            Serial.printf("  - Alvo %d: %s\n", potentialTargetsCount, mac.c_str());
+            potentialTargetsCount++;
+        }
+    }
+    Serial.println("------------------------------------");
+}
+
+class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
+    void onResult(BLEAdvertisedDevice advertisedDevice) override {
+        String foundMac = advertisedDevice.getAddress().toString().c_str();
+
+        if (lockedBed.confirmada) {
+            if (foundMac == lockedBed.mac) {
+                lockedBed.ultimaPresenca = millis();
+            }
+            return;
+        }
+
+        for (int i = 0; i < potentialTargetsCount; i++) {
+            if (foundMac.equalsIgnoreCase(potentialTargets[i].mac)) {
+                TargetBed &target = potentialTargets[i];
+                target.rssiHistory[target.index] = advertisedDevice.getRSSI();
+                target.index = (target.index + 1) % RSSI_HISTORY_SIZE;
+                if (target.index == 0) target.isFull = true;
+                break;
+            }
+        }
+    }
+};
+
+
+// =================================================================
+// =================== SETUP E LOOP PRINCIPAL ======================
+// =================================================================
+void setup() {
+    Serial.begin(115200);
+    conectarWiFi();
+    configurarNTP();
+    BLEDevice::init("");
+
+    mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+    mqttClient.setCallback(mqtt_callback);
+}
+
+void loop() {
+    if (!mqttClient.connected()) {
+        reconnect_mqtt();
+    }
+    mqttClient.loop();
+
+    BLEScan* scanner = BLEDevice::getScan();
+    scanner->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+    scanner->setActiveScan(true);
+    scanner->start(BEACON_SCAN_TIME, false);
+
+    processarLogicaCama();
+
+    delay(500);
+}
+
+
+// =================================================================
+// =================== LÓGICA DE DECISÃO PRINCIPAL =================
+// =================================================================
+void processarLogicaCama() {
+    unsigned long agora = millis();
+
+    // --- Parte 1: Lógica de SAÍDA ---
+    if (lockedBed.confirmada) {
+        if (agora - lockedBed.ultimaPresenca > TEMPO_SAIDA) {
+            Serial.printf("Tentando reportar SAÍDA para a cama %s...\n", lockedBed.mac.c_str());
+            
+            // Tenta enviar o evento OUT. Se for bem-sucedido, libera a trava.
+            bool sucesso = enviarEventoHTTP(lockedBed.mac.c_str(), "OUT", -100, WiFi.RSSI());
+            if (sucesso) {
+                Serial.println("SAÍDA reportada com sucesso. Liberando trava.");
+                lockedBed = LockedBed(); // Reseta a estrutura
+            } else {
+                Serial.println("Falha ao reportar SAÍDA. Manterá a trava e tentará novamente no próximo ciclo.");
+            }
+        }
+        return; 
+    }
+
+    // --- Parte 2: Lógica de ENTRADA ---
+    // (A fase de análise continua a mesma)
+    for (int i = 0; i < potentialTargetsCount; i++) {
+        TargetBed &target = potentialTargets[i];
+        if (!target.isFull) continue; 
+        int soma = 0;
+        for (int j = 0; j < RSSI_HISTORY_SIZE; j++) soma += target.rssiHistory[j];
+        target.mediaRSSI = soma / RSSI_HISTORY_SIZE;
+        if (target.mediaRSSI > RSSI_THRESHOLD) {
+            if (target.inicioInercia == 0) {
+                target.inicioInercia = agora;
+            }
+        } else {
+            target.inicioInercia = 0;
+        }
+    }
+    
+    // (A fase de decisão continua a mesma)
+    int winnerIndex = -1;
+    int bestRssiOfWinners = -1000;
+    for (int i = 0; i < potentialTargetsCount; i++) {
+        TargetBed &target = potentialTargets[i];
+        if (target.inicioInercia > 0 && (agora - target.inicioInercia > INERCIA_CHEGADA)) {
+            if (target.mediaRSSI > bestRssiOfWinners) {
+                bestRssiOfWinners = target.mediaRSSI;
+                winnerIndex = i;
+            }
+        }
+    }
+
+    // --- MUDANÇA NA FASE DE AÇÃO ---
+    if (winnerIndex != -1) {
+        TargetBed &winner = potentialTargets[winnerIndex];
+        Serial.printf("Candidato vencedor encontrado: %s. Tentando reportar ENTRADA...\n", winner.mac.c_str());
+        
+        // Tenta enviar o evento GET. Se for bem-sucedido, trava na cama.
+        bool sucesso = enviarEventoHTTP(winner.mac.c_str(), "GET", winner.mediaRSSI, WiFi.RSSI());
+        
+        if (sucesso) {
+            Serial.println("ENTRADA reportada com sucesso. Travando na cama.");
+            lockedBed.mac = winner.mac;
+            lockedBed.confirmada = true;
+            lockedBed.ultimaPresenca = agora;
+            potentialTargetsCount = 0;
+        } else {
+            // Se falhar, imprime o erro e "finge que não achou nada".
+            // Não fazemos nada, então no próximo loop, a análise começará do zero.
+            Serial.println("Falha ao reportar ENTRada. A ESP continuará no modo de busca.");
+        }
+    }
+}
+
+
+// =================================================================
+// =================== FUNÇÕES AUXILIARES ==========================
+// =================================================================
+
+// --- FUNÇÃO DE ENVIO HTTP TOTALMENTE REFEITA ---
+bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Erro de Envio: Wi-Fi desconectado.");
+        return false;
+    }
+
+    HTTPClient http;
+    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT) + "/event";
+    
+    if (!http.begin(serverUrl)) {
+        Serial.println("Erro de Envio: Falha ao iniciar conexão HTTP.");
+        return false;
+    }
+
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<256> doc;
+    doc["esp_id"] = idESP;
+    doc["cama"] = mac;
+    doc["status"] = status;
+    doc["RSSI"] = rssi;
+    doc["wifi"] = wifi;
+    doc["data_on"] = obterDataAtualISO8601();
+
+    String jsonPayload;
+    serializeJson(doc, jsonPayload);
+
+    Serial.println("Enviando payload: " + jsonPayload);
+    int httpResponseCode = http.POST(jsonPayload);
+
+    if (httpResponseCode > 0) {
+        if (httpResponseCode == 200) {
+            Serial.printf("Sucesso! Código de Resposta: %d\n", httpResponseCode);
+            http.end();
+            return true;
+        } else {
+            Serial.printf("Erro do Servidor. Código de Resposta: %d\n", httpResponseCode);
+            String response = http.getString();
+            Serial.println(response);
+            http.end();
+            return false;
+        }
+    } else {
+        Serial.printf("Erro de Conexão HTTP: %s\n", http.errorToString(httpResponseCode).c_str());
+        http.end();
+        return false;
+    }
+}
+
+void conectarWiFi() {
+    Serial.print("Conectando ao Wi-Fi...");
+    WiFi.begin(SSID, PASSWORD);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nWi-Fi conectado. IP: " + WiFi.localIP().toString());
+}
+
+void reconnect_mqtt() {
+    while (!mqttClient.connected()) {
+        Serial.print("Tentando conectar ao Broker MQTT...");
+        if (mqttClient.connect(idESP)) {
+            Serial.println(" conectado!");
+            mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
+        } else {
+            Serial.print(" falhou, rc=");
+            Serial.print(mqttClient.state());
+            Serial.println(" tentando novamente em 5 segundos");
+            delay(5000);
+        }
+    }
+}
+
+void configurarNTP() {
+    configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+}
+
+String obterDataAtualISO8601() {
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        return "1970-01-01T00:00:00.000Z";
+    }
+    char buffer[30];
+    strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S.000Z", &timeinfo);
+    return String(buffer);
+}

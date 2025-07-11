@@ -55,10 +55,52 @@
         </select>
 
         <a href="{{ url_for('list_events') }}" class="filter-reset-btn" title="Limpar Filtros">
-            <i data-feather="rotate-cw"></i> </a>
+            <i data-feather="rotate-cw"></i>
+        </a>
     </div>
 </form>
 
+{% if pending_events %}
+<div class="pending-events-section">
+    <h2>Eventos Pendentes de Processamento</h2>
+    <div class="history-table-container">
+        <table class="data-table history-table">
+            <thead>
+                <tr>
+                    <th>HORA</th>
+                    <th>CAMA</th>
+                    <th>QUARTO DETECTADO</th>
+                    <th>AÇÃO</th>
+                    <th>STATUS</th>
+                    <th>AÇÕES</th> </tr>
+            </thead>
+            <tbody>
+                {% for event in pending_events %}
+                <tr>
+                    <td>{{ event.hora_str }}</td>
+                    <td>{{ event.nome_cama }}</td>
+                    <td>{{ event.quarto }}</td>
+                    <td><span class="action-get">Conectar</span></td>
+                    <td>
+                        <span class="status-box status-pendente" 
+                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
+                            Pendente
+                        </span>
+                    </td>
+                    <td>
+                        <form action="{{ url_for('cancel_pending_event', event_id=event.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja cancelar esta verificação?');">
+                            <button type="submit" class="btn-cancel" title="Cancelar verificação em segundo plano">
+                                Cancelar
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
 <div class="history-table-container">
     <table class="data-table history-table">
         <thead>
@@ -67,35 +109,33 @@
                 <th>HORA</th>
                 <th>CAMA</th>
                 <th>QUARTO</th>
-                <th>SINAL</th>
                 <th>AÇÃO</th>
+                <th>SINAL</th>
                 <th>STATUS</th>
             </tr>
         </thead>
         <tbody>
-            {% for event in events %}
-            <tr>
+            {% for event in events %} <tr>
                 <td>{{ event.data_str }}</td>
                 <td>{{ event.hora_str }}</td>
                 <td>{{ event.nome_cama }}</td>
                 <td>{{ event.quarto }}</td>
-                <td>{{ event.rssi or '0' }}</td>
                 <td>
                     {% if event.action == 'GET' %}
-                        <span class="action-get">Conectou</span>
+                        <span class="action-get">Conectar</span>
                     {% elif event.action == 'OUT' %}
-                        <span class="action-out">Desconectou</span>
+                        <span class="action-out">Desconectar</span>
                     {% elif event.action == 'WARNING' %}
                         <span class="action-warning">Alerta</span>
                     {% else %}
                         <span>{{ event.action }}</span>
                     {% endif %}
                 </td>
-            
+                <td>{{ event.rssi or '0' }}</td>
                 <td>
                     {% if event.status %}
                         <span class="status-box status-{{ event.status | lower }}" 
-                            {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
+                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
                             {{ event.status }}
                         </span>
                     {% endif %}

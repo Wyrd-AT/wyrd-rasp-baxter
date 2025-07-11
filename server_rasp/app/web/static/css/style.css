@@ -128,8 +128,44 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .status-ok { background-color: #28a745; }
 .status-pendente { background-color: #fd7e14; }
 .status-erro { background-color: #dc3545; }
+.status-cancelado { background-color: #495057; } /* <-- ADICIONE ESTA LINHA */
+.status-confirmado { background-color: #17a2b8; }
+.status-resolvido { background-color: #068523; } /* "Resolvido" pode usar a mesma cor do "OK" */
 .status-enfileirado { background-color: #6c757d; }
 .status-detail-icon { display: inline-block; margin-left: 8px; font-weight: bold; color: #007bff; background-color: #e9ecef; border-radius: 50%; width: 20px; height: 20px; line-height: 20px; text-align: center; cursor: help; }
 .action-get { color: #28a745; font-weight: bold; }
 .action-out { color: #dc3545; font-weight: bold; }
 .action-warning { color: #fd7e14; font-weight: bold; }
+
+/* Adicione ao final do seu style.css */
+.pending-events-section {
+    margin-bottom: 3rem;
+    border: 1px solid #fd7e14; /* Laranja, para chamar a atenção */
+    border-radius: 8px;
+    padding: 1.5rem;
+    background-color: #fff9f3;
+}
+
+.pending-events-section h2 {
+    font-family: 'Lexend Deca', sans-serif;
+    font-size: 20px;
+    margin-bottom: 1.5rem;
+    color: #d96d00;
+}
+
+/* Adicione ao final do seu style.css */
+.btn-cancel {
+    background-color: #6c757d; /* Um cinza neutro */
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-cancel:hover {
+    background-color: #dc3545; /* Vermelho no hover para indicar uma ação destrutiva */
+}

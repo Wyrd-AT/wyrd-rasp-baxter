@@ -33,7 +33,7 @@ def get_db():
         db.close()
 
 from .presence import check_presence
-from .aggregator import main_aggregator_loop, enqueue_event 
+from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task
 from . import mqtt_client # <-- Importe o novo módulo
 from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change
 from sqlalchemy import event, or_ # <--- NOVO IMPORT
@@ -90,8 +90,27 @@ class EmbarcadoAdmin(ModelView, model=Embarcado):
     column_searchable_list = [Embarcado.id_esp, Embarcado.quarto]
     page_size = 20
 
+class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
+    # Define as colunas que aparecerão na lista
+    column_list = [
+        ReceivedEvent.id, 
+        ReceivedEvent.data_on, 
+        ReceivedEvent.cama, 
+        ReceivedEvent.action, 
+        ReceivedEvent.status,
+        ReceivedEvent.esp_id
+    ]
+    # Define a ordem padrão
+    column_default_sort = ('data_on', True)  # True para descendente (mais novo primeiro)
+    # Define os campos pelos quais pode pesquisar
+    column_searchable_list = [ReceivedEvent.cama, ReceivedEvent.esp_id, ReceivedEvent.status]
+    # Quantos itens por página
+    page_size = 50
+
 admin.add_view(BedAdmin)
 admin.add_view(EmbarcadoAdmin)
+admin.add_view(ReceivedEventAdmin)
+
 app.mount("/admin", admin_app)
 
 # estáticos e templates
@@ -159,43 +178,51 @@ def list_events(
     page: int = 1,
     filter_cama: Optional[str] = Query(None),
     filter_quarto: Optional[str] = Query(None),
-    filter_action: Optional[str] = Query(None), # Renomeado de filter_status
-    filter_status: Optional[str] = Query(None), # NOVO FILTRO
+    filter_action: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
     filter_andar: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
     beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
-    query = db.query(ReceivedEvent)
+    
+    # --- MUDANÇA PRINCIPAL AQUI ---
 
-    # Lógica de filtros atualizada
+    # 1. Nova consulta: Busca TODOS os eventos pendentes, sem paginação.
+    pending_query = db.query(ReceivedEvent).filter(ReceivedEvent.status == 'Pendente')
+    pending_events = pending_query.order_by(ReceivedEvent.data_on.desc()).all()
+
+    # 2. Consulta principal: Busca o histórico, mas AGORA EXCLUI os pendentes.
+    history_query = db.query(ReceivedEvent).filter(ReceivedEvent.status != 'Pendente')
+
+    # --- FIM DA MUDANÇA PRINCIPAL ---
+
+    # Aplica os filtros apenas na consulta de histórico
     if filter_cama:
-        query = query.filter(ReceivedEvent.cama == filter_cama)
+        history_query = history_query.filter(ReceivedEvent.cama == filter_cama)
     if time_filter:
         now = datetime.now(timezone.utc)
         if time_filter == 'daily':
             start_date = now - timedelta(days=1)
-            query = query.filter(ReceivedEvent.data_on >= start_date)
+            history_query = history_query.filter(ReceivedEvent.data_on >= start_date)
         # ... (outros filtros de tempo)
     if filter_quarto:
         esps_no_quarto = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
-        query = query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else query.filter(False)
-    
-    # --- MUDANÇAS AQUI ---
-    if filter_action: # Filtra pela ação do ESP
-        query = query.filter(ReceivedEvent.action == filter_action)
-    if filter_status: # Filtra pelo status do processamento
-        query = query.filter(ReceivedEvent.status == filter_status)
-    # --- FIM DAS MUDANÇAS ---
-
+        history_query = history_query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else history_query.filter(False)
+    if filter_action:
+        history_query = history_query.filter(ReceivedEvent.action == filter_action)
+    if filter_status:
+        # Garante que o filtro de status não se aplique aos pendentes
+        if filter_status.lower() != 'pendente':
+            history_query = history_query.filter(ReceivedEvent.status == filter_status)
     if filter_andar:
         esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
-        query = query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else query.filter(False)
+        history_query = history_query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else history_query.filter(False)
 
-    total = query.count()
-    evts = (
-        query.order_by(ReceivedEvent.data_on.desc())
+    total = history_query.count()
+    history_events = (
+        history_query.order_by(ReceivedEvent.data_on.desc())
              .offset((page - 1) * EVENT_PAGE_SIZE)
              .limit(EVENT_PAGE_SIZE)
              .all()
@@ -204,27 +231,33 @@ def list_events(
 
     # Prepara as opções para os filtros do frontend
     all_beds = db.query(Bed.nome_cama, Bed.mac_beacon).filter(Bed.mac_beacon.isnot(None)).distinct().order_by(Bed.nome_cama).all()
-    all_action_options = [("GET", "Conectou"), ("OUT", "Desconectou"), ("WARNING", "Alerta")]
-    all_status_options = ["OK", "Pendente", "Erro", "Enfileirado"]
+    all_action_options = [("GET", "Conectar"), ("OUT", "Desconectar"), ("WARNING", "Alerta")]
+    # Adicionamos "Ignorado" às opções de filtro
+    all_status_options = ["OK", "Erro", "Enfileirado", "Ignorado", "Cancelado", "Resolvido", "Confirmado"]
     all_andares = sorted([str(a[0]) for a in db.query(Embarcado.andar).distinct().filter(Embarcado.andar.isnot(None)).all()])
     all_quartos = sorted([str(q[0]) for q in db.query(Embarcado.quarto).distinct().filter(Embarcado.quarto.isnot(None)).all()])
 
-    # Enriquecimento dos dados para o template
-    for e in evts:
-        e.data_str = e.data_on.strftime("%Y/%m/%d") if e.data_on else "N/A"
-        e.hora_str = e.data_on.strftime("%H:%M:%S") if e.data_on else "N/A"
-        
-        emb_data = embarcados_map.get(e.esp_id)
-        if emb_data:
-            e.quarto = emb_data.get("quarto", "---")
-            e.andar = emb_data.get("andar", "---")
-        else:
-            e.quarto, e.andar = "---", "---"
+    # Enriquecimento dos dados (para AMBAS as listas)
+    def enrich_event_data(event_list):
+        for e in event_list:
+            e.data_str = e.data_on.strftime("%Y/%m/%d") if e.data_on else "N/A"
+            e.hora_str = e.data_on.strftime("%H:%M:%S") if e.data_on else "N/A"
+            emb_data = embarcados_map.get(e.esp_id)
+            if emb_data:
+                e.quarto = emb_data.get("quarto", "---")
+                e.andar = emb_data.get("andar", "---")
+            else:
+                e.quarto, e.andar = "---", "---"
+            e.nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
 
-        e.nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
+    enrich_event_data(pending_events)
+    enrich_event_data(history_events)
 
     return templates.TemplateResponse("events_list.html", {
-        "request": request, "events": evts, "page": page, "has_next": has_next,
+        "request": request,
+        "pending_events": pending_events, # <-- Passando a nova lista para o template
+        "events": history_events, # <-- Esta é a lista antiga, agora apenas com o histórico
+        "page": page, "has_next": has_next,
         "all_beds": all_beds,
         "all_action_options": all_action_options,
         "all_status_options": all_status_options,
@@ -235,6 +268,47 @@ def list_events(
             "status": filter_status, "andar": filter_andar, "time_filter": time_filter
         }
     })
+
+# ==========================================================
+#     NOVA ROTA PARA CANCELAR UM EVENTO PENDENTE
+# ==========================================================
+@app.post("/event/{event_id}/cancel", name="cancel_pending_event")
+def cancel_pending_event(request: Request, event_id: int, db: Session = Depends(get_db)):
+    """
+    Cancela manualmente uma tarefa de verificação pendente.
+    """
+    event = db.query(ReceivedEvent).filter(ReceivedEvent.id == event_id).first()
+
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado.")
+
+    if event.status != "Pendente":
+        # Apenas para segurança, não faz sentido cancelar algo que não está pendente
+        return RedirectResponse(request.url_for("list_events"), status_code=303)
+
+    # Para cancelar a tarefa, precisamos do MAC Wi-Fi da cama.
+    # O evento nos dá o MAC do beacon (event.cama).
+    bed = db.query(Bed).filter(Bed.mac_beacon == event.cama).first()
+
+    if not bed:
+        # Se a cama não for encontrada, apenas atualiza o status para evitar erros
+        event.status = "Erro"
+        event.status_detail = f"Cancelamento falhou: Cama com beacon {event.cama} não encontrada."
+    else:
+        # Chama a função do agregador para cancelar a tarefa em background
+        was_cancelled = cancel_pending_task(wifi_mac=bed.mac_address)
+        
+        if was_cancelled:
+            event.status = "Cancelado"
+            event.status_detail = "Tarefa de verificação cancelada manualmente pelo operador."
+        else:
+            # A tarefa não estava mais no dicionário, provavelmente já terminou
+            event.status = "OK"
+            event.status_detail = "A tarefa de verificação já havia sido concluída."
+
+    db.commit()
+
+    return RedirectResponse(request.url_for("list_events"), status_code=303)
 
 # ==========================================================
 # ROTA PARA DOWNLOAD CSV DE CAMAS
