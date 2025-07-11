@@ -75,6 +75,14 @@ void processarLogicaCama();
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     Serial.println("------------------------------------");
     Serial.printf("Mensagem recebida no tópico: %s\n", topic);
+
+    // SUA IDEIA APLICADA AQUI:
+    // Só atualiza a lista de alvos se a ESP não estiver travada em uma cama.
+    if (lockedBed.confirmada) {
+        Serial.printf("ESP já está travada na cama %s. Ignorando nova lista de camas disponíveis.\n", lockedBed.mac.c_str());
+        Serial.println("------------------------------------");
+        return;
+    }
     
     // Limpa a lista antiga
     availableBedsCount = 0;
@@ -171,63 +179,61 @@ void loop() {
 void processarLogicaCama() {
     unsigned long agora = millis();
 
-    // Se já travamos em uma cama, só verificamos a saída
+    // --- LÓGICA DE SAÍDA (se já estiver travado em uma cama) ---
     if (lockedBed.confirmada) {
         if (agora - lockedBed.ultimaPresenca > TEMPO_SAIDA) {
             Serial.printf(">>> Cama %s SAIU (timeout)\n", lockedBed.mac.c_str());
             enviarEventoHTTP(lockedBed.mac.c_str(), "OUT", -100, WiFi.RSSI());
 
-            // Libera a trava
+            // Libera a trava para poder detectar novas camas
             lockedBed.confirmada = false;
             lockedBed.mac = "";
         }
-        return;
+        return; // Se está travado, não executa a lógica de entrada abaixo
     }
 
-    // Se não há um alvo sendo rastreado, não faz nada
+    // --- LÓGICA DE ENTRADA (se NÃO estiver travado em uma cama) ---
     if (currentTarget.mac == "") {
-        return;
+        return; // Se não há um alvo sendo monitorado, não faz nada
     }
 
-    // Calcula a média de RSSI do alvo atual
-    int mediaRSSI = -999;
-    if (currentTarget.isFull) {
-        int soma = 0;
-        for (int i = 0; i < RSSI_HISTORY_SIZE; i++) soma += currentTarget.rssiHistory[i];
-        mediaRSSI = soma / RSSI_HISTORY_SIZE;
-
-        // =====> LINHA ADICIONADA AQUI <=====
-        Serial.printf("Monitorando Alvo: %s, Média RSSI: %d\n", currentTarget.mac.c_str(), mediaRSSI);
+    // Calcula a média de RSSI apenas se o histórico estiver cheio
+    if (!currentTarget.isFull) {
+        return; // Ainda não temos dados suficientes para decidir
     }
+
+    int soma = 0;
+    for (int i = 0; i < RSSI_HISTORY_SIZE; i++) {
+        soma += currentTarget.rssiHistory[i];
+    }
+    int mediaRSSI = soma / RSSI_HISTORY_SIZE;
+    Serial.printf("Monitorando Alvo: %s, Média RSSI: %d\n", currentTarget.mac.c_str(), mediaRSSI);
     
-    // Lógica de ENTRADA com inércia
+    // Verifica se o sinal é forte o suficiente
     if (mediaRSSI > RSSI_THRESHOLD) {
         if (currentTarget.inicioInercia == 0) {
+            // Inicia o contador de inércia se for a primeira vez
             currentTarget.inicioInercia = agora;
-            Serial.printf("Alvo %s: Média RSSI (%d) ok. Iniciando inércia...\n", currentTarget.mac.c_str(), mediaRSSI);
+            Serial.printf("Alvo %s: Média RSSI (%d) ok. Iniciando inércia de chegada...\n", currentTarget.mac.c_str(), mediaRSSI);
         } else if (agora - currentTarget.inicioInercia > INERCIA_CHEGADA) {
+            // Se o sinal se manteve forte pelo tempo de inércia, CONFIRMA a entrada
             Serial.printf(">>> Cama %s ENTROU (confirmada)\n", currentTarget.mac.c_str());
             
             // Trava na cama
             lockedBed.mac = currentTarget.mac;
             lockedBed.confirmada = true;
             lockedBed.ultimaPresenca = agora;
-            lockedBed.precisaEnviar = true;
-            lockedBed.envioTimestamp = agora + TEMPO_ENVIO;
 
-            // Limpa o alvo atual para que outro não seja processado
+            // **A CORREÇÃO:** Envia o evento GET imediatamente!
+            enviarEventoHTTP(lockedBed.mac.c_str(), "GET", mediaRSSI, WiFi.RSSI());
+
+            // Limpa o alvo atual, pois já travamos em uma cama
             currentTarget.mac = "";
+            currentTarget.inicioInercia = 0;
         }
     } else {
-        // Se o sinal ficar fraco, reseta a inércia
+        // Se o sinal ficar fraco durante a contagem, reseta a inércia
         currentTarget.inicioInercia = 0;
-    }
-
-    // Lógica de ENVIO agendado
-    if (lockedBed.precisaEnviar && agora >= lockedBed.envioTimestamp) {
-        Serial.printf("Enviando evento GET para %s...\n", lockedBed.mac.c_str());
-        enviarEventoHTTP(lockedBed.mac.c_str(), "GET", mediaRSSI, WiFi.RSSI());
-        lockedBed.precisaEnviar = false;
     }
 }
 

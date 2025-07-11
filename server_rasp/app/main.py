@@ -582,7 +582,7 @@ async def update_bed_from_json(data: dict = Body(...)):
         raise HTTPException(status_code=404, detail=f"Cama com MAC {cama_mac} não encontrada no banco de dados.")
     
     # Usamos o serviço para garantir a atualização e publicação corretas
-    new_room = quarto if status == "IN" else None
+    new_room = quarto if status == "GET" else None
     update_bed_assignment(bed_id=bed.id, new_room=new_room)
     
     return {"message": "Cama atualizada com sucesso", "cama": cama_mac, "status": status, "quarto": new_room}

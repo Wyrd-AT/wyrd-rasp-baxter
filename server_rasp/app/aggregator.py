@@ -10,7 +10,7 @@ from .presence import check_presence
 from .mqtt_client import publish_available_beds
 
 # --- Configurações ---
-RETRY_PRESENCE_FREQUENCY_SEC = 300  # Tentar novamente a cada 60 segundos
+RETRY_PRESENCE_FREQUENCY_SEC = 30  # Tentar novamente a cada 60 segundos
 AGGREGATOR_LOOP_INTERVAL_SEC = 2   # O agregador processa o buffer a cada 2 segundos
 
 # --- Estruturas de Dados em Memória ---
@@ -52,11 +52,12 @@ async def _retry_presence_task(wifi_mac: str, beacon_mac: str, original_event: d
                     dispatch_payload = {
                         "quarto": bed.quarto,
                         "cama": bed.nome_cama,
-                        "status": "IN",
+                        "status": "GET",
                         "dataOn": datetime.now(timezone.utc).isoformat(),
                         "wifi": original_event.get("wifi")
                     }
-                    dispatch_event(dispatch_payload)
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, dispatch_event, dispatch_payload)
                 
                 # Se encontrou o MAC, a tarefa termina com sucesso.
                 break 
@@ -70,7 +71,7 @@ async def _retry_presence_task(wifi_mac: str, beacon_mac: str, original_event: d
     print(f"[aggregator-retry] Finalizada tarefa de verificação para MAC Wi-Fi '{wifi_mac}'.")
 
 
-def _process_events_batch(events: list):
+async def _process_events_batch(events: list):
     """
     Processa um lote de eventos que foram agrupados por beacon.
     """
@@ -126,14 +127,18 @@ def _process_events_batch(events: list):
         
         # Se a cama está vaga, tenta associá-la
         if bed.quarto is None:
-            if check_presence(bed.mac_address):
+            loop = asyncio.get_running_loop()
+            is_present = await loop.run_in_executor(None, check_presence, bed.mac_address)
+            
+            if is_present:
                 print(f"[aggregator] Presença da cama '{bed.nome_cama}' (MAC: {bed.mac_address}) confirmada. Associando ao quarto '{emb.quarto}'.")
                 bed.quarto = emb.quarto
                 db.commit()
                 publish_available_beds()
                 
-                dispatch_payload = {"quarto": bed.quarto, "cama": bed.nome_cama, "status": "IN", "dataOn": datetime.now(timezone.utc).isoformat(), "wifi": best_event.get("wifi")}
-                dispatch_event(dispatch_payload)
+                dispatch_payload = {"quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET", "dataOn": datetime.now(timezone.utc).isoformat(), "wifi": best_event.get("wifi")}
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, dispatch_event, dispatch_payload)
             else:
                 # Se a presença falhar, inicia a tarefa de retry (se já não houver uma)
                 print(f"[aggregator] Presença da cama '{bed.nome_cama}' (MAC: {bed.mac_address}) FALHOU.")
@@ -167,4 +172,4 @@ async def main_aggregator_loop():
         
         print(f"\n[aggregator] Processando {len(events_to_process)} eventos para {len(events_by_beacon)} beacons...")
         for beacon_mac, events in events_by_beacon.items():
-            _process_events_batch(events)
+            await _process_events_batch(events)
