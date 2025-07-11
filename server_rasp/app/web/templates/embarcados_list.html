@@ -13,7 +13,7 @@
     <div class="list-column">
         <div class="table-toolbar">
             <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
-                <input type="text" name="search" placeholder="Pesquisar" value="{{ search or '' }}">
+                <input type="text" name="search" placeholder="Pesquisar por ID, quarto ou andar" value="{{ search or '' }}">
                 <button type="submit" class="icon-btn" title="Pesquisar"><i data-feather="search"></i></button>
             </form>
             <div class="toolbar-actions">
@@ -26,14 +26,15 @@
                 <tr>
                     <th>ID da ESP</th>
                     <th>QUARTO</th>
-                    <th>ANDAR</th> </tr>
+                    <th>ANDAR</th> 
+                </tr>
             </thead>
             <tbody>
                 {% for emb in embarcados %}
-                <tr class="selectable-row" data-id="{{ emb.id_esp }}">
-                    <td>{{ emb.id_esp }}</td>
+                <tr class="selectable-row" data-id="{{ emb.id }}"> <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto }}</td>
-                    <td>{{ emb.andar or '---' }}</td> </tr>
+                    <td>{{ emb.andar or '---' }}</td> 
+                </tr>
                 {% endfor %}
             </tbody>
         </table>

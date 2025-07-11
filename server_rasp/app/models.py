@@ -12,12 +12,12 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
-class Bed(Base):
-    __tablename__ = "beds"
+class Badge(Base):
+    __tablename__ = "badges"
     id          = Column(Integer, primary_key=True, index=True)
-    mac_address = Column(String, unique=True, nullable=False, index=True)
-    nome_cama   = Column(String, nullable=False)
-    mac_beacon  = Column(String, nullable=True)
+    # mac_address não é mais necessário
+    nome_cracha = Column(String, nullable=False, unique=True)
+    mac_beacon  = Column(String, unique=True, nullable=False, index=True)
     quarto      = Column(String, nullable=True)
 
 class Embarcado(Base):
@@ -31,7 +31,7 @@ class ReceivedEvent(Base):
     __tablename__ = "received_events"
     id            = Column(Integer, primary_key=True, index=True)
     esp_id        = Column(String, nullable=False, index=True)
-    cama          = Column(String, nullable=False, index=True)
+    cracha          = Column(String, nullable=False, index=True)
     action        = Column(String, nullable=False, index=True)    
     status        = Column(String, nullable=True, index=True)
     status_detail = Column(String, nullable=True)   

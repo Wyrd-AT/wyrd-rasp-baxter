@@ -1,17 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}Gestão de Camas{% endblock %}
+{% block title %}Gestão de Crachás{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Camas</h1>
-    <a href="{{ url_for('download_beds_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+    <h1>Crachás</h1>
+    <a href="{{ url_for('download_badges_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
 </div>
+
 <div class="page-with-form">
     <div class="list-column">
         <div class="table-toolbar">
-            <form method="get" action="{{ url_for('list_beds') }}" class="search-bar">
-                <input type="text" name="search" placeholder="Pesquisar" value="{{ search or '' }}">
+            <form method="get" action="{{ url_for('list_badges') }}" class="search-bar">
+                <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
                 <button type="submit" class="icon-btn" title="Pesquisar"><i data-feather="search"></i></button>
             </form>
             <div class="toolbar-actions">
@@ -22,18 +23,17 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>MAC</th>
-                    <th>NOME</th>
-                    <th>QUARTO</th>
-                    <th>BEACON</th>
-                    </tr>
+                    <th>NOME DO CRACHÁ</th>
+                    <th>MAC BEACON</th>
+                    <th>QUARTO ATUAL</th>
+                </tr>
             </thead>
             <tbody>
-                {% for bed in beds %}
-                <tr class="selectable-row" data-id="{{ bed.id }}">  <td>{{ bed.mac_address }}</td>
-                    <td>{{ bed.nome_cama }}</td>
-                    <td>{{ bed.quarto or '---' }}</td>
-                    <td>{{ bed.mac_beacon or '---' }}</td>
+                {% for badge in badges %}
+                <tr class="selectable-row" data-id="{{ badge.id }}">
+                    <td>{{ badge.nome_cracha }}</td>
+                    <td>{{ badge.mac_beacon }}</td>
+                    <td>{{ badge.quarto or '---' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -41,7 +41,7 @@
     </div>
 
     <div class="form-column">
-        {% include 'bed_form.html' %}
+        {% include 'badge_form.html' %}
     </div>
 
 </div>

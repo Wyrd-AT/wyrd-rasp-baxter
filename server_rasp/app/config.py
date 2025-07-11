@@ -3,8 +3,9 @@
 # Endereço e porta do servidor TCP
 IP = "192.168.0.5"
 FINAL_IP = "10.0.0.126"
-PORT = 8000
-FINAL_PORT = 9501
+
+ERITEL_WEBHOOK_URL = "http://192.168.99.171/EritelWebhooks/API/api/Webhooks/trigger-event"
+ERITEL_API_KEY = "2Jpjc2gJEe9U9fk5GnzrEUlnmBvxWBO6c5gA+O1JYXE="
 
 # Rede usada nos scans
 NETWORK_RANGE = "10.0.0.0/24"

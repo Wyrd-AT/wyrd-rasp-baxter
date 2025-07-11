@@ -16,10 +16,11 @@ import csv
 from io import StringIO
 import json
 
+# MUDANÇA: Importa Badge em vez de Bed
 from .models import (
     engine,
     SessionLocal,
-    Bed,
+    Badge,
     Embarcado,
     ReceivedEvent,
     init_db
@@ -32,28 +33,30 @@ def get_db():
     finally:
         db.close()
 
-from .presence import check_presence
-from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task
-from . import mqtt_client # <-- Importe o novo módulo
-from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change
-from sqlalchemy import event, or_ # <--- NOVO IMPORT
+# MUDANÇA: O import de cancel_pending_task é removido
+from .aggregator import main_aggregator_loop, enqueue_event
+from . import mqtt_client
+# MUDANÇA: Funções de serviço e MQTT são renomeadas para refletir 'badge'
+from .services import update_badge_assignment, trigger_mqtt_update_on_badge_change
+from sqlalchemy import event, or_
 from sqlalchemy.orm import Session
-from .mqtt_client import publish_available_beds
+from .mqtt_client import publish_available_badges
 from .auth import authenticate_admin
 from .config import (
     HISTORY_RETENTION_DAYS,
     EVENT_PAGE_SIZE,
-    CLEANUP_INTERVAL_SEC, IP
+    CLEANUP_INTERVAL_SEC,
+    IP
 )
 from sqladmin import Admin, ModelView
 
-print("[main] Módulo carregado")
+print("[main] Módulo carregado para a versão CRACHÁS.")
 
 # inicializa banco
 init_db()
 app = FastAPI()
 
-# protege /admin com HTTP Basic
+# --- Autenticação do Admin (sem mudanças) ---
 security = HTTPBasic()
 
 @app.middleware("http")
@@ -63,101 +66,83 @@ async def protect_admin_routes(request: Request, call_next):
             creds: HTTPBasicCredentials = await security(request)
             authenticate_admin(creds)
         except HTTPException as exc:
-            return Response(
-                content=exc.detail,
-                status_code=exc.status_code,
-                headers=exc.headers
-            )
+            return Response(content=exc.detail, status_code=exc.status_code, headers=exc.headers)
     return await call_next(request)
 
-def structural_bed_change_listener(mapper, connection, target):
-    trigger_mqtt_update_on_bed_change()
+# MUDANÇA: Listener agora observa o modelo Badge
+def structural_badge_change_listener(mapper, connection, target):
+    trigger_mqtt_update_on_badge_change()
 
-event.listen(Bed, 'after_insert', structural_bed_change_listener)
-event.listen(Bed, 'after_delete', structural_bed_change_listener)
+event.listen(Badge, 'after_insert', structural_badge_change_listener)
+event.listen(Badge, 'after_delete', structural_badge_change_listener)
 
-# sub-app do SQLAdmin
+# --- Configuração do SQLAdmin ---
 admin_app = FastAPI()
 admin = Admin(admin_app, engine, base_url="/")
 
-class BedAdmin(ModelView, model=Bed):
-    column_list = [Bed.id, Bed.mac_address, Bed.nome_cama, Bed.mac_beacon, Bed.quarto]
-    column_searchable_list = [Bed.mac_address, Bed.nome_cama, Bed.mac_beacon, Bed.quarto]
-    page_size = 20
+# MUDANÇA: BedAdmin para BadgeAdmin
+class BadgeAdmin(ModelView, model=Badge):
+    column_list = [Badge.id, Badge.nome_cracha, Badge.mac_beacon, Badge.quarto]
+    column_searchable_list = [Badge.nome_cracha, Badge.mac_beacon, Badge.quarto]
+    name = "Crachá"
+    name_plural = "Crachás"
+    icon = "fa-solid fa-id-badge"
 
+# (Sem mudanças no EmbarcadoAdmin e ReceivedEventAdmin)
 class EmbarcadoAdmin(ModelView, model=Embarcado):
-    column_list = [Embarcado.id, Embarcado.id_esp, Embarcado.quarto]
+    column_list = [Embarcado.id, Embarcado.id_esp, Embarcado.quarto, Embarcado.andar]
     column_searchable_list = [Embarcado.id_esp, Embarcado.quarto]
-    page_size = 20
+    name = "Embarcado"
+    name_plural = "Embarcados"
+    icon = "fa-solid fa-microchip"
 
 class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
-    # Define as colunas que aparecerão na lista
-    column_list = [
-        ReceivedEvent.id, 
-        ReceivedEvent.data_on, 
-        ReceivedEvent.cama, 
-        ReceivedEvent.action, 
-        ReceivedEvent.status,
-        ReceivedEvent.esp_id
-    ]
-    # Define a ordem padrão
-    column_default_sort = ('data_on', True)  # True para descendente (mais novo primeiro)
-    # Define os campos pelos quais pode pesquisar
-    column_searchable_list = [ReceivedEvent.cama, ReceivedEvent.esp_id, ReceivedEvent.status]
-    # Quantos itens por página
-    page_size = 50
+    column_list = [ReceivedEvent.id, ReceivedEvent.data_on, ReceivedEvent.cracha, ReceivedEvent.action, ReceivedEvent.status, ReceivedEvent.esp_id]
+    column_default_sort = ('data_on', True)
+    column_searchable_list = [ReceivedEvent.cracha, ReceivedEvent.esp_id, ReceivedEvent.status]
+    can_create = False
+    can_edit = False
+    name = "Evento"
+    name_plural = "Eventos"
+    icon = "fa-solid fa-clock-rotate-left"
 
-admin.add_view(BedAdmin)
+admin.add_view(BadgeAdmin)
 admin.add_view(EmbarcadoAdmin)
 admin.add_view(ReceivedEventAdmin)
 
 app.mount("/admin", admin_app)
 
-# estáticos e templates
+# --- Estáticos e Templates ---
 app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
 templates = Jinja2Templates(directory="app/web/templates")
 
-def validate_bed_data(data: dict):
-    if "cama" not in data or "quarto" not in data or "status" not in data:
-        raise HTTPException(status_code=400, detail="Dados da cama incompletos.")
-
 # ==========================================================
-# NOVO ENDPOINT HTTP PARA RECEBER EVENTOS DOS ESPs
+# ENDPOINT DE EVENTOS (Recepção sem mudanças funcionais)
 # ==========================================================
 @app.post("/event")
 async def receive_event(event_data: Dict):
-    """
-    Recebe um evento de um ESP32 via HTTP POST.
-    """
     print(f"[main] Evento HTTP recebido: {event_data}")
 
     required_keys = ["esp_id", "cama", "status"]
     if not all(key in event_data for key in required_keys):
-        raise HTTPException(status_code=400, detail="Payload incompleto. Faltando chaves essenciais.")
+        raise HTTPException(status_code=400, detail="Payload incompleto.")
 
     db = SessionLocal()
     try:
-        # --- MUDANÇAS AQUI ---
         db_event = ReceivedEvent(
             esp_id=event_data.get("esp_id"),
-            cama=event_data.get("cama"),
-            
-            # 1. O status do ESP agora é a nossa 'action'.
-            action=event_data.get("status"), 
-            
-            # 2. O status inicial do processamento é 'Enfileirado'.
+            cracha=event_data.get("cama"),
+            action=event_data.get("status"),
             status="Enfileirado",
-            status_detail="Aguardando processamento pelo agregador",
-
+            status_detail="Aguardando processamento pelo agregador simplificado",
             rssi=event_data.get("RSSI"),
             wifi=event_data.get("wifi"),
             data_on=datetime.fromisoformat(event_data.get("data_on").replace("Z", "+00:00")),
             raw=event_data
         )
-
         db.add(db_event)
         db.commit()
-        db.refresh(db_event) # Para carregar o ID do evento recém-criado
+        db.refresh(db_event)
 
         event_with_id = {**event_data, "event_id": db_event.id}
         enqueue_event(event_with_id)
@@ -165,18 +150,19 @@ async def receive_event(event_data: Dict):
         return {"status": "success", "message": "Evento recebido e enfileirado"}
 
     except Exception as e:
-        print(f"[main] Erro ao salvar evento no DB: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Erro ao processar e salvar o evento.")
+        raise HTTPException(status_code=500, detail=f"Erro ao processar e salvar o evento: {e}")
     finally:
         db.close()
 
-# lista eventos, usando data_on como timestamp principal
+# ==========================================================
+# LISTA DE EVENTOS (LÓGICA SIMPLIFICADA)
+# ==========================================================
 @app.get("/events", name="list_events")
 def list_events(
     request: Request,
     page: int = 1,
-    filter_cama: Optional[str] = Query(None),
+    filter_cracha: Optional[str] = Query(None),
     filter_quarto: Optional[str] = Query(None),
     filter_action: Optional[str] = Query(None),
     filter_status: Optional[str] = Query(None),
@@ -185,492 +171,232 @@ def list_events(
     db: Session = Depends(get_db)
 ):
     embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
-    beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
-    
-    # --- MUDANÇA PRINCIPAL AQUI ---
+    beacon_to_badge_name_map = {b.mac_beacon: b.nome_cracha for b in db.query(Badge).filter(Badge.mac_beacon.isnot(None)).all()}
 
-    # 1. Nova consulta: Busca TODOS os eventos pendentes, sem paginação.
-    pending_query = db.query(ReceivedEvent).filter(ReceivedEvent.status == 'Pendente')
-    pending_events = pending_query.order_by(ReceivedEvent.data_on.desc()).all()
+    query = db.query(ReceivedEvent)
 
-    # 2. Consulta principal: Busca o histórico, mas AGORA EXCLUI os pendentes.
-    history_query = db.query(ReceivedEvent).filter(ReceivedEvent.status != 'Pendente')
-
-    # --- FIM DA MUDANÇA PRINCIPAL ---
-
-    # Aplica os filtros apenas na consulta de histórico
-    if filter_cama:
-        history_query = history_query.filter(ReceivedEvent.cama == filter_cama)
+    if filter_cracha:
+        query = query.filter(ReceivedEvent.cracha == filter_cracha)
     if time_filter:
         now = datetime.now(timezone.utc)
-        if time_filter == 'daily':
-            start_date = now - timedelta(days=1)
-            history_query = history_query.filter(ReceivedEvent.data_on >= start_date)
-        # ... (outros filtros de tempo)
+        if time_filter == 'daily': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
+        elif time_filter == 'weekly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(weeks=1))
+        elif time_filter == 'monthly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=30))
     if filter_quarto:
-        esps_no_quarto = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
-        history_query = history_query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else history_query.filter(False)
+        esps = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
+        query = query.filter(ReceivedEvent.esp_id.in_(esps)) if esps else query.filter(False)
     if filter_action:
-        history_query = history_query.filter(ReceivedEvent.action == filter_action)
+        query = query.filter(ReceivedEvent.action == filter_action)
     if filter_status:
-        # Garante que o filtro de status não se aplique aos pendentes
-        if filter_status.lower() != 'pendente':
-            history_query = history_query.filter(ReceivedEvent.status == filter_status)
+        query = query.filter(ReceivedEvent.status == filter_status)
     if filter_andar:
-        esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
-        history_query = history_query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else history_query.filter(False)
+        esps = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
+        query = query.filter(ReceivedEvent.esp_id.in_(esps)) if esps else query.filter(False)
 
-    total = history_query.count()
-    history_events = (
-        history_query.order_by(ReceivedEvent.data_on.desc())
+    total = query.count()
+    events = (
+        query.order_by(ReceivedEvent.data_on.desc())
              .offset((page - 1) * EVENT_PAGE_SIZE)
              .limit(EVENT_PAGE_SIZE)
              .all()
     )
     has_next = total > page * EVENT_PAGE_SIZE
 
-    # Prepara as opções para os filtros do frontend
-    all_beds = db.query(Bed.nome_cama, Bed.mac_beacon).filter(Bed.mac_beacon.isnot(None)).distinct().order_by(Bed.nome_cama).all()
-    all_action_options = [("GET", "Conectar"), ("OUT", "Desconectar"), ("WARNING", "Alerta")]
-    # Adicionamos "Ignorado" às opções de filtro
-    all_status_options = ["OK", "Erro", "Enfileirado", "Ignorado", "Cancelado", "Resolvido", "Confirmado"]
+    all_badges = db.query(Badge.nome_cracha, Badge.mac_beacon).filter(Badge.mac_beacon.isnot(None)).distinct().order_by(Badge.nome_cracha).all()
+    all_action_options = [("GET", "Conectar"), ("OUT", "Desconectar")]
+    all_status_options = ["OK", "Erro", "Enfileirado", "Ignorado", "Confirmado"]
     all_andares = sorted([str(a[0]) for a in db.query(Embarcado.andar).distinct().filter(Embarcado.andar.isnot(None)).all()])
     all_quartos = sorted([str(q[0]) for q in db.query(Embarcado.quarto).distinct().filter(Embarcado.quarto.isnot(None)).all()])
 
-    # Enriquecimento dos dados (para AMBAS as listas)
-    def enrich_event_data(event_list):
-        for e in event_list:
-            e.data_str = e.data_on.strftime("%Y/%m/%d") if e.data_on else "N/A"
-            e.hora_str = e.data_on.strftime("%H:%M:%S") if e.data_on else "N/A"
-            emb_data = embarcados_map.get(e.esp_id)
-            if emb_data:
-                e.quarto = emb_data.get("quarto", "---")
-                e.andar = emb_data.get("andar", "---")
-            else:
-                e.quarto, e.andar = "---", "---"
-            e.nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
-
-    enrich_event_data(pending_events)
-    enrich_event_data(history_events)
+    for e in events:
+        e.data_str = e.data_on.strftime("%Y/%m/%d") if e.data_on else "N/A"
+        e.hora_str = e.data_on.strftime("%H:%M:%S") if e.data_on else "N/A"
+        emb_data = embarcados_map.get(e.esp_id)
+        e.quarto = emb_data.get("quarto", "---") if emb_data else "---"
+        e.andar = emb_data.get("andar", "---") if emb_data else "---"
+        e.nome_cracha = beacon_to_badge_name_map.get(e.cracha, e.cracha)
 
     return templates.TemplateResponse("events_list.html", {
-        "request": request,
-        "pending_events": pending_events, # <-- Passando a nova lista para o template
-        "events": history_events, # <-- Esta é a lista antiga, agora apenas com o histórico
-        "page": page, "has_next": has_next,
-        "all_beds": all_beds,
-        "all_action_options": all_action_options,
-        "all_status_options": all_status_options,
-        "all_andares": all_andares,
+        "request": request, "events": events, "page": page, "has_next": has_next,
+        "all_badges": all_badges, "all_action_options": all_action_options,
+        "all_status_options": all_status_options, "all_andares": all_andares,
         "all_quartos": all_quartos,
         "current_filters": {
-            "cama": filter_cama, "quarto": filter_quarto, "action": filter_action,
+            "cracha": filter_cracha, "quarto": filter_quarto, "action": filter_action,
             "status": filter_status, "andar": filter_andar, "time_filter": time_filter
         }
     })
 
-# ==========================================================
-#     NOVA ROTA PARA CANCELAR UM EVENTO PENDENTE
-# ==========================================================
-@app.post("/event/{event_id}/cancel", name="cancel_pending_event")
-def cancel_pending_event(request: Request, event_id: int, db: Session = Depends(get_db)):
-    """
-    Cancela manualmente uma tarefa de verificação pendente.
-    """
-    event = db.query(ReceivedEvent).filter(ReceivedEvent.id == event_id).first()
-
-    if not event:
-        raise HTTPException(status_code=404, detail="Evento não encontrado.")
-
-    if event.status != "Pendente":
-        # Apenas para segurança, não faz sentido cancelar algo que não está pendente
-        return RedirectResponse(request.url_for("list_events"), status_code=303)
-
-    # Para cancelar a tarefa, precisamos do MAC Wi-Fi da cama.
-    # O evento nos dá o MAC do beacon (event.cama).
-    bed = db.query(Bed).filter(Bed.mac_beacon == event.cama).first()
-
-    if not bed:
-        # Se a cama não for encontrada, apenas atualiza o status para evitar erros
-        event.status = "Erro"
-        event.status_detail = f"Cancelamento falhou: Cama com beacon {event.cama} não encontrada."
-    else:
-        # Chama a função do agregador para cancelar a tarefa em background
-        was_cancelled = cancel_pending_task(wifi_mac=bed.mac_address)
-        
-        if was_cancelled:
-            event.status = "Cancelado"
-            event.status_detail = "Tarefa de verificação cancelada manualmente pelo operador."
-        else:
-            # A tarefa não estava mais no dicionário, provavelmente já terminou
-            event.status = "OK"
-            event.status_detail = "A tarefa de verificação já havia sido concluída."
-
-    db.commit()
-
-    return RedirectResponse(request.url_for("list_events"), status_code=303)
 
 # ==========================================================
-# ROTA PARA DOWNLOAD CSV DE CAMAS
+#     ROTAS DE DOWNLOAD E STARTUP (com pequenas atualizações)
 # ==========================================================
-@app.get("/beds/download", name="download_beds_csv")
-def download_beds_csv():
-    db = SessionLocal()
-    try:
-        beds = db.query(Bed).order_by(Bed.nome_cama).all()
+@app.get("/badges/download", name="download_badges_csv")
+def download_badges_csv(db: Session = Depends(get_db)):
+    badges = db.query(Badge).order_by(Badge.nome_cracha).all()
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["NOME DO CRACHÁ", "MAC BEACON", "QUARTO ATUAL"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        for badge in badges:
+            writer.writerow([badge.nome_cracha, badge.mac_beacon, badge.quarto or ""])
+            yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+    return StreamingResponse(iter_csv(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=crachas_export.csv"})
 
-        def iter_csv():
-            buf = StringIO()
-            writer = csv.writer(buf)
-
-            # Cabeçalho
-            writer.writerow(["MAC", "NOME", "QUARTO", "BEACON"])
-            yield buf.getvalue()
-            buf.seek(0); buf.truncate(0)
-
-            for bed in beds:
-                writer.writerow([
-                    bed.mac_address,
-                    bed.nome_cama,
-                    bed.quarto or "",
-                    bed.mac_beacon or ""
-                ])
-                yield buf.getvalue()
-                buf.seek(0); buf.truncate(0)
-    finally:
-        db.close()
-
-    return StreamingResponse(
-        iter_csv(),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=camas_export.csv"}
-    )
-
-# ==========================================================
-# ROTA PARA DOWNLOAD CSV DE EMBARCADOS
-# ==========================================================
 @app.get("/embarcados/download", name="download_embarcados_csv")
-def download_embarcados_csv():
-    db = SessionLocal()
-    try:
-        embarcados = db.query(Embarcado).order_by(Embarcado.quarto).all()
+def download_embarcados_csv(db: Session = Depends(get_db)):
+    # (sem mudanças)
+    embarcados = db.query(Embarcado).order_by(Embarcado.quarto).all()
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["ID DA ESP", "QUARTO", "ANDAR"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        for emb in embarcados:
+            writer.writerow([emb.id_esp, emb.quarto, emb.andar or ""])
+            yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+    return StreamingResponse(iter_csv(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=embarcados_export.csv"})
 
-        def iter_csv():
-            buf = StringIO()
-            writer = csv.writer(buf)
 
-            # Cabeçalho
-            writer.writerow(["ID da ESP", "QUARTO"])
-            yield buf.getvalue()
-            buf.seek(0); buf.truncate(0)
-
-            for emb in embarcados:
-                writer.writerow([
-                    emb.id_esp,
-                    emb.quarto
-                ])
-                yield buf.getvalue()
-                buf.seek(0); buf.truncate(0)
-    finally:
-        db.close()
-
-    return StreamingResponse(
-        iter_csv(),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=embarcados_export.csv"}
-    )
-
-# rota para download CSV
-@app.get("/events/download", name="download_events_csv")
-def download_events_csv(
-    # 1. A função agora aceita os mesmos parâmetros de filtro
-    db: Session = Depends(get_db),
-    filter_cama: Optional[str] = Query(None),
-    filter_quarto: Optional[str] = Query(None),
-    filter_status: Optional[str] = Query(None),
-    filter_andar: Optional[str] = Query(None),
-    time_filter: Optional[str] = Query(None)
-):
-    try:
-        # 2. Copiamos a mesma lógica de mapas da list_events
-        embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
-        beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
-
-        # 3. Construímos a query com os filtros, exatamente como em list_events
-        query = db.query(ReceivedEvent)
-
-        if filter_cama:
-            query = query.filter(ReceivedEvent.cama == filter_cama)
-        if time_filter:
-            now = datetime.now(timezone.utc)
-            if time_filter == 'daily':
-                start_date = now - timedelta(days=1)
-                query = query.filter(ReceivedEvent.data_on >= start_date)
-            elif time_filter == 'weekly':
-                start_date = now - timedelta(weeks=1)
-                query = query.filter(ReceivedEvent.data_on >= start_date)
-            elif time_filter == 'monthly':
-                start_date = now - timedelta(days=30)
-                query = query.filter(ReceivedEvent.data_on >= start_date)
-        if filter_quarto:
-            esps_no_quarto = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
-            query = query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else query.filter(False)
-        if filter_status:
-            query = query.filter(ReceivedEvent.status == filter_status)
-        if filter_andar:
-            esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
-            query = query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else query.filter(False)
-
-        # A busca agora é feita na query já filtrada
-        events = query.order_by(ReceivedEvent.data_on).all()
-
-        def iter_csv():
-            buf = StringIO()
-            writer = csv.writer(buf)
-
-            # 4. Atualizamos o cabeçalho do CSV
-            writer.writerow(["Data/Hora", "Nome da Cama", "Andar", "Quarto", "Status", "RSSI", "Wi-Fi"])
-            yield buf.getvalue()
-            buf.seek(0); buf.truncate(0)
-
-            for e in events:
-                # 5. Buscamos os dados enriquecidos para cada linha
-                emb_data = embarcados_map.get(e.esp_id, {})
-                quarto = emb_data.get("quarto", "")
-                andar = emb_data.get("andar", "")
-                nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
-
-                writer.writerow([
-                    e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
-                    nome_cama,
-                    andar,
-                    quarto,
-                    e.status,
-                    e.rssi,
-                    e.wifi
-                ])
-                yield buf.getvalue()
-                buf.seek(0); buf.truncate(0)
-    finally:
-        db.close()
-
-    return StreamingResponse(
-        iter_csv(),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
-    )
-
-# limpeza periódica usando data_on
 def purge_old_events():
     db = SessionLocal()
-    cutoff = datetime.now(timezone.utc) - timedelta(days=HISTORY_RETENTION_DAYS)
-    deleted = db.query(ReceivedEvent).filter(ReceivedEvent.data_on < cutoff).delete()
-    db.commit()
-    print(f"[main] purge_old_events: removidos {deleted} eventos antes de {cutoff.isoformat()}")
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=HISTORY_RETENTION_DAYS)
+        deleted = db.query(ReceivedEvent).filter(ReceivedEvent.data_on < cutoff).delete()
+        db.commit()
+        print(f"[main] Limpeza de eventos antigos: {deleted} removidos.")
+    finally:
+        db.close()
 
 def start_cleanup_scheduler():
-    print(f"[main] Cleanup scheduler iniciado (a cada {CLEANUP_INTERVAL_SEC}s)")
     def loop():
         while True:
-            purge_old_events()
             time.sleep(CLEANUP_INTERVAL_SEC)
+            purge_old_events()
     threading.Thread(target=loop, daemon=True).start()
 
 @app.on_event("startup")
 async def on_startup():
-    print("[main] Startup: agregador, servidor TCP e cleanup")
+    print("[main] Startup: Iniciando agregador, cliente MQTT e agendador de limpeza.")
     asyncio.create_task(main_aggregator_loop())
-    mqtt_client.connect_mqtt() 
-    #asyncio.create_task(start_server())
+    mqtt_client.connect_mqtt()
     start_cleanup_scheduler()
 
+# ==========================================================
+#     PÁGINA PRINCIPAL E CRUD CRACHÁS
+# ==========================================================
 @app.get("/", name="main")
-def main(request: Request):
+def main_page(request: Request):
     return templates.TemplateResponse("main.html", {"request": request})
 
-# ─── CRUD CAMAS ────────────────────────────────────────────────────────────────
-@app.get("/beds", name="list_beds")
-def list_beds(request: Request, search: Optional[str] = Query(None)):
-    db = SessionLocal()
-    
-    query = db.query(Bed)
-
+@app.get("/badges", name="list_badges")
+def list_badges(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    query = db.query(Badge)
     if search:
         search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                Bed.nome_cama.ilike(search_term),
-                Bed.mac_address.ilike(search_term),
-                Bed.quarto.ilike(search_term)
-            )
-        )
-    
-    beds = query.all()
-    
-    return templates.TemplateResponse("beds_list.html", {
-        "request": request,
-        "beds": beds,
-        "form_action": request.url_for("create_bed"),
-        "bed": None,
-        "search": search # Envia o termo de pesquisa
+        query = query.filter(or_(Badge.nome_cracha.ilike(search_term), Badge.mac_beacon.ilike(search_term), Badge.quarto.ilike(search_term)))
+    badges = query.order_by(Badge.nome_cracha).all()
+    return templates.TemplateResponse("badges_list.html", {
+        "request": request, "badges": badges,
+        "form_action": request.url_for("create_badge"),
+        "badge": None, "search": search
     })
 
-@app.post("/beds", name="create_bed")
-def create_bed(
-    request: Request,
-    mac_address: str = Form(...),
-    nome: str = Form(...),
-    mac_beacon: Optional[str] = Form("Nenhum")
-):
-    db = SessionLocal()
-    bed = Bed(mac_address=mac_address, nome_cama=nome, mac_beacon=mac_beacon)
-    db.add(bed)
+@app.post("/badges", name="create_badge")
+def create_badge(request: Request, nome_cracha: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+    badge = Badge(nome_cracha=nome_cracha, mac_beacon=mac_beacon.lower())
+    db.add(badge)
     db.commit()
-    return RedirectResponse(request.url_for("list_beds"), status_code=303)
+    return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
-@app.get("/beds/{bed_id}/edit", name="edit_bed")
-def edit_bed(request: Request, bed_id: int):
-    db = SessionLocal()
-    bed = db.query(Bed).get(bed_id)
-    beds = db.query(Bed).all()
-    return templates.TemplateResponse("beds_list.html", {
-        "request": request,
-        "beds": beds,
-        "form_action": request.url_for("update_bed", bed_id=bed_id),
-        "bed": bed
+@app.get("/badges/{badge_id}/edit", name="edit_badge")
+def edit_badge(request: Request, badge_id: int, db: Session = Depends(get_db)):
+    badge = db.query(Badge).get(badge_id)
+    badges = db.query(Badge).order_by(Badge.nome_cracha).all()
+    return templates.TemplateResponse("badges_list.html", {
+        "request": request, "badges": badges,
+        "form_action": request.url_for("update_badge", badge_id=badge_id),
+        "badge": badge
     })
 
-@app.post("/beds/{bed_id}/edit", name="update_bed")
-def update_bed(
-    request: Request,
-    bed_id: int,
-    mac_address: str = Form(...),
-    nome: str = Form(...),
-    mac_beacon: Optional[str] = Form(None),
-    quarto: Optional[str] = Form(None)
+@app.post("/badges/{badge_id}/edit", name="update_badge")
+def update_badge(
+    request: Request, badge_id: int, nome_cracha: str = Form(...),
+    mac_beacon: Optional[str] = Form(None), quarto: Optional[str] = Form(None), db: Session = Depends(get_db)
 ):
-    db = SessionLocal()
-    bed = db.query(Bed).get(bed_id)
-    bed.mac_address = mac_address
-    bed.nome_cama = nome
+    badge = db.query(Badge).get(badge_id)
+    badge.nome_cracha = nome_cracha
     
-    if bed.mac_beacon != mac_beacon:
-        bed.mac_beacon = mac_beacon
-        trigger_mqtt_update_on_bed_change()
+    # Atualiza o beacon e dispara o MQTT se houver mudança
+    if badge.mac_beacon != mac_beacon.lower():
+        badge.mac_beacon = mac_beacon.lower()
+        trigger_mqtt_update_on_badge_change()
 
     db.commit()
-    db.close()
-
-    update_bed_assignment(bed_id=bed_id, new_room=quarto)
     
-    return RedirectResponse(request.url_for("list_beds"), status_code=303)
+    # Atualiza o quarto via serviço para garantir a publicação MQTT
+    update_badge_assignment(badge_id=badge_id, new_room=quarto)
+    
+    return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
-@app.get("/beds/{bed_id}/delete", name="delete_bed")
-def delete_bed(request: Request, bed_id: int):
-    db = SessionLocal()
-    bed = db.query(Bed).get(bed_id)
-    db.delete(bed)
+@app.get("/badges/{badge_id}/delete", name="delete_badge")
+def delete_badge(request: Request, badge_id: int, db: Session = Depends(get_db)):
+    badge = db.query(Badge).get(badge_id)
+    db.delete(badge)
     db.commit()
-    return RedirectResponse(request.url_for("list_beds"), status_code=303)
+    return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
-# ─── CRUD Embarcados (HTML) ────────────────────────────────────────────────────
+# ==========================================================
+#     CRUD EMBARCADOS (sem mudanças)
+# ==========================================================
 @app.get("/embarcados", name="list_embarcados")
-def list_embarcados(request: Request, search: Optional[str] = Query(None)):
-    db = SessionLocal()
-    
+def list_embarcados(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
     query = db.query(Embarcado)
-
     if search:
         search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                Embarcado.id_esp.ilike(search_term),
-                Embarcado.quarto.ilike(search_term)
-            )
-        )
-        
-    embarcados = query.all()
-
+        query = query.filter(or_(Embarcado.id_esp.ilike(search_term), Embarcado.quarto.ilike(search_term), Embarcado.andar.ilike(search_term)))
+    embarcados = query.order_by(Embarcado.quarto).all()
     return templates.TemplateResponse("embarcados_list.html", {
-        "request": request,
-        "embarcados": embarcados,
-        "form_action": request.url_for("create_embarcado_html"),
-        "embarcado": None,
-        "search": search
+        "request": request, "embarcados": embarcados,
+        "form_action": request.url_for("create_embarcado"),
+        "embarcado": None, "search": search
     })
 
-@app.post("/embarcados", name="create_embarcado_html")
-def create_embarcado_html(
-    request: Request,
-    id_esp: str = Form(...),
-    quarto: str = Form(...),
-    andar: Optional[str] = Form(None) # <-- NOVO PARÂMETRO
-):
-    db = SessionLocal()
-    emb = Embarcado(id_esp=id_esp, quarto=quarto, andar=andar) # <-- SALVANDO O NOVO CAMPO
+@app.post("/embarcados", name="create_embarcado")
+def create_embarcado(request: Request, id_esp: str = Form(...), quarto: str = Form(...), andar: Optional[str] = Form(None), db: Session = Depends(get_db)):
+    emb = Embarcado(id_esp=id_esp, quarto=quarto, andar=andar)
     db.add(emb)
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-@app.get("/embarcados/{id_esp}/edit", name="edit_embarcado")
-def edit_embarcado(request: Request, id_esp: str):
-    db = SessionLocal()
-    emb = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
-    embarcados = db.query(Embarcado).all()
+@app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
+def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    emb = db.query(Embarcado).get(embarcado_id)
+    embarcados = db.query(Embarcado).order_by(Embarcado.quarto).all()
     return templates.TemplateResponse("embarcados_list.html", {
-        "request": request,
-        "embarcados": embarcados,
-        "form_action": request.url_for("update_embarcado", id_esp=id_esp),
+        "request": request, "embarcados": embarcados,
+        "form_action": request.url_for("update_embarcado", embarcado_id=embarcado_id),
         "embarcado": emb
     })
 
-@app.post("/embarcados/{id_esp}/edit", name="update_embarcado")
-def update_embarcado_html(
-    request: Request,
-    id_esp: str,
-    quarto: str = Form(...),
-    andar: Optional[str] = Form(None) # <-- NOVO PARÂMETRO
-):
-    db = SessionLocal()
-    emb = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
+@app.post("/embarcados/{embarcado_id}/edit", name="update_embarcado")
+def update_embarcado(request: Request, embarcado_id: int, quarto: str = Form(...), andar: Optional[str] = Form(None), db: Session = Depends(get_db)):
+    emb = db.query(Embarcado).get(embarcado_id)
     emb.quarto = quarto
-    emb.andar = andar # <-- ATUALIZANDO O NOVO CAMPO
+    emb.andar = andar
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-@app.get("/embarcados/{id_esp}/delete", name="delete_embarcado")
-def delete_embarcado_html(request: Request, id_esp: str):
-    db = SessionLocal()
-    emb = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
+@app.get("/embarcados/{embarcado_id}/delete", name="delete_embarcado")
+def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    emb = db.query(Embarcado).get(embarcado_id)
     db.delete(emb)
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-# ─── ROTA PARA RECEBER O JSON (com informações da cama) ───────────────────────
-@app.post("/update_bed_from_json")
-async def update_bed_from_json(data: dict = Body(...)):
-    validate_bed_data(data)
-
-    cama_mac = data.get("cama")
-    quarto = data.get("quarto")
-    status = data.get("status")
-
-    if not check_presence(cama_mac):
-        raise HTTPException(status_code=404, detail=f"Cama com MAC {cama_mac} não está conectada à rede")
-
-    db = SessionLocal()
-    bed = db.query(Bed).filter(Bed.mac_address == cama_mac).first()
-    db.close()
-    
-    if not bed:
-        raise HTTPException(status_code=404, detail=f"Cama com MAC {cama_mac} não encontrada no banco de dados.")
-    
-    # Usamos o serviço para garantir a atualização e publicação corretas
-    new_room = quarto if status == "GET" else None
-    update_bed_assignment(bed_id=bed.id, new_room=new_room)
-    
-    return {"message": "Cama atualizada com sucesso", "cama": cama_mac, "status": status, "quarto": new_room}
-
-# ─── EXECUÇÃO DIRETA ───────────────────────────────────────────────────────────
+# ==========================================================
+#     EXECUÇÃO
+# ==========================================================
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host=IP, port=8000, reload=True)

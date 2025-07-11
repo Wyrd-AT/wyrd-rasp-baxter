@@ -1,39 +1,37 @@
 # dispatcher.py
-
-import socket
+import requests
 import json
-import time
-from .config import FINAL_IP, FINAL_PORT
+from .config import ERITEL_WEBHOOK_URL, ERITEL_API_KEY
 
-# Função de backoff exponencial para reconexão
-def exponential_backoff(attempt):
-    return min(2 ** attempt, 30)  # Timeout máximo de 30 segundos
-
-def dispatch_event(evt):
-    #print(f"[dispatch_event] Recebido evt: {evt}")
+def dispatch_event_to_eritel(tipo_evento: str, event_data: dict):
+    """
+    Envia um evento formatado para o Webhook Dispatcher da Eritel.
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": ERITEL_API_KEY
+    }
 
     payload = {
-        "quarto": evt.get("quarto"),
-        "cama":   evt.get("cama"),
-        "status": evt.get("status"),
-        "dataOn": evt.get("dataOn"),
-        "wifi":   evt.get("wifi")
+        "tipoEvento": tipo_evento,
+        "eventData": event_data
     }
-    msg = json.dumps(payload) + "\n"
-    print(f"[dispatch_event] Payload montado: {payload}")
 
-    attempt = 0
-    while attempt < 5:
-        try:
-            attempt += 1
-            print(f"[dispatch_event] Tentativa {attempt} de conexão em {FINAL_IP}:{FINAL_PORT}...")
-            with socket.create_connection((FINAL_IP, FINAL_PORT), timeout=5) as sock:
-                sock.sendall(msg.encode())
-                print(f"[dispatch_event] Payload enviado com sucesso na tentativa {attempt}.")
-            break
-        except (socket.timeout, socket.error) as e:
-            wait = exponential_backoff(attempt)
-            print(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s para retry.")
-            time.sleep(wait)
-    else:
-        print(f"[dispatch_event] Falha após {attempt} tentativas. Payload descartado.")
+    print(f"[DISPATCHER] Enviando para Eritel: {payload}")
+
+    try:
+        response = requests.post(
+            ERITEL_WEBHOOK_URL,
+            headers=headers,
+            json=payload,
+            timeout=10 # Timeout de 10 segundos
+        )
+
+        # A Eritel espera um 202 Accepted. Qualquer outra coisa é um problema.
+        if response.status_code == 202:
+            print(f"[DISPATCHER] Sucesso! Evento '{tipo_evento}' aceito pela Eritel.")
+        else:
+            print(f"[DISPATCHER] ERRO! Status: {response.status_code}, Resposta: {response.text}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"[DISPATCHER] ERRO DE CONEXÃO: Falha ao enviar evento para Eritel. Erro: {e}")
