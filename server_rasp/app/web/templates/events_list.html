@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Status dos Eventos{% endblock %}
+{% block title %}Histórico de Eventos{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Status</h1>
+    <h1>Histórico de Eventos</h1>
     <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">DOWNLOAD CSV</a>
 </div>
 
@@ -20,37 +20,42 @@
 
     <div class="filter-group-right">
         <select name="time_filter" class="filter-btn" onchange="this.form.submit()">
-            <option value="all" {% if not current_filters.time_filter or current_filters.time_filter == 'all' %}selected{% endif %}>data e hora</option>
+            <option value="all" {% if not current_filters.time_filter or current_filters.time_filter == 'all' %}selected{% endif %}>Data e Hora</option>
             <option value="daily" {% if current_filters.time_filter == 'daily' %}selected{% endif %}>Últimas 24h</option>
             <option value="weekly" {% if current_filters.time_filter == 'weekly' %}selected{% endif %}>Últimos 7 dias</option>
             <option value="monthly" {% if current_filters.time_filter == 'monthly' %}selected{% endif %}>Últimos 30 dias</option>
         </select>
         
         <select name="filter_andar" class="filter-btn" onchange="this.form.submit()">
-            <option value="">andar</option>
+            <option value="">Andar</option>
             {% for andar in all_andares %}
             <option value="{{ andar }}" {% if current_filters.andar == andar %}selected{% endif %}>{{ andar }}º</option>
             {% endfor %}
         </select>
 
         <select name="filter_quarto" class="filter-btn" onchange="this.form.submit()">
-            <option value="">quarto</option>
+            <option value="">Quarto</option>
             {% for quarto in all_quartos %}
             <option value="{{ quarto }}" {% if current_filters.quarto == quarto %}selected{% endif %}>{{ quarto }}</option>
             {% endfor %}
         </select>
         
-        <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
-          <option value="">status</option>
-          
-          {% for value, name in all_status_options %}
-          <option value="{{ value }}" {% if current_filters.status == value %}selected{% endif %}>{{ name }}</option>
+        <select name="filter_action" class="filter-btn" onchange="this.form.submit()">
+          <option value="">Ação</option>
+          {% for value, name in all_action_options %}
+          <option value="{{ value }}" {% if current_filters.action == value %}selected{% endif %}>{{ name }}</option>
           {% endfor %}
-      </select>
-        
-        <button type="submit" class="filter-search-btn" title="Aplicar Filtros">
-            <i data-feather="search"></i>
-        </button>
+        </select>
+
+        <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
+          <option value="">Status</option>
+          {% for status_option in all_status_options %}
+          <option value="{{ status_option }}" {% if current_filters.status == status_option %}selected{% endif %}>{{ status_option }}</option>
+          {% endfor %}
+        </select>
+
+        <a href="{{ url_for('list_events') }}" class="filter-reset-btn" title="Limpar Filtros">
+            <i data-feather="rotate-cw"></i> </a>
     </div>
 </form>
 
@@ -61,9 +66,9 @@
                 <th>DATA</th>
                 <th>HORA</th>
                 <th>CAMA</th>
-                <th>ANDAR</th>
                 <th>QUARTO</th>
-                <th>INTENSIDADE DO SINAL</th>
+                <th>SINAL</th>
+                <th>AÇÃO</th>
                 <th>STATUS</th>
             </tr>
         </thead>
@@ -73,18 +78,26 @@
                 <td>{{ event.data_str }}</td>
                 <td>{{ event.hora_str }}</td>
                 <td>{{ event.nome_cama }}</td>
-                <td>{{ event.andar or '---' }}</td>
                 <td>{{ event.quarto }}</td>
                 <td>{{ event.rssi or '0' }}</td>
                 <td>
-                    {% if event.status == 'GET' %}
-                        <span class="status-conectado">conectou</span>
-                    {% elif event.status == 'OUT' %}
-                        <span class="status-desconectado">desconectou</span>
-                    {% elif event.status == 'WARNING' %}
-                        <span class="status-erro-wifi">erro de wifi</span>
+                    {% if event.action == 'GET' %}
+                        <span class="action-get">Conectou</span>
+                    {% elif event.action == 'OUT' %}
+                        <span class="action-out">Desconectou</span>
+                    {% elif event.action == 'WARNING' %}
+                        <span class="action-warning">Alerta</span>
                     {% else %}
-                        <span>{{ event.status }}</span>
+                        <span>{{ event.action }}</span>
+                    {% endif %}
+                </td>
+            
+                <td>
+                    {% if event.status %}
+                        <span class="status-box status-{{ event.status | lower }}" 
+                            {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
+                            {{ event.status }}
+                        </span>
                     {% endif %}
                 </td>
             </tr>

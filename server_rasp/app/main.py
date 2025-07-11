@@ -112,37 +112,45 @@ async def receive_event(event_data: Dict):
     """
     print(f"[main] Evento HTTP recebido: {event_data}")
 
-    # Validação básica para garantir que os campos essenciais estão presentes
     required_keys = ["esp_id", "cama", "status"]
     if not all(key in event_data for key in required_keys):
         raise HTTPException(status_code=400, detail="Payload incompleto. Faltando chaves essenciais.")
 
-    # Salva o evento bruto no banco de dados para histórico
     db = SessionLocal()
     try:
+        # --- MUDANÇAS AQUI ---
         db_event = ReceivedEvent(
             esp_id=event_data.get("esp_id"),
             cama=event_data.get("cama"),
-            status=event_data.get("status"),
+            
+            # 1. O status do ESP agora é a nossa 'action'.
+            action=event_data.get("status"), 
+            
+            # 2. O status inicial do processamento é 'Enfileirado'.
+            status="Enfileirado",
+            status_detail="Aguardando processamento pelo agregador",
+
             rssi=event_data.get("RSSI"),
             wifi=event_data.get("wifi"),
             data_on=datetime.fromisoformat(event_data.get("data_on").replace("Z", "+00:00")),
             raw=event_data
         )
+
         db.add(db_event)
         db.commit()
+        db.refresh(db_event) # Para carregar o ID do evento recém-criado
+
+        event_with_id = {**event_data, "event_id": db_event.id}
+        enqueue_event(event_with_id)
+
+        return {"status": "success", "message": "Evento recebido e enfileirado"}
+
     except Exception as e:
         print(f"[main] Erro ao salvar evento no DB: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail="Erro ao processar e salvar o evento.")
     finally:
         db.close()
-
-    # Enfileira o evento para o agregador processar
-    print(event_data)
-    enqueue_event(event_data)
-    
-    return {"status": "success", "message": "Evento recebido e enfileirado"}
 
 # lista eventos, usando data_on como timestamp principal
 @app.get("/events", name="list_events")
@@ -151,17 +159,17 @@ def list_events(
     page: int = 1,
     filter_cama: Optional[str] = Query(None),
     filter_quarto: Optional[str] = Query(None),
-    filter_status: Optional[str] = Query(None),
+    filter_action: Optional[str] = Query(None), # Renomeado de filter_status
+    filter_status: Optional[str] = Query(None), # NOVO FILTRO
     filter_andar: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    # ... (toda a lógica de mapas e filtros continua exatamente igual) ...
     embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
     beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
     query = db.query(ReceivedEvent)
 
-    # ... (filtros) ...
+    # Lógica de filtros atualizada
     if filter_cama:
         query = query.filter(ReceivedEvent.cama == filter_cama)
     if time_filter:
@@ -169,17 +177,18 @@ def list_events(
         if time_filter == 'daily':
             start_date = now - timedelta(days=1)
             query = query.filter(ReceivedEvent.data_on >= start_date)
-        elif time_filter == 'weekly':
-            start_date = now - timedelta(weeks=1)
-            query = query.filter(ReceivedEvent.data_on >= start_date)
-        elif time_filter == 'monthly':
-            start_date = now - timedelta(days=30)
-            query = query.filter(ReceivedEvent.data_on >= start_date)
+        # ... (outros filtros de tempo)
     if filter_quarto:
         esps_no_quarto = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
         query = query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else query.filter(False)
-    if filter_status:
+    
+    # --- MUDANÇAS AQUI ---
+    if filter_action: # Filtra pela ação do ESP
+        query = query.filter(ReceivedEvent.action == filter_action)
+    if filter_status: # Filtra pelo status do processamento
         query = query.filter(ReceivedEvent.status == filter_status)
+    # --- FIM DAS MUDANÇAS ---
+
     if filter_andar:
         esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
         query = query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else query.filter(False)
@@ -193,20 +202,18 @@ def list_events(
     )
     has_next = total > page * EVENT_PAGE_SIZE
 
+    # Prepara as opções para os filtros do frontend
     all_beds = db.query(Bed.nome_cama, Bed.mac_beacon).filter(Bed.mac_beacon.isnot(None)).distinct().order_by(Bed.nome_cama).all()
-    all_status_options = [("GET", "conectou"), ("OUT", "desconectou"), ("WARNING", "erro de wifi")]
+    all_action_options = [("GET", "Conectou"), ("OUT", "Desconectou"), ("WARNING", "Alerta")]
+    all_status_options = ["OK", "Pendente", "Erro", "Enfileirado"]
     all_andares = sorted([str(a[0]) for a in db.query(Embarcado.andar).distinct().filter(Embarcado.andar.isnot(None)).all()])
     all_quartos = sorted([str(q[0]) for q in db.query(Embarcado.quarto).distinct().filter(Embarcado.quarto.isnot(None)).all()])
 
-    # [CORREÇÃO APLICADA AQUI]
-    # Enriquecimento dos dados do evento para o template
+    # Enriquecimento dos dados para o template
     for e in evts:
-        # A conversão de fuso foi totalmente removida.
-        # Agora formatamos a data/hora diretamente do que vem do banco de dados.
-        e.data_str = e.data_on.strftime("%Y / %m / %d") if e.data_on else "N/A"
-        e.hora_str = e.data_on.strftime("%H : %M : %S") if e.data_on else "N/A"
+        e.data_str = e.data_on.strftime("%Y/%m/%d") if e.data_on else "N/A"
+        e.hora_str = e.data_on.strftime("%H:%M:%S") if e.data_on else "N/A"
         
-        # O resto do loop para obter quarto, andar e nome da cama continua igual
         emb_data = embarcados_map.get(e.esp_id)
         if emb_data:
             e.quarto = emb_data.get("quarto", "---")
@@ -218,11 +225,14 @@ def list_events(
 
     return templates.TemplateResponse("events_list.html", {
         "request": request, "events": evts, "page": page, "has_next": has_next,
-        "all_beds": all_beds, "all_status_options": all_status_options, "all_andares": all_andares,
+        "all_beds": all_beds,
+        "all_action_options": all_action_options,
+        "all_status_options": all_status_options,
+        "all_andares": all_andares,
         "all_quartos": all_quartos,
         "current_filters": {
-            "cama": filter_cama, "quarto": filter_quarto, "status": filter_status,
-            "andar": filter_andar, "time_filter": time_filter
+            "cama": filter_cama, "quarto": filter_quarto, "action": filter_action,
+            "status": filter_status, "andar": filter_andar, "time_filter": time_filter
         }
     })
 

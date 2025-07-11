@@ -29,15 +29,15 @@ class Embarcado(Base):
 
 class ReceivedEvent(Base):
     __tablename__ = "received_events"
-    id       = Column(Integer, primary_key=True, index=True)
-    esp_id   = Column(String, nullable=False, index=True)
-    cama     = Column(String, nullable=False, index=True)
-    status   = Column(String, nullable=False, index=True)
-    rssi     = Column(Integer, nullable=True)
-    wifi     = Column(Integer, nullable=True)
-    # Usamos data_on como timestamp principal
-    data_on  = Column(DateTime(timezone=True), nullable=False, index=True)
-    raw      = Column(JSON, nullable=False)
-
+    id            = Column(Integer, primary_key=True, index=True)
+    esp_id        = Column(String, nullable=False, index=True)
+    cama          = Column(String, nullable=False, index=True)
+    action        = Column(String, nullable=False, index=True)    
+    status        = Column(String, nullable=True, index=True)
+    status_detail = Column(String, nullable=True)   
+    rssi          = Column(Integer, nullable=True)
+    wifi          = Column(Integer, nullable=True)
+    data_on       = Column(DateTime(timezone=True), nullable=False, index=True)
+    raw           = Column(JSON, nullable=False)
 def init_db():
     Base.metadata.create_all(bind=engine)
