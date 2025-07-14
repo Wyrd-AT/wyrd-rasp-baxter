@@ -88,14 +88,15 @@
                 }
 
                 if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
-                    const itemId = selectedRow.dataset.id;
+                    const itemId = selectedRow.dataset.id; // Este é o ID do banco de dados
                     const pageTitle = document.querySelector('h1').textContent.toLowerCase();
                     let deleteUrl = '';
 
-                    // MUDANÇA CRÍTICA AQUI
                     if (pageTitle.includes('crachás')) {
-                        deleteUrl = `/badges/${itemId}/delete`;
+                        // Correto: /badges/1/delete
+                        deleteUrl = `/badges/${itemId}/delete`; 
                     } else if (pageTitle.includes('embarcados')) {
+                        // Correto: /embarcados/1/delete
                         deleteUrl = `/embarcados/${itemId}/delete`;
                     }
 

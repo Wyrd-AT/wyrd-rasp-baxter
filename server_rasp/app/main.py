@@ -231,6 +231,74 @@ def list_events(
 # ==========================================================
 #     ROTAS DE DOWNLOAD E STARTUP (com pequenas atualizações)
 # ==========================================================
+@app.get("/events/download", name="download_events_csv")
+def download_events_csv(
+    db: Session = Depends(get_db),
+    filter_cracha: Optional[str] = Query(None),
+    filter_quarto: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
+    filter_andar: Optional[str] = Query(None),
+    time_filter: Optional[str] = Query(None)
+):
+    # A lógica interna é muito parecida com a da rota 'list_events'
+    embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
+    beacon_to_badge_name_map = {b.mac_beacon: b.nome_cracha for b in db.query(Badge).filter(Badge.mac_beacon.isnot(None)).all()}
+
+    query = db.query(ReceivedEvent)
+
+    # Aplica os mesmos filtros da página de eventos
+    if filter_cracha:
+        query = query.filter(ReceivedEvent.cama == filter_cracha)
+    if time_filter:
+        now = datetime.now(timezone.utc)
+        if time_filter == 'daily': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
+        elif time_filter == 'weekly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(weeks=1))
+        elif time_filter == 'monthly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=30))
+    if filter_quarto:
+        esps = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
+        query = query.filter(ReceivedEvent.esp_id.in_(esps)) if esps else query.filter(False)
+    if filter_status:
+        query = query.filter(ReceivedEvent.status == filter_status)
+    if filter_andar:
+        esps = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
+        query = query.filter(ReceivedEvent.esp_id.in_(esps)) if esps else query.filter(False)
+
+    events = query.order_by(ReceivedEvent.data_on.desc()).all()
+
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+
+        # Cabeçalho do CSV atualizado para "Crachá"
+        writer.writerow(["Data/Hora", "Nome do Crachá", "Andar", "Quarto", "Status", "Ação", "RSSI", "Wi-Fi"])
+        yield buf.getvalue()
+        buf.seek(0); buf.truncate(0)
+
+        for e in events:
+            emb_data = embarcados_map.get(e.esp_id, {})
+            quarto = emb_data.get("quarto", "")
+            andar = emb_data.get("andar", "")
+            nome_cracha = beacon_to_badge_name_map.get(e.cama, e.cama)
+
+            writer.writerow([
+                e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
+                nome_cracha,
+                andar,
+                quarto,
+                e.status,
+                e.action,
+                e.rssi,
+                e.wifi
+            ])
+            yield buf.getvalue()
+            buf.seek(0); buf.truncate(0)
+
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
+    )
+
 @app.get("/badges/download", name="download_badges_csv")
 def download_badges_csv(db: Session = Depends(get_db)):
     badges = db.query(Badge).order_by(Badge.nome_cracha).all()
@@ -308,6 +376,9 @@ def create_badge(request: Request, nome_cracha: str = Form(...), mac_beacon: str
     badge = Badge(nome_cracha=nome_cracha, mac_beacon=mac_beacon.lower())
     db.add(badge)
     db.commit()
+
+    trigger_mqtt_update_on_badge_change()
+
     return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
 @app.get("/badges/{badge_id}/edit", name="edit_badge")
@@ -322,22 +393,25 @@ def edit_badge(request: Request, badge_id: int, db: Session = Depends(get_db)):
 
 @app.post("/badges/{badge_id}/edit", name="update_badge")
 def update_badge(
-    request: Request, badge_id: int, nome_cracha: str = Form(...),
-    mac_beacon: Optional[str] = Form(None), quarto: Optional[str] = Form(None), db: Session = Depends(get_db)
+    request: Request, badge_id: int,
+    nome_cracha: str = Form(...),
+    mac_beacon: str = Form(...),
+    db: Session = Depends(get_db)
 ):
     badge = db.query(Badge).get(badge_id)
+    if not badge:
+        raise HTTPException(status_code=404, detail="Crachá não encontrado")
+
+    mac_mudou = badge.mac_beacon != mac_beacon.lower()
+
     badge.nome_cracha = nome_cracha
+    badge.mac_beacon = mac_beacon.lower()
     
-    # Atualiza o beacon e dispara o MQTT se houver mudança
-    if badge.mac_beacon != mac_beacon.lower():
-        badge.mac_beacon = mac_beacon.lower()
+    db.commit()
+
+    if mac_mudou:
         trigger_mqtt_update_on_badge_change()
 
-    db.commit()
-    
-    # Atualiza o quarto via serviço para garantir a publicação MQTT
-    update_badge_assignment(badge_id=badge_id, new_room=quarto)
-    
     return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
 @app.get("/badges/{badge_id}/delete", name="delete_badge")
@@ -345,6 +419,7 @@ def delete_badge(request: Request, badge_id: int, db: Session = Depends(get_db))
     badge = db.query(Badge).get(badge_id)
     db.delete(badge)
     db.commit()
+    trigger_mqtt_update_on_badge_change()
     return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
 # ==========================================================

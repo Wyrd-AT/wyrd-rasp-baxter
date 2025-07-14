@@ -31,7 +31,8 @@
             </thead>
             <tbody>
                 {% for emb in embarcados %}
-                <tr class="selectable-row" data-id="{{ emb.id }}"> <td>{{ emb.id_esp }}</td>
+                <tr class="selectable-row" data-id="{{ emb.id }}">
+                    <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto }}</td>
                     <td>{{ emb.andar or '---' }}</td> 
                 </tr>
