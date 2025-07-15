@@ -22,7 +22,7 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--text-primary); font-size: 16px; overflow: hidden; }
+body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--text-primary); font-size: 16px; }
 h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 /* [ALTERADO] Removido 'display: flex' para permitir a sobreposição */
@@ -127,6 +127,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .status-box { padding: 4px 8px; border-radius: 12px; font-weight: bold; font-size: 0.9em; color: #fff; text-transform: uppercase; }
 .status-ok { background-color: #28a745; }
 .status-pendente { background-color: #fd7e14; }
+.status-ignorado { background-color: #fd7e14; }
 .status-erro { background-color: #dc3545; }
 .status-cancelado { background-color: #495057; } /* <-- ADICIONE ESTA LINHA */
 .status-confirmado { background-color: #17a2b8; }

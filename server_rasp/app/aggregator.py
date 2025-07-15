@@ -56,7 +56,7 @@ async def _process_events_batch(events: list):
             badge = db.query(Badge).filter(Badge.mac_beacon == beacon_mac).first()
             if badge and badge.quarto is not None:
                 quarto_anterior = badge.quarto
-                nome_cracha = badge.nome_cracha
+                mac_cracha = badge.mac_beacon
 
                 # Desassocia o crachá
                 badge.quarto = None
@@ -65,13 +65,14 @@ async def _process_events_batch(events: list):
 
                 # Prepara e despacha o evento para a Eritel
                 event_data = {
-                    "cracha": nome_cracha,
+                    "cracha": mac_cracha,
                     "quarto": quarto_anterior,
-                    "data_evento": datetime.now(timezone.utc).isoformat()
+                    "data_evento": main_out_event.get("data_on"),
+                    "tipo_evento": "wyrd.SAIDA"
                 }
                 dispatch_event_to_eritel("wyrd.SAIDA", event_data)
 
-                _update_event_status(event_id, "OK", f"Crachá '{nome_cracha}' desassociado do quarto '{quarto_anterior}'.")
+                _update_event_status(event_id, "OK", f"Crachá '{mac_cracha}' desassociado do quarto '{quarto_anterior}'.")
             elif badge:
                 _update_event_status(event_id, "Confirmado", "Crachá já estava desassociado.")
             else:
@@ -103,7 +104,7 @@ async def _process_events_batch(events: list):
             return
 
         if badge.quarto == emb.quarto:
-            _update_event_status(event_id, "Confirmado", f"Crachá '{badge.nome_cracha}' já estava no quarto '{emb.quarto}'.")
+            _update_event_status(event_id, "Confirmado", f"Crachá '{badge.mac_cracha}' já estava no quarto '{emb.quarto}'.")
             return
 
         # Ação direta: Associa o crachá ao novo quarto
@@ -113,16 +114,14 @@ async def _process_events_batch(events: list):
 
         # Prepara e despacha o evento para a Eritel
         event_data = {
-            "cracha": badge.nome_cracha,
+            "cracha": badge.mac_beacon,
             "quarto": emb.quarto,
-            "andar": emb.andar,
-            "esp_id": emb.id_esp,
-            "rssi": best_event.get("RSSI"),
-            "data_evento": datetime.now(timezone.utc).isoformat()
+            "data_evento": best_event.get("data_on"),
+            "tipo_evento": "wyrd.ENTRADA"
         }
         dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
 
-        _update_event_status(event_id, "OK", f"Crachá '{badge.nome_cracha}' associado ao quarto '{emb.quarto}'.")
+        _update_event_status(event_id, "OK", f"Crachá '{badge.mac_cracha}' associado ao quarto '{emb.quarto}'.")
 
     finally:
         db.close()

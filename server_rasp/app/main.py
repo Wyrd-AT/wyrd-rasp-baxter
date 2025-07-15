@@ -248,7 +248,7 @@ def download_events_csv(
 
     # Aplica os mesmos filtros da página de eventos
     if filter_cracha:
-        query = query.filter(ReceivedEvent.cama == filter_cracha)
+        query = query.filter(ReceivedEvent.cracha == filter_cracha)
     if time_filter:
         now = datetime.now(timezone.utc)
         if time_filter == 'daily': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
@@ -278,7 +278,7 @@ def download_events_csv(
             emb_data = embarcados_map.get(e.esp_id, {})
             quarto = emb_data.get("quarto", "")
             andar = emb_data.get("andar", "")
-            nome_cracha = beacon_to_badge_name_map.get(e.cama, e.cama)
+            nome_cracha = beacon_to_badge_name_map.get(e.cracha, e.cracha)
 
             writer.writerow([
                 e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
@@ -421,6 +421,28 @@ def delete_badge(request: Request, badge_id: int, db: Session = Depends(get_db))
     db.commit()
     trigger_mqtt_update_on_badge_change()
     return RedirectResponse(request.url_for("list_badges"), status_code=303)
+
+@app.get("/esp/{esp_id}/assigned_badge", name="get_assigned_badge")
+def get_assigned_badge_for_esp(esp_id: str, db: Session = Depends(get_db)):
+    """
+    Verifica se uma ESP tem uma cama/crachá atribuído ao seu quarto.
+    Chamado pela ESP durante a inicialização para restaurar seu estado.
+    """
+    # 1. Encontra o quarto associado a esta ESP
+    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+    if not embarcado:
+        # Se a ESP não está cadastrada, não pode ter uma cama atribuída
+        return {"mac_beacon": None}
+
+    # 2. Procura por uma cama/crachá que esteja nesse mesmo quarto
+    # MUDANÇA: Usando o modelo Badge
+    badge = db.query(Badge).filter(Badge.quarto == embarcado.quarto).first()
+    if not badge:
+        # Se não há cama no quarto, retorna nulo
+        return {"mac_beacon": None}
+
+    # 3. Se encontrou, retorna o MAC do beacon dessa cama
+    return {"mac_beacon": badge.mac_beacon}
 
 # ==========================================================
 #     CRUD EMBARCADOS (sem mudanças)
