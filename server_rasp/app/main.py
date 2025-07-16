@@ -70,12 +70,6 @@ async def protect_admin_routes(request: Request, call_next):
             )
     return await call_next(request)
 
-def structural_bed_change_listener(mapper, connection, target):
-    trigger_mqtt_update_on_bed_change()
-
-event.listen(Bed, 'after_insert', structural_bed_change_listener)
-event.listen(Bed, 'after_delete', structural_bed_change_listener)
-
 # sub-app do SQLAdmin
 admin_app = FastAPI()
 admin = Admin(admin_app, engine, base_url="/")
@@ -275,7 +269,8 @@ def list_events(
 @app.post("/event/{event_id}/cancel", name="cancel_pending_event")
 def cancel_pending_event(request: Request, event_id: int, db: Session = Depends(get_db)):
     """
-    Cancela manualmente uma tarefa de verificação pendente.
+    Funciona como uma 'confirmação manual'. Interrompe a verificação pendente
+    e finaliza o evento, mantendo a cama associada ao quarto.
     """
     event = db.query(ReceivedEvent).filter(ReceivedEvent.id == event_id).first()
 
@@ -283,28 +278,24 @@ def cancel_pending_event(request: Request, event_id: int, db: Session = Depends(
         raise HTTPException(status_code=404, detail="Evento não encontrado.")
 
     if event.status != "Pendente":
-        # Apenas para segurança, não faz sentido cancelar algo que não está pendente
         return RedirectResponse(request.url_for("list_events"), status_code=303)
 
-    # Para cancelar a tarefa, precisamos do MAC Wi-Fi da cama.
-    # O evento nos dá o MAC do beacon (event.cama).
     bed = db.query(Bed).filter(Bed.mac_beacon == event.cama).first()
 
     if not bed:
-        # Se a cama não for encontrada, apenas atualiza o status para evitar erros
         event.status = "Erro"
-        event.status_detail = f"Cancelamento falhou: Cama com beacon {event.cama} não encontrada."
+        event.status_detail = f"Confirmação manual falhou: Cama com beacon {event.cama} não encontrada."
     else:
-        # Chama a função do agregador para cancelar a tarefa em background
-        was_cancelled = cancel_pending_task(wifi_mac=bed.mac_address)
+        # Tenta cancelar a tarefa em background para interromper as verificações
+        cancel_pending_task(wifi_mac=bed.mac_address)
         
-        if was_cancelled:
-            event.status = "Cancelado"
-            event.status_detail = "Tarefa de verificação cancelada manualmente pelo operador."
-        else:
-            # A tarefa não estava mais no dicionário, provavelmente já terminou
-            event.status = "OK"
-            event.status_detail = "A tarefa de verificação já havia sido concluída."
+        # --- NOVA LÓGICA DE CONFIRMAÇÃO ---
+        # Define um novo status final claro e descritivo
+        event.status = "Cancelado"
+        event.status_detail = "Localização confirmada pelo operador apesar da ausência de Wi-Fi."
+        
+        # IMPORTANTE: As linhas que desassociavam a cama foram removidas.
+        # A cama CONTINUA no quarto em que estava.
 
     db.commit()
 
@@ -484,9 +475,12 @@ async def on_startup():
     #asyncio.create_task(start_server())
     start_cleanup_scheduler()
 
-@app.get("/", name="main")
-def main(request: Request):
-    return templates.TemplateResponse("main.html", {"request": request})
+@app.get("/", name="main", include_in_schema=False)
+def main_page(request: Request):
+    """
+    Redireciona a rota raiz ("/") diretamente para a página de eventos.
+    """
+    return RedirectResponse(url=request.url_for("list_events"))
 
 # ─── CRUD CAMAS ────────────────────────────────────────────────────────────────
 @app.get("/beds", name="list_beds")
@@ -526,6 +520,9 @@ def create_bed(
     bed = Bed(mac_address=mac_address, nome_cama=nome, mac_beacon=mac_beacon)
     db.add(bed)
     db.commit()
+
+    trigger_mqtt_update_on_bed_change() 
+
     return RedirectResponse(request.url_for("list_beds"), status_code=303)
 
 @app.get("/beds/{bed_id}/edit", name="edit_bed")
@@ -553,15 +550,13 @@ def update_bed(
     bed = db.query(Bed).get(bed_id)
     bed.mac_address = mac_address
     bed.nome_cama = nome
-    
-    if bed.mac_beacon != mac_beacon:
-        bed.mac_beacon = mac_beacon
-        trigger_mqtt_update_on_bed_change()
+    bed.mac_beacon = mac_beacon
 
     db.commit()
     db.close()
 
     update_bed_assignment(bed_id=bed_id, new_room=quarto)
+    trigger_mqtt_update_on_bed_change()
     
     return RedirectResponse(request.url_for("list_beds"), status_code=303)
 
@@ -571,9 +566,30 @@ def delete_bed(request: Request, bed_id: int):
     bed = db.query(Bed).get(bed_id)
     db.delete(bed)
     db.commit()
+
+    trigger_mqtt_update_on_bed_change() 
+
     return RedirectResponse(request.url_for("list_beds"), status_code=303)
 
 # ─── CRUD Embarcados (HTML) ────────────────────────────────────────────────────
+@app.get("/esp/{esp_id}/assigned_bed", name="get_assigned_bed")
+def get_assigned_bed_for_esp(esp_id: str, db: Session = Depends(get_db)):
+    """
+    Verifica se uma ESP tem uma cama/crachá atribuído ao seu quarto.
+    Chamado pela ESP durante a inicialização para restaurar seu estado.
+    """
+    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+    if not embarcado:
+        return {"mac_beacon": None}
+
+    bed = db.query(Bed).filter(Bed.quarto == embarcado.quarto).first()
+    if not bed:
+        # Se não há cama no quarto, retorna nulo
+        return {"mac_beacon": None}
+
+    # 3. Se encontrou, retorna o MAC do beacon dessa cama
+    return {"mac_beacon": bed.mac_beacon}
+
 @app.get("/embarcados", name="list_embarcados")
 def list_embarcados(request: Request, search: Optional[str] = Query(None)):
     db = SessionLocal()
