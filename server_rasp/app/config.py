@@ -21,4 +21,5 @@ CLEANUP_INTERVAL_SEC    = 3600   # a cada hora roda a limpeza
 # MQTT
 MQTT_BROKER_HOST = "10.0.0.149" # ou o IP do seu PC
 MQTT_BROKER_PORT = 1883
-MQTT_BED_LIST_TOPIC = "wyrd/eritel/badges/available"
+MQTT_BADGE_LIST_TOPIC = "wyrd/eritel/badges/available"
+MQTT_ESP_COMMAND_TOPIC = "wyrd/eritel/esp/all/command"

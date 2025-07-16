@@ -80,11 +80,11 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 /* --- Estilos do Formulário --- */
 .form-card { border: 1px solid var(--card-border); border-radius: 6px; padding: 2rem; }
-.form-card h3 { font-family: 'Lexend'; font-size: 18px; text-align: center; margin-bottom: 2.5rem; }
-.form-card form { display: flex; flex-direction: column; gap: 2.5rem; }
+.form-card h3 { font-family: 'Lexend'; font-size: 18px; text-align: center; margin-bottom: 1.5rem; }
+.form-card form { display: flex; flex-direction: column; gap: 1.5rem; }
 .form-group { width: 100%; }
 .form-group label { display: block; font-weight: 700; font-size: 16px; color: var(--text-secondary); margin-bottom: 0.5rem; }
-.form-group input { width: 100%; padding: 0.5rem 0.2rem; border: none; border-bottom: 1px solid #001233; outline: none; background: transparent; font-size: 16px; }
+.form-group input { width: 100%; padding: 0rem 0rem; border: none; border-bottom: 1px solid #001233; outline: none; background: transparent; font-size: 16px; }
 .form-group input::placeholder { color: var(--text-placeholder); }
 .form-btn { width: 100%; padding: 0.8rem; background-color: var(--primary-color); color: white; border: none; border-radius: 16px; margin-top: 1rem; cursor: pointer; font-weight: 700; }
 
@@ -169,4 +169,52 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 .btn-cancel:hover {
     background-color: #dc3545; /* Vermelho no hover para indicar uma ação destrutiva */
+}
+
+/* ================================================== */
+/* == Estilos para a Seção de Configurações Avançadas == */
+/* ================================================== */
+
+/* Regra corrigida para ajustar o espaçamento vertical */
+.advanced-settings {
+    /* O formulário tem um 'gap' de 2.5rem. 
+      Usamos uma margem negativa para "puxar" a seção para cima,
+      reduzindo o espaço entre ela e o campo "Andar".
+    */
+    margin-top: -1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* O restante das regras pode permanecer o mesmo */
+.advanced-settings summary {
+    font-family: 'Lexend', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    margin-bottom: 2rem;
+    outline: none;
+}
+
+.advanced-settings summary::marker {
+    color: var(--text-secondary);
+}
+
+.advanced-settings .form-group {
+    margin-top: 2.5rem;
+}
+
+.advanced-settings .form-group:first-of-type {
+    margin-top: 0;
+}
+
+/* Estilo para o formulário de configurações gerais */
+.settings-grid {
+    display: grid;
+    /* Cria 3 colunas de tamanho igual */
+    grid-template-columns: repeat(3, 1fr); 
+    /* Espaçamento entre as colunas */
+    gap: 2rem; 
+    width: 100%;
 }

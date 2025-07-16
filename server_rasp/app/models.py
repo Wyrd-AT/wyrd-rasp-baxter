@@ -1,5 +1,4 @@
 # models.py
-
 from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -12,10 +11,15 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
+# NOVO MODELO PARA CONFIGURAÇÕES GLOBAIS
+class GlobalSetting(Base):
+    __tablename__ = "global_settings"
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=True)
+
 class Badge(Base):
     __tablename__ = "badges"
     id          = Column(Integer, primary_key=True, index=True)
-    # mac_address não é mais necessário
     nome_cracha = Column(String, nullable=False, unique=True)
     mac_beacon  = Column(String, unique=True, nullable=False, index=True)
     quarto      = Column(String, nullable=True)
@@ -25,7 +29,8 @@ class Embarcado(Base):
     id     = Column(Integer, primary_key=True, index=True)
     id_esp = Column(String, unique=True, nullable=False, index=True)
     quarto = Column(String, nullable=False)
-    andar  = Column(String, nullable=True) # <-- NOVA LINHA
+    andar  = Column(String, nullable=True)
+    # As colunas de configuração foram REMOVIDAS daqui.
 
 class ReceivedEvent(Base):
     __tablename__ = "received_events"

@@ -23,6 +23,7 @@ from .models import (
     Badge,
     Embarcado,
     ReceivedEvent,
+    GlobalSetting,
     init_db
 )
 
@@ -46,7 +47,8 @@ from .config import (
     HISTORY_RETENTION_DAYS,
     EVENT_PAGE_SIZE,
     CLEANUP_INTERVAL_SEC,
-    IP
+    IP,
+    MQTT_ESP_COMMAND_TOPIC
 )
 from sqladmin import Admin, ModelView
 
@@ -80,6 +82,19 @@ event.listen(Badge, 'after_delete', structural_badge_change_listener)
 admin_app = FastAPI()
 admin = Admin(admin_app, engine, base_url="/")
 
+def get_global_settings(db: Session) -> dict:
+    settings = db.query(GlobalSetting).all()
+    # Define valores padrão caso não existam no banco
+    defaults = {
+        "rssi_threshold": "-60",
+        "inercia_chegada": "500",
+        "inercia_saida": "15000"
+    }
+    # Converte a lista de objetos para um dicionário
+    db_settings = {s.key: s.value for s in settings}
+    # Junta os valores do banco com os padrões (banco tem precedência)
+    return {**defaults, **db_settings}
+
 # MUDANÇA: BedAdmin para BadgeAdmin
 class BadgeAdmin(ModelView, model=Badge):
     column_list = [Badge.id, Badge.nome_cracha, Badge.mac_beacon, Badge.quarto]
@@ -90,7 +105,12 @@ class BadgeAdmin(ModelView, model=Badge):
 
 # (Sem mudanças no EmbarcadoAdmin e ReceivedEventAdmin)
 class EmbarcadoAdmin(ModelView, model=Embarcado):
-    column_list = [Embarcado.id, Embarcado.id_esp, Embarcado.quarto, Embarcado.andar]
+    # --- ATUALIZE A LISTA DE COLUNAS ---
+    column_list = [
+        Embarcado.id, 
+        Embarcado.id_esp, 
+        Embarcado.quarto, 
+    ]
     column_searchable_list = [Embarcado.id_esp, Embarcado.quarto]
     name = "Embarcado"
     name_plural = "Embarcados"
@@ -227,6 +247,36 @@ def list_events(
         }
     })
 
+@app.post("/settings/update", name="update_settings")
+def update_settings(
+    request: Request, db: Session = Depends(get_db),
+    rssi_threshold: str = Form(...),
+    inercia_chegada: str = Form(...),
+    inercia_saida: str = Form(...)
+):
+    settings_data = {
+        "rssi_threshold": rssi_threshold,
+        "inercia_chegada": inercia_chegada,
+        "inercia_saida": inercia_saida
+    }
+    for key, value in settings_data.items():
+        setting = db.query(GlobalSetting).filter(GlobalSetting.key == key).first()
+        if not setting:
+            setting = GlobalSetting(key=key)
+            db.add(setting)
+        setting.value = value
+    db.commit()
+
+    # --- AÇÃO ADICIONADA: Publicar o comando de atualização ---
+    print("[main] Configurações globais salvas. Enviando comando de atualização para todas as ESPs.")
+    command_payload = {"command": "fetch_config"}
+    mqtt_client.client.publish(
+        MQTT_ESP_COMMAND_TOPIC,
+        json.dumps(command_payload)
+    )
+    # -----------------------------------------------------------
+
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 # ==========================================================
 #     ROTAS DE DOWNLOAD E STARTUP (com pequenas atualizações)
@@ -319,7 +369,7 @@ def download_embarcados_csv(db: Session = Depends(get_db)):
     def iter_csv():
         buf = StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["ID DA ESP", "QUARTO", "ANDAR"])
+        writer.writerow(["ID DO EMBARCADO", "QUARTO", "ANDAR"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
         for emb in embarcados:
             writer.writerow([emb.id_esp, emb.quarto, emb.andar or ""])
@@ -422,25 +472,29 @@ def delete_badge(request: Request, badge_id: int, db: Session = Depends(get_db))
     trigger_mqtt_update_on_badge_change()
     return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
-@app.get("/esp/{esp_id}/assigned_badge", name="get_assigned_badge")
-def get_assigned_badge_for_esp(esp_id: str, db: Session = Depends(get_db)):
+@app.get("/esp/{esp_id}/config", name="get_config")
+def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     """
-    Verifica se uma ESP tem um crachá atribuído ao seu quarto.
-    Chamado pela ESP durante a inicialização para restaurar seu estado.
+    Verifica o estado inicial da ESP, retornando o crachá no seu quarto
+    E as configurações de sensibilidade personalizadas para ela.
     """
-    # 1. Encontra o quarto associado a esta ESP
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
     if not embarcado:
         return {"mac_beacon": None}
 
-    # 2. Procura por um crachá que esteja nesse mesmo quarto
-    # MUDANÇA: Usando o modelo Badge
     badge = db.query(Badge).filter(Badge.quarto == embarcado.quarto).first()
-    if not badge:
-        # Se não há cracha no quarto, retorna nulo
-        return {"mac_beacon": None}
-
-    return {"mac_beacon": badge.mac_beacon}
+    
+    # Busca as configurações globais para enviar à ESP
+    settings = get_global_settings(db)
+    
+    response_data = {
+        "mac_beacon": badge.mac_beacon if badge else None,
+        # Converte para os tipos corretos (int)
+        "rssi_threshold": int(settings.get("rssi_threshold")),
+        "inercia_chegada": int(settings.get("inercia_chegada")),
+        "inercia_saida": int(settings.get("inercia_saida")),
+    }
+    return response_data
 
 # ==========================================================
 #     CRUD EMBARCADOS (sem mudanças)
@@ -451,19 +505,36 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
     if search:
         search_term = f"%{search}%"
         query = query.filter(or_(Embarcado.id_esp.ilike(search_term), Embarcado.quarto.ilike(search_term), Embarcado.andar.ilike(search_term)))
+    
     embarcados = query.order_by(Embarcado.quarto).all()
+    global_settings = get_global_settings(db) # Pega as configurações globais
+
     return templates.TemplateResponse("embarcados_list.html", {
-        "request": request, "embarcados": embarcados,
+        "request": request,
+        "embarcados": embarcados,
         "form_action": request.url_for("create_embarcado"),
-        "embarcado": None, "search": search
+        "embarcado": None,
+        "search": search,
+        "global_settings": global_settings # Passa as configs para o template
     })
 
 @app.post("/embarcados", name="create_embarcado")
-def create_embarcado(request: Request, id_esp: str = Form(...), quarto: str = Form(...), andar: Optional[str] = Form(None), db: Session = Depends(get_db)):
-    emb = Embarcado(id_esp=id_esp, quarto=quarto, andar=andar)
+def create_embarcado(
+    request: Request, db: Session = Depends(get_db),
+    id_esp: str = Form(...),
+    quarto: str = Form(...),
+    andar: Optional[str] = Form(None),
+):
+    emb = Embarcado(
+        id_esp=id_esp,
+        quarto=quarto,
+        andar=andar,
+        
+    )
     db.add(emb)
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
 
 @app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
 def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
@@ -476,12 +547,21 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
     })
 
 @app.post("/embarcados/{embarcado_id}/edit", name="update_embarcado")
-def update_embarcado(request: Request, embarcado_id: int, quarto: str = Form(...), andar: Optional[str] = Form(None), db: Session = Depends(get_db)):
+def update_embarcado(
+    request: Request, embarcado_id: int, db: Session = Depends(get_db),
+    quarto: str = Form(...),
+    andar: Optional[str] = Form(None),
+):
     emb = db.query(Embarcado).get(embarcado_id)
+    if not emb:
+        raise HTTPException(status_code=404, detail="Embarcado não encontrado")
+    
     emb.quarto = quarto
     emb.andar = andar
+    
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
 
 @app.get("/embarcados/{embarcado_id}/delete", name="delete_embarcado")
 def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):

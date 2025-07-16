@@ -16,7 +16,7 @@ const char* SERVER_IP         = "10.0.0.149";
 const uint16_t SERVER_PORT    = 8000;
 const char* MQTT_BROKER_HOST  = "10.0.0.149";
 const uint16_t MQTT_BROKER_PORT = 1883;
-const char* MQTT_BED_LIST_TOPIC = "wyrd/eritel/badges/available";
+const char* MQTT_BADGE_LIST_TOPIC = "wyrd/eritel/badges/available";
 
 // --- Configurações de Lógica ---
 #define RSSI_THRESHOLD          -60
@@ -363,7 +363,7 @@ void reconnect_mqtt() {
         Serial.print("Tentando conectar ao Broker MQTT...");
         if (mqttClient.connect(idESP)) {
             Serial.println(" conectado!");
-            mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
+            mqttClient.subscribe(MQTT_BADGE_LIST_TOPIC);
         } else {
             Serial.print(" falhou, rc=");
             Serial.print(mqttClient.state());

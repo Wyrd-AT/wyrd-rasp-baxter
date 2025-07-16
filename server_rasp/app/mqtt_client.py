@@ -3,7 +3,7 @@
 import paho.mqtt.client as mqtt
 import json
 from .models import SessionLocal, Badge # MUDANÇA: Importa Badge
-from .config import MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_BED_LIST_TOPIC
+from .config import MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_BADGE_LIST_TOPIC
 
 # --- Cliente MQTT ---
 client = mqtt.Client()
@@ -32,9 +32,9 @@ def publish_available_badges():
     payload = json.dumps(mac_list)
 
     # MUDANÇA: Mensagem de log atualizada
-    print(f"[MQTT] Publicando lista de beacons de CRACHÁS disponíveis no tópico '{MQTT_BED_LIST_TOPIC}': {payload}")
+    print(f"[MQTT] Publicando lista de beacons de CRACHÁS disponíveis no tópico '{MQTT_BADGE_LIST_TOPIC}': {payload}")
     # Retain=True garante que qualquer nova ESP que se conectar receberá a lista mais recente imediatamente.
-    client.publish(MQTT_BED_LIST_TOPIC, payload, qos=1, retain=True)
+    client.publish(MQTT_BADGE_LIST_TOPIC, payload, qos=1, retain=True)
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
