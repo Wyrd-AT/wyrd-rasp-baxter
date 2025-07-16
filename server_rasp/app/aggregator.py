@@ -46,7 +46,7 @@ async def _process_events_batch(events: list):
         if out_events:
             main_out_event = out_events[0]
             event_id = main_out_event.get("event_id")
-            beacon_mac = main_out_event.get("cama") # 'cama' ainda é a chave vinda da ESP
+            beacon_mac = main_out_event.get("cracha") 
             print(f"[aggregator] Evento 'OUT' detectado para o beacon '{beacon_mac}'.")
 
             # Marca eventos 'OUT' duplicados como ignorados
@@ -87,7 +87,7 @@ async def _process_events_batch(events: list):
         # Elege o melhor evento baseado no RSSI mais forte
         best_event = max(get_events, key=lambda e: e.get("RSSI", -1000))
         event_id = best_event.get("event_id")
-        beacon_mac = best_event.get("cama")
+        beacon_mac = best_event.get("cracha")
         esp_id = best_event.get("esp_id")
 
         # Marca os outros eventos 'GET' como ignorados
@@ -121,7 +121,7 @@ async def _process_events_batch(events: list):
         }
         dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
 
-        _update_event_status(event_id, "OK", f"Crachá '{badge.mac_cracha}' associado ao quarto '{emb.quarto}'.")
+        _update_event_status(event_id, "OK", f"Crachá '{badge.mac_beacon}' associado ao quarto '{emb.quarto}'.")
 
     finally:
         db.close()
@@ -139,11 +139,10 @@ async def main_aggregator_loop():
         events_to_process = list(_buffer)
         _buffer.clear()
 
-        # Agrupa eventos por MAC de beacon (ainda vindo como 'cama' da ESP)
         events_by_beacon = defaultdict(list)
         for evt in events_to_process:
-            if "cama" in evt:
-                events_by_beacon[evt["cama"]].append(evt)
+            if "cracha" in evt:
+                events_by_beacon[evt["cracha"]].append(evt)
 
         print(f"\n[aggregator] Processando {len(events_to_process)} eventos para {len(events_by_beacon)} beacons...")
         for beacon_mac, events in events_by_beacon.items():

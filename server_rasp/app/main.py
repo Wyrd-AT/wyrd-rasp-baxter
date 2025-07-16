@@ -123,7 +123,7 @@ templates = Jinja2Templates(directory="app/web/templates")
 async def receive_event(event_data: Dict):
     print(f"[main] Evento HTTP recebido: {event_data}")
 
-    required_keys = ["esp_id", "cama", "status"]
+    required_keys = ["esp_id", "cracha", "status"]
     if not all(key in event_data for key in required_keys):
         raise HTTPException(status_code=400, detail="Payload incompleto.")
 
@@ -131,7 +131,7 @@ async def receive_event(event_data: Dict):
     try:
         db_event = ReceivedEvent(
             esp_id=event_data.get("esp_id"),
-            cracha=event_data.get("cama"),
+            cracha=event_data.get("cracha"),
             action=event_data.get("status"),
             status="Enfileirado",
             status_detail="Aguardando processamento pelo agregador simplificado",
@@ -356,7 +356,7 @@ async def on_startup():
 # ==========================================================
 @app.get("/", name="main")
 def main_page(request: Request):
-    return templates.TemplateResponse("main.html", {"request": request})
+    return RedirectResponse(url=request.url_for("list_events"))
 
 @app.get("/badges", name="list_badges")
 def list_badges(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
@@ -425,23 +425,21 @@ def delete_badge(request: Request, badge_id: int, db: Session = Depends(get_db))
 @app.get("/esp/{esp_id}/assigned_badge", name="get_assigned_badge")
 def get_assigned_badge_for_esp(esp_id: str, db: Session = Depends(get_db)):
     """
-    Verifica se uma ESP tem uma cama/crachá atribuído ao seu quarto.
+    Verifica se uma ESP tem um crachá atribuído ao seu quarto.
     Chamado pela ESP durante a inicialização para restaurar seu estado.
     """
     # 1. Encontra o quarto associado a esta ESP
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
     if not embarcado:
-        # Se a ESP não está cadastrada, não pode ter uma cama atribuída
         return {"mac_beacon": None}
 
-    # 2. Procura por uma cama/crachá que esteja nesse mesmo quarto
+    # 2. Procura por um crachá que esteja nesse mesmo quarto
     # MUDANÇA: Usando o modelo Badge
     badge = db.query(Badge).filter(Badge.quarto == embarcado.quarto).first()
     if not badge:
-        # Se não há cama no quarto, retorna nulo
+        # Se não há cracha no quarto, retorna nulo
         return {"mac_beacon": None}
 
-    # 3. Se encontrou, retorna o MAC do beacon dessa cama
     return {"mac_beacon": badge.mac_beacon}
 
 # ==========================================================
