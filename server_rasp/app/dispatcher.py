@@ -1,7 +1,7 @@
 # dispatcher.py
 import requests
 import json
-from .config import ERITEL_WEBHOOK_URL, ERITEL_API_KEY
+from .config import settings
 
 def dispatch_event_to_eritel(tipo_evento: str, event_data: dict):
     """
@@ -9,7 +9,7 @@ def dispatch_event_to_eritel(tipo_evento: str, event_data: dict):
     """
     headers = {
         "Content-Type": "application/json",
-        "X-API-Key": ERITEL_API_KEY
+        "X-API-Key": settings.get("eritel_api_key")
     }
 
     payload = {
@@ -21,7 +21,7 @@ def dispatch_event_to_eritel(tipo_evento: str, event_data: dict):
 
     try:
         response = requests.post(
-            ERITEL_WEBHOOK_URL,
+            settings.get("eritel_webhook_url"),
             headers=headers,
             json=payload,
             timeout=10 # Timeout de 10 segundos

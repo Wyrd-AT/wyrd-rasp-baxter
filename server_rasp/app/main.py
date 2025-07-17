@@ -15,6 +15,12 @@ from datetime import datetime, timedelta, timezone
 import csv
 from io import StringIO
 import json
+import sys
+import os
+
+HISTORY_RETENTION_DAYS = 7       # mantém apenas 7 dias de eventos
+EVENT_PAGE_SIZE         = 20     # linhas por página em /events
+CLEANUP_INTERVAL_SEC    = 3600   # a cada hora roda a limpeza
 
 # MUDANÇA: Importa Badge em vez de Bed
 from .models import (
@@ -43,16 +49,20 @@ from sqlalchemy import event, or_
 from sqlalchemy.orm import Session
 from .mqtt_client import publish_available_badges
 from .auth import authenticate_admin
-from .config import (
-    HISTORY_RETENTION_DAYS,
-    EVENT_PAGE_SIZE,
-    CLEANUP_INTERVAL_SEC,
-    IP,
-    MQTT_ESP_COMMAND_TOPIC
-)
+from .config import settings
+from .aggregator import main_aggregator_loop, enqueue_event
+
 from sqladmin import Admin, ModelView
 
 print("[main] Módulo carregado para a versão CRACHÁS.")
+
+try:
+    base_path = sys._MEIPASS
+except Exception:
+    base_path = os.path.dirname(os.path.abspath(__file__))
+
+templates_path = os.path.join(base_path, "web/templates")
+static_path = os.path.join(base_path, "web/static")
 
 # inicializa banco
 init_db()
@@ -133,8 +143,8 @@ admin.add_view(ReceivedEventAdmin)
 app.mount("/admin", admin_app)
 
 # --- Estáticos e Templates ---
-app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
-templates = Jinja2Templates(directory="app/web/templates")
+app.mount("/static", StaticFiles(directory=static_path), name="static")
+templates = Jinja2Templates(directory=templates_path)
 
 # ==========================================================
 # ENDPOINT DE EVENTOS (Recepção sem mudanças funcionais)
@@ -229,7 +239,7 @@ def list_events(
     all_quartos = sorted([str(q[0]) for q in db.query(Embarcado.quarto).distinct().filter(Embarcado.quarto.isnot(None)).all()])
 
     for e in events:
-        e.data_str = e.data_on.strftime("%Y/%m/%d") if e.data_on else "N/A"
+        e.data_str = e.data_on.strftime("%d/%m/%Y") if e.data_on else "N/A"
         e.hora_str = e.data_on.strftime("%H:%M:%S") if e.data_on else "N/A"
         emb_data = embarcados_map.get(e.esp_id)
         e.quarto = emb_data.get("quarto", "---") if emb_data else "---"
@@ -271,7 +281,7 @@ def update_settings(
     print("[main] Configurações globais salvas. Enviando comando de atualização para todas as ESPs.")
     command_payload = {"command": "fetch_config"}
     mqtt_client.client.publish(
-        MQTT_ESP_COMMAND_TOPIC,
+        settings.get("mqtt_esp_command_topic"),
         json.dumps(command_payload)
     )
     # -----------------------------------------------------------
@@ -539,11 +549,14 @@ def create_embarcado(
 @app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
 def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
     emb = db.query(Embarcado).get(embarcado_id)
-    embarcados = db.query(Embarcado).order_by(Embarcado.quarto).all()
+    embarcados = db.query(Embarcado).order_by(Embarcado.quarto).all()    
+    global_settings = get_global_settings(db)
+
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request, "embarcados": embarcados,
         "form_action": request.url_for("update_embarcado", embarcado_id=embarcado_id),
-        "embarcado": emb
+        "embarcado": emb,
+        "global_settings": global_settings # <-- E adicione a variável aqui
     })
 
 @app.post("/embarcados/{embarcado_id}/edit", name="update_embarcado")
@@ -574,4 +587,4 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
 #     EXECUÇÃO
 # ==========================================================
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host=IP, port=8000, reload=True)
+    uvicorn.run("app.main:app", host=settings.get("ip"), port=8000, reload=True)

@@ -1,25 +1,47 @@
 # config.py
+import configparser
+import os
 
-# Endereço e porta do servidor TCP
-IP = "10.0.0.149"
-PORT = "8000"
+# Define o nome do arquivo de configuração que ficará ao lado do .exe
+CONFIG_FILE = 'config.ini'
 
-#ERITEL_WEBHOOK_URL = "http://192.168.99.171/EritelWebhooks/API/api/Webhooks/trigger-event"
-ERITEL_WEBHOOK_URL = "https://webhook.site/03b4cb78-a3e5-4044-82b2-c5be823599e2"
-ERITEL_API_KEY = "2Jpjc2gJEe9U9fk5GnzrEUlnmBvxWBO6c5gA+O1JYXE="
+def load_configuration():
+    """
+    Lê o arquivo config.ini e retorna um dicionário com as configurações.
+    Se o arquivo não existir, cria um com valores padrão.
+    """
+    config = configparser.ConfigParser()
+    
+    if not os.path.exists(CONFIG_FILE):
+        print(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
+        # Se o config.ini não existe, cria um com valores padrão
+        config['Network'] = {
+            'IP': '0.0.0.0',
+            'PORT': '8000'
+        }
+        config['MQTT'] = {
+            'MQTT_BROKER_HOST': '127.0.0.1',
+            'MQTT_BROKER_PORT': '1883',
+            'MQTT_BADGE_LIST_TOPIC': 'wyrd/eritel/badges/available',
+            'MQTT_ESP_COMMAND_TOPIC': 'wyrd/eritel/esp/all/command'
+        }
+        # Adicione outras seções se precisar, como a da Eritel
+        config['Eritel'] = {
+            'ERITEL_WEBHOOK_URL': 'https://webhook.site/03b4cb78-a3e5-4044-82b2-c5be823599e2',
+            'ERITEL_API_KEY': '2Jpjc2gJEe9U9fk5GnzrEUlnmBvxWBO6c5gA+O1JYXE='
+        }
+        with open(CONFIG_FILE, 'w') as configfile:
+            config.write(configfile)
+    
+    # Lê o arquivo de configuração existente
+    config.read(CONFIG_FILE)
+    
+    # Junta todas as configurações de todas as seções em um único dicionário
+    settings = {}
+    for section in config.sections():
+        settings.update(config[section])
+        
+    return settings
 
-# Rede usada nos scans
-NETWORK_RANGE = "10.0.0.0/24"
-
-NETWORK_PREFIX = "10.0.0."
-
-# Historiador
-HISTORY_RETENTION_DAYS = 7       # mantém apenas 7 dias de eventos
-EVENT_PAGE_SIZE         = 20     # linhas por página em /events
-CLEANUP_INTERVAL_SEC    = 3600   # a cada hora roda a limpeza
-
-# MQTT
-MQTT_BROKER_HOST = "10.0.0.149" # ou o IP do seu PC
-MQTT_BROKER_PORT = 1883
-MQTT_BADGE_LIST_TOPIC = "wyrd/eritel/badges/available"
-MQTT_ESP_COMMAND_TOPIC = "wyrd/eritel/esp/all/command"
+# Carrega as configurações para serem importadas por outros módulos
+settings = load_configuration()

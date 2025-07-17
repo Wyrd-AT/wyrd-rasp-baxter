@@ -32,6 +32,7 @@ beds.db
 *.egg-info/
 dist/
 build/
+*.spec
 eggs/
 parts/
 bin/
