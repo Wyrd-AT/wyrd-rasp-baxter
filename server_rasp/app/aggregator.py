@@ -1,24 +1,20 @@
-# aggregator.py
+# aggregator.py - Versão Final com Janela de Disputa e Veredito Explícito
 
 import asyncio
-from collections import defaultdict
 from datetime import datetime, timezone
 
-# Importa o novo dispatcher e as funções/modelos renomeados/relevantes
+# Importa as funções e modelos necessários
 from .dispatcher import dispatch_event_to_eritel
 from .models import SessionLocal, Badge, Embarcado, ReceivedEvent
-from .mqtt_client import publish_available_badges # Supondo que você renomeou a função em mqtt_client.py
+from .mqtt_client import publish_available_badges, publish_verdict # Importa a nova função de veredito
 
 # --- Configurações ---
-AGGREGATOR_LOOP_INTERVAL_SEC = 2 # O loop pode ser rápido, já que a lógica é mais simples
+DISPUTE_WINDOW_SEC = 5  # Janela de 5 segundos para a disputa
 
-# --- Estrutura de Dados em Memória ---
-_buffer = []
+# --- Estruturas de Dados em Memória ---
+_dispute_windows = {}
+_lock = asyncio.Lock()
 
-def enqueue_event(evt: dict):
-    """ Coloca um novo evento da ESP no buffer para ser processado. """
-    _buffer.append(evt)
-    print(f"[aggregator] Evento enfileirado: {evt}")
 
 def _update_event_status(event_id: int, status: str, detail: str):
     """ Helper para atualizar o status de um evento no banco de dados. """
@@ -35,122 +31,128 @@ def _update_event_status(event_id: int, status: str, detail: str):
     finally:
         db.close()
 
-async def _process_events_batch(events: list):
+
+async def _resolve_dispute(beacon_mac: str):
     """
-    Processa um lote de eventos para um mesmo beacon, com a lógica simplificada.
+    Função chamada após a janela de disputa fechar.
+    Ela elege o vencedor, atualiza o estado e envia os vereditos via MQTT.
     """
+    async with _lock:
+        events = _dispute_windows.pop(beacon_mac, [])
+        if not events:
+            return
+
+    print(f"\n[aggregator] Janela para '{beacon_mac}' FECHADA. Resolvendo com {len(events)} eventos.")
+
+    # 1. Elege o melhor evento baseado no RSSI mais forte
+    best_event = max(events, key=lambda e: e.get("RSSI", -1000))
+    winner_esp_id = best_event.get("esp_id")
+    print(f"[aggregator] Vencedor da disputa: ESP '{winner_esp_id}' com RSSI {best_event.get('RSSI')}.")
+
+    # 2. Envia o veredito ("WIN" ou "LOSE") para cada participante da disputa
+    for evt in events:
+        esp_id = evt.get("esp_id")
+        if esp_id == winner_esp_id:
+            publish_verdict(esp_id, "WIN", beacon_mac)
+        else:
+            publish_verdict(esp_id, "LOSE", beacon_mac)
+            detail = f"Sinal mais fraco (RSSI: {evt.get('RSSI', 'N/A')}). Perdeu disputa para ESP '{winner_esp_id}'."
+            _update_event_status(evt.get("event_id"), "Ignorado", detail)
+    
+    # 3. Processa a lógica de associação para o vencedor
     db = SessionLocal()
     try:
-        # --- Lógica de 'OUT' (Saída) ---
-        out_events = [e for e in events if e.get("status") == "OUT"]
-        if out_events:
-            main_out_event = out_events[0]
-            event_id = main_out_event.get("event_id")
-            beacon_mac = main_out_event.get("cracha") 
-            print(f"[aggregator] Evento 'OUT' detectado para o beacon '{beacon_mac}'.")
-
-            # Marca eventos 'OUT' duplicados como ignorados
-            for evt in out_events[1:]:
-                _update_event_status(evt.get("event_id"), "Ignorado", "Evento OUT duplicado no mesmo lote.")
-
-            badge = db.query(Badge).filter(Badge.mac_beacon == beacon_mac).first()
-            if badge and badge.quarto is not None:
-                quarto_anterior = badge.quarto
-                mac_cracha = badge.mac_beacon
-
-                # Desassocia o crachá
-                badge.quarto = None
-                db.commit()
-                publish_available_badges() # Notifica o MQTT sobre o crachá disponível
-
-                # Prepara e despacha o evento para a Eritel
-                event_data = {
-                    "cracha": mac_cracha,
-                    "quarto": quarto_anterior,
-                    "data_evento": main_out_event.get("data_on"),
-                    "tipo_evento": "wyrd.SAIDA"
-                }
-                dispatch_event_to_eritel("wyrd.SAIDA", event_data)
-
-                _update_event_status(event_id, "OK", f"Crachá '{mac_cracha}' desassociado do quarto '{quarto_anterior}'.")
-            elif badge:
-                _update_event_status(event_id, "Confirmado", "Crachá já estava desassociado.")
-            else:
-                 _update_event_status(event_id, "Erro", f"Crachá com beacon '{beacon_mac}' não cadastrado.")
-            return # Processa 'OUT' e encerra para este lote
-
-        # --- Lógica de 'GET' (Entrada) ---
-        get_events = [e for e in events if e.get("status") == "GET"]
-        if not get_events:
-            return
-
-        # Elege o melhor evento baseado no RSSI mais forte
-        best_event = max(get_events, key=lambda e: e.get("RSSI", -1000))
-        event_id = best_event.get("event_id")
-        beacon_mac = best_event.get("cracha")
-        esp_id = best_event.get("esp_id")
-
-        # Marca os outros eventos 'GET' como ignorados
-        for evt in get_events:
-            if evt is not best_event:
-                _update_event_status(evt.get("event_id"), "Ignorado", f"Sinal mais fraco (RSSI: {evt.get('RSSI', 'N/A')}).")
-
         badge = db.query(Badge).filter(Badge.mac_beacon == beacon_mac).first()
-        emb = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+        emb = db.query(Embarcado).filter(Embarcado.id_esp == winner_esp_id).first()
 
-        if not badge or not emb:
-            detail = f"Crachá (beacon: {beacon_mac})" if not badge else f"ESP ({esp_id})"
-            _update_event_status(event_id, "Erro", f"Componente não cadastrado: {detail}.")
-            return
+        if badge and emb and badge.quarto != emb.quarto:
+            quarto_anterior = badge.quarto
+            badge.quarto = emb.quarto
+            db.commit()
+            publish_available_badges() # Atualiza a lista geral para todos
+            
+            # Prepara e despacha o evento para a Eritel
+            event_data = {
+                "cracha": badge.mac_beacon, "quarto": emb.quarto,
+                "data_evento": best_event.get("data_on"), "tipo_evento": "wyrd.ENTRADA"
+            }
+            dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
 
-        if badge.quarto == emb.quarto:
-            _update_event_status(event_id, "Confirmado", f"Crachá '{badge.mac_cracha}' já estava no quarto '{emb.quarto}'.")
-            return
+            detail = f"Crachá associado ao quarto '{emb.quarto}' após vencer disputa."
+            _update_event_status(best_event.get("event_id"), "OK", detail)
 
-        # Ação direta: Associa o crachá ao novo quarto
-        badge.quarto = emb.quarto
-        db.commit()
-        publish_available_badges()
-
-        # Prepara e despacha o evento para a Eritel
-        event_data = {
-            "cracha": badge.mac_beacon,
-            "quarto": emb.quarto,
-            "data_evento": best_event.get("data_on"),
-            "tipo_evento": "wyrd.ENTRADA"
-        }
-        dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
-
-        _update_event_status(event_id, "OK", f"Crachá '{badge.mac_beacon}' associado ao quarto '{emb.quarto}'.")
+        elif badge and emb and badge.quarto == emb.quarto:
+             _update_event_status(best_event.get("event_id"), "Confirmado", f"Crachá já estava no quarto '{emb.quarto}'.")
+        
+        else: # Caso badge ou embarcado não sejam encontrados
+            detail = f"Componente não cadastrado: {'Crachá' if not badge else 'ESP'}."
+            _update_event_status(best_event.get("event_id"), "Erro", detail)
 
     finally:
         db.close()
 
+
+async def enqueue_event(evt: dict):
+    """ Coloca um evento na fila de disputa ou o processa imediatamente se for 'OUT'. """
+    print(f"[aggregator] Evento recebido: {evt}")
+    event_id = evt.get("event_id")
+    beacon_mac = evt.get("cracha")
+
+    # --- Cenário de SAÍDA: Processamento imediato, tem prioridade sobre disputas "GET" ---
+    if evt.get("status") == "OUT":
+        db = SessionLocal()
+        try:
+            badge = db.query(Badge).filter(Badge.mac_beacon == beacon_mac).first()
+            if badge and badge.quarto is not None:
+                quarto_anterior = badge.quarto
+                badge.quarto = None
+                db.commit()
+                publish_available_badges() # Notifica todos sobre a disponibilidade
+                
+                # Despacha o evento de SAÍDA
+                event_data = {
+                    "cracha": beacon_mac, "quarto": quarto_anterior,
+                    "data_evento": evt.get("data_on"), "tipo_evento": "wyrd.SAIDA"
+                }
+                dispatch_event_to_eritel("wyrd.SAIDA", event_data)
+                
+                _update_event_status(event_id, "OK", f"Crachá desassociado do quarto '{quarto_anterior}'.")
+            elif badge:
+                 _update_event_status(event_id, "Confirmado", "Crachá já estava desassociado.")
+            else:
+                 _update_event_status(event_id, "Erro", f"Crachá com beacon '{beacon_mac}' não cadastrado.")
+        finally:
+            db.close()
+        return # Encerra a função
+
+    # --- Cenário de ENTRADA: Abre ou entra em uma janela de disputa ---
+    if evt.get("status") == "GET":
+        async with _lock:
+            if beacon_mac not in _dispute_windows:
+                # Primeiro evento para este crachá: abre a janela
+                print(f"[aggregator] Nova janela de disputa de {DISPUTE_WINDOW_SEC}s para o crachá '{beacon_mac}'.")
+                _dispute_windows[beacon_mac] = []
+                # Agenda a resolução da disputa para daqui a X segundos
+                loop = asyncio.get_running_loop()
+                loop.call_later(
+                    DISPUTE_WINDOW_SEC,
+                    lambda: asyncio.create_task(_resolve_dispute(beacon_mac))
+                )
+
+            # Adiciona o evento à disputa em andamento
+            _dispute_windows[beacon_mac].append(evt)
+            print(f"[aggregator] Evento da ESP '{evt.get('esp_id')}' adicionado à disputa por '{beacon_mac}'.")
+
+
+# O loop principal agora apenas precisa existir, o trabalho é feito pelos eventos.
 async def main_aggregator_loop():
-    """ O loop principal que orquestra as tarefas. """
-    print(f"[aggregator] Agregador SIMPLIFICADO iniciado. Loop a cada {AGGREGATOR_LOOP_INTERVAL_SEC}s.")
-
+    """ O loop principal agora apenas mantém o programa rodando. """
+    print(f"[aggregator] Agregador orientado a eventos iniciado. Janela de disputa: {DISPUTE_WINDOW_SEC}s.")
     while True:
-        await asyncio.sleep(AGGREGATOR_LOOP_INTERVAL_SEC)
+        # O loop pode dormir por mais tempo, já que a lógica agora é reativa
+        await asyncio.sleep(3600) # Dorme por uma hora, apenas para manter a task viva.
 
-        if not _buffer:
-            continue
-
-        events_to_process = list(_buffer)
-        _buffer.clear()
-
-        events_by_beacon = defaultdict(list)
-        for evt in events_to_process:
-            if "cracha" in evt:
-                events_by_beacon[evt["cracha"]].append(evt)
-
-        print(f"\n[aggregator] Processando {len(events_to_process)} eventos para {len(events_by_beacon)} beacons...")
-        for beacon_mac, events in events_by_beacon.items():
-            # A função de processamento agora é assíncrona
-            await _process_events_batch(events)
-
-# Não há mais tarefas em background para cancelar, então a função pode ser removida ou deixada vazia.
+# Esta função não é mais necessária, mas a mantemos para não quebrar nenhuma importação antiga.
 def cancel_pending_task(wifi_mac: str) -> bool:
-    """ Esta função não é mais necessária na nova lógica. """
-    print(f"[aggregator-cancel] A função de cancelamento não é mais aplicável.")
+    print(f"[aggregator-cancel] A função de cancelamento não é mais aplicável na nova arquitetura.")
     return False

@@ -5,7 +5,7 @@ import threading
 import time
 import uvicorn
 
-from fastapi import FastAPI, Request, Response, Form, HTTPException, Body, Query, Depends
+from fastapi import FastAPI, Request, Response, Form, HTTPException, Body, Query, Depends, status
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -149,7 +149,7 @@ templates = Jinja2Templates(directory=templates_path)
 # ==========================================================
 # ENDPOINT DE EVENTOS (Recepção sem mudanças funcionais)
 # ==========================================================
-@app.post("/event")
+@app.post("/event", status_code=status.HTTP_202_ACCEPTED)
 async def receive_event(event_data: Dict):
     print(f"[main] Evento HTTP recebido: {event_data}")
 
@@ -175,7 +175,8 @@ async def receive_event(event_data: Dict):
         db.refresh(db_event)
 
         event_with_id = {**event_data, "event_id": db_event.id}
-        enqueue_event(event_with_id)
+        await enqueue_event(event_with_id)
+
 
         return {"status": "success", "message": "Evento recebido e enfileirado"}
 
