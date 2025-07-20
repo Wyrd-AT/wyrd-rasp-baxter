@@ -22,6 +22,7 @@ from .models import (
     Bed,
     Embarcado,
     ReceivedEvent,
+    GlobalSettings,
     init_db
 )
 
@@ -32,6 +33,7 @@ def get_db():
     finally:
         db.close()
 
+
 from .presence import check_presence
 from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task
 from . import mqtt_client # <-- Importe o novo módulo
@@ -40,12 +42,20 @@ from sqlalchemy import event, or_ # <--- NOVO IMPORT
 from sqlalchemy.orm import Session
 from .mqtt_client import publish_available_beds
 from .auth import authenticate_admin
-from .config import (
-    HISTORY_RETENTION_DAYS,
-    EVENT_PAGE_SIZE,
-    CLEANUP_INTERVAL_SEC, IP
-)
+from .config import settings
 from sqladmin import Admin, ModelView
+from .nmap_scan import get_connected_macs 
+
+def get_global_settings(db: Session) -> dict:
+    settings_from_db = db.query(GlobalSettings).all()
+    # Define valores padrão caso não existam no banco
+    defaults = {
+        "rssi_threshold": "-60",
+        "inercia_chegada": "500",
+        "inercia_saida": "15000"
+    }
+    db_settings = {s.key: s.value for s in settings_from_db}
+    return {**defaults, **db_settings}
 
 print("[main] Módulo carregado")
 
@@ -118,7 +128,32 @@ def validate_bed_data(data: dict):
 # ==========================================================
 # NOVO ENDPOINT HTTP PARA RECEBER EVENTOS DOS ESPs
 # ==========================================================
-@app.post("/event")
+
+@app.get("/test-nmap", name="test_nmap")
+def test_nmap_route():
+    """
+    Endpoint de teste para executar o scan do Nmap e ver o resultado.
+    """
+    print("[main-test] Rota de teste Nmap acionada. Executando get_connected_macs...")
+    try:
+        # Chama a função diretamente. Ela já tem os prints internos.
+        macs_encontrados = get_connected_macs()
+        
+        if macs_encontrados is None:
+            # A função pode retornar None se houver um erro, como nmap não encontrado.
+            return {"status": "erro", "detalhe": "A função get_connected_macs retornou None. Verifique os logs para erros críticos (Nmap não encontrado?)."}
+
+        return {
+            "status": "sucesso",
+            "dispositivos_encontrados": len(macs_encontrados),
+            "macs": macs_encontrados
+        }
+    except Exception as e:
+        # Captura qualquer outra exceção que possa ocorrer
+        print(f"[main-test] Ocorreu uma exceção ao testar o Nmap: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro interno ao executar o Nmap: {e}")
+    
+@app.post("/event", status_code=202)
 async def receive_event(event_data: Dict):
     """
     Recebe um evento de um ESP32 via HTTP POST.
@@ -217,11 +252,11 @@ def list_events(
     total = history_query.count()
     history_events = (
         history_query.order_by(ReceivedEvent.data_on.desc())
-             .offset((page - 1) * EVENT_PAGE_SIZE)
-             .limit(EVENT_PAGE_SIZE)
+             .offset((page - 1) * int(settings.get("event_page_size")))
+             .limit(settings.get("event_page_size"))
              .all()
     )
-    has_next = total > page * EVENT_PAGE_SIZE
+    has_next = total > page * int(settings.get("event_page_size"))
 
     # Prepara as opções para os filtros do frontend
     all_beds = db.query(Bed.nome_cama, Bed.mac_beacon).filter(Bed.mac_beacon.isnot(None)).distinct().order_by(Bed.nome_cama).all()
@@ -351,7 +386,7 @@ def download_embarcados_csv():
             writer = csv.writer(buf)
 
             # Cabeçalho
-            writer.writerow(["ID da ESP", "QUARTO"])
+            writer.writerow(["ID do Embarcado", "QUARTO"])
             yield buf.getvalue()
             buf.seek(0); buf.truncate(0)
 
@@ -454,17 +489,17 @@ def download_events_csv(
 # limpeza periódica usando data_on
 def purge_old_events():
     db = SessionLocal()
-    cutoff = datetime.now(timezone.utc) - timedelta(days=HISTORY_RETENTION_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=int(settings.get("history_retention_days")))
     deleted = db.query(ReceivedEvent).filter(ReceivedEvent.data_on < cutoff).delete()
     db.commit()
     print(f"[main] purge_old_events: removidos {deleted} eventos antes de {cutoff.isoformat()}")
 
 def start_cleanup_scheduler():
-    print(f"[main] Cleanup scheduler iniciado (a cada {CLEANUP_INTERVAL_SEC}s)")
+    print(f"[main] Cleanup scheduler iniciado (a cada {settings.get("cleanup_interval_sec")} s)")
     def loop():
         while True:
             purge_old_events()
-            time.sleep(CLEANUP_INTERVAL_SEC)
+            time.sleep(int(settings.get("cleanup_interval_sec")))
     threading.Thread(target=loop, daemon=True).start()
 
 @app.on_event("startup")
@@ -591,28 +626,23 @@ def get_assigned_bed_for_esp(esp_id: str, db: Session = Depends(get_db)):
     return {"mac_beacon": bed.mac_beacon}
 
 @app.get("/embarcados", name="list_embarcados")
-def list_embarcados(request: Request, search: Optional[str] = Query(None)):
-    db = SessionLocal()
-    
+def list_embarcados(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    # ... (lógica de busca de embarcados continua a mesma)
     query = db.query(Embarcado)
-
     if search:
         search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                Embarcado.id_esp.ilike(search_term),
-                Embarcado.quarto.ilike(search_term)
-            )
-        )
-        
-    embarcados = query.all()
+        query = query.filter(or_(Embarcado.id_esp.ilike(search_term), Embarcado.quarto.ilike(search_term)))
+    
+    embarcados = query.order_by(Embarcado.quarto).all()
+    global_settings = get_global_settings(db) # Pega as configurações do DB
 
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
         "embarcados": embarcados,
         "form_action": request.url_for("create_embarcado_html"),
         "embarcado": None,
-        "search": search
+        "search": search,
+        "global_settings": global_settings # Passa as configs para o template
     })
 
 @app.post("/embarcados", name="create_embarcado_html")
@@ -686,6 +716,65 @@ async def update_bed_from_json(data: dict = Body(...)):
     update_bed_assignment(bed_id=bed.id, new_room=new_room)
     
     return {"message": "Cama atualizada com sucesso", "cama": cama_mac, "status": status, "quarto": new_room}
+
+
+# --- NOVA ROTA PARA SALVAR AS CONFIGURAÇÕES GLOBAIS ---
+@app.post("/settings/update", name="update_settings")
+def update_settings(
+    request: Request, db: Session = Depends(get_db),
+    rssi_threshold: str = Form(...),
+    inercia_chegada: str = Form(...),
+    inercia_saida: str = Form(...)
+):
+    settings_data = {
+        "rssi_threshold": rssi_threshold,
+        "inercia_chegada": inercia_chegada,
+        "inercia_saida": inercia_saida
+    }
+    for key, value in settings_data.items():
+        setting = db.query(GlobalSettings).filter(GlobalSettings.key == key).first()
+        if not setting:
+            setting = GlobalSettings(key=key)
+            db.add(setting)
+        setting.value = value
+    db.commit()
+
+    # Publica o comando para as ESPs usando a nova função de serviço
+    print("[main] Configurações salvas. Enviando comando 'fetch_config' para as ESPs.")
+    command_payload = {"command": "fetch_config"}
+    mqtt_client.publish_command_to_all(command_payload) # <-- USE A NOVA FUNÇÃO
+
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+
+# --- ENDPOINT PARA A ESP BUSCAR SUA CONFIGURAÇÃO COMPLETA ---
+@app.get("/esp/{esp_id}/config", name="get_config_for_esp")
+def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
+    """
+    Fornece o estado inicial da ESP (cama no seu quarto) e as
+    configurações de sensibilidade globais.
+    """
+    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+    if not embarcado:
+        # Retorna apenas as configurações padrão se a ESP não estiver cadastrada
+        settings = get_global_settings(db)
+        return {
+            "mac_beacon": None,
+            "rssi_threshold": int(settings.get("rssi_threshold")),
+            "inercia_chegada": int(settings.get("inercia_chegada")),
+            "inercia_saida": int(settings.get("inercia_saida")),
+        }
+
+    bed = db.query(Bed).filter(Bed.quarto == embarcado.quarto).first()
+    settings = get_global_settings(db)
+    
+    response_data = {
+        "mac_beacon": bed.mac_beacon if bed else None,
+        "rssi_threshold": int(settings.get("rssi_threshold")),
+        "inercia_chegada": int(settings.get("inercia_chegada")),
+        "inercia_saida": int(settings.get("inercia_saida")),
+    }
+    return response_data
 
 # ─── EXECUÇÃO DIRETA ───────────────────────────────────────────────────────────
 if __name__ == "__main__":

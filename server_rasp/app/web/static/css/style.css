@@ -80,8 +80,8 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 /* --- Estilos do Formulário --- */
 .form-card { border: 1px solid var(--card-border); border-radius: 6px; padding: 2rem; }
-.form-card h3 { font-family: 'Lexend'; font-size: 18px; text-align: center; margin-bottom: 2.5rem; }
-.form-card form { display: flex; flex-direction: column; gap: 2.5rem; }
+.form-card h3 { font-family: 'Lexend'; font-size: 18px; text-align: center; margin-bottom: 1.5rem; }
+.form-card form { display: flex; flex-direction: column; gap: 1.5rem; }
 .form-group { width: 100%; }
 .form-group label { display: block; font-weight: 700; font-size: 16px; color: var(--text-secondary); margin-bottom: 0.5rem; }
 .form-group input { width: 100%; padding: 0.5rem 0.2rem; border: none; border-bottom: 1px solid #001233; outline: none; background: transparent; font-size: 16px; }
@@ -168,4 +168,47 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 .btn-cancel:hover {
     background-color: #dc3545; /* Vermelho no hover para indicar uma ação destrutiva */
+}
+
+/* Container que envolve o formulário de configurações */
+.settings-form {
+    margin-top: 3rem;                       /* Adiciona um espaço para separar do formulário de cadastro */
+    border: 1px solid var(--card-border);   /* Reutiliza a borda padrão dos cards */
+    border-radius: 6px;                     /* Mantém o arredondamento consistente */
+    padding: 2rem;                          /* Espaçamento interno igual aos outros cards */
+}
+
+/* Estilo para o título "Configurações de Conectividade" */
+.settings-form h2 {
+    font-family: 'Lexend', sans-serif;
+    font-size: 18px;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+/* Estilo para o parágrafo de descrição abaixo do título */
+.form-description {
+    font-size: 14px;
+    color: var(--text-secondary);
+    text-align: center;
+    line-height: 1.5;
+    margin-bottom: 2.5rem;                  /* Aumenta o espaço antes dos campos */
+}
+
+/* Nova classe para alinhar os campos de input lado a lado */
+.form-row {
+    display: flex;                          /* Usa Flexbox para o alinhamento */
+    gap: 1.5rem;                            /* Espaço entre os campos */
+    align-items: flex-start;
+    margin-bottom: 2rem;
+}
+
+/* Garante que cada grupo de formulário na linha ocupe o mesmo espaço */
+.settings-form .form-group {
+    flex: 1;                                /* Distribuição de espaço igualitária */
+}
+
+/* Garante que o botão de salvar ocupe a largura total do formulário */
+.settings-form .btn-primary {
+    width: 100%;
 }

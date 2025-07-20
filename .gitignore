@@ -38,6 +38,7 @@ bin/
 include/
 lib/
 lib64/
+*.spec
 
 # Arquivos de ambiente e segredos
 # NUNCA envie senhas, chaves de API ou outros segredos!

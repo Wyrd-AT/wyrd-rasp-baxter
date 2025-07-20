@@ -4,13 +4,15 @@ from datetime import datetime, timezone, timedelta
 
 from .dispatcher import dispatch_event
 from .models import SessionLocal, Bed, Embarcado, ReceivedEvent
-from .config import WARNING_DELAY_MINUTES 
+from .config import settings
 from .presence import check_presence
-from .mqtt_client import publish_available_beds
+from .mqtt_client import publish_available_beds, publish_verdict
 
 # --- Configurações ---
-RETRY_PRESENCE_FREQUENCY_SEC = 30
+# Usa .getint() para ler os valores numéricos do config.ini
+RETRY_PRESENCE_FREQUENCY_SEC = settings.get('cleanup_interval_sec')
 AGGREGATOR_LOOP_INTERVAL_SEC = 2
+DISPATCH_DELAY_SEC = 0 # Mantido como 0 por padrão, pode ser alterado no .ini se necessário
 
 # --- Estruturas de Dados em Memória ---
 _buffer = []
@@ -21,7 +23,6 @@ def enqueue_event(evt: dict):
     _buffer.append(evt)
     print(f"[aggregator] Evento enfileirado: {evt}")
 
-# --- NOVA FUNÇÃO HELPER ---
 def _update_event_status(event_id: int, status: str, detail: str):
     """ Pequena função para atualizar o status de um evento no banco de dados. """
     db = SessionLocal()
@@ -37,17 +38,16 @@ def _update_event_status(event_id: int, status: str, detail: str):
     finally:
         db.close()
 
-# --- LÓGICA DE RETRY ATUALIZADA ---
 async def _retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id: int, esp_id: str):
     """
     Tarefa em segundo plano que verifica a presença.
-    LÓGICA ATUALIZADA: Se a ausência persistir, CRIA UM NOVO EVENTO DE WARNING no banco
-    e o despacha para o sistema externo.
+    Se a ausência persistir, cria um novo evento de WARNING.
     """
     print(f"[aggregator-retry] Iniciada tarefa para Beacon '{beacon_mac}' (MAC Wi-Fi: {wifi_mac}).")
     
     start_time = datetime.now(timezone.utc)
-    warning_created = False # Controle para garantir que o warning seja criado apenas uma vez
+    warning_created = False
+    warning_delay_minutes = int(settings.get('warning_delay_minutes'))
     
     while True:
         await asyncio.sleep(RETRY_PRESENCE_FREQUENCY_SEC)
@@ -56,85 +56,65 @@ async def _retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id
         is_present = await loop.run_in_executor(None, check_presence, wifi_mac)
 
         if is_present:
-            # A lógica de sucesso quando o Wi-Fi é encontrado permanece a mesma
             print(f"[aggregator-retry] SUCESSO! MAC Wi-Fi '{wifi_mac}' encontrado na rede.")
             db = SessionLocal()
             try:
                 bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
-                emb = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
-
-                if emb and bed and bed.quarto is None:
-                    bed.quarto = emb.quarto
-                    db.commit()
-                    publish_available_beds()
-                    print("Entrei aqui")
-
-                    dispatch_payload = {
-                        "quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET",
-                        "dataOn": bed.data,
-                    }
-                    await loop.run_in_executor(None, dispatch_event, dispatch_payload)
-
-                    _update_event_status(
-                        original_event_id, 
-                        status="Resolvido", 
-                        detail=f"Cama '{bed.nome_cama}' associada ao quarto '{emb.quarto}' via nova tentativa."
-                    )
+                _update_event_status(
+                    original_event_id, 
+                    status="Resolvido", 
+                    detail=f"Cama '{bed.nome_cama}' associada e confirmada no quarto '{bed.quarto}' via nova tentativa."
+                )
+                dispatch_payload = {
+                    "quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET",
+                    "dataOn": datetime.now(timezone.utc).isoformat(),
+                }
+                await loop.run_in_executor(None, dispatch_event, dispatch_payload)
                 break 
             finally:
                 db.close()
         
         elif not warning_created:
             elapsed_time = datetime.now(timezone.utc) - start_time
-            if elapsed_time > timedelta(minutes=WARNING_DELAY_MINUTES):
-                print(f"[aggregator-retry] MAC '{wifi_mac}' ausente por mais de {WARNING_DELAY_MINUTES} min. GERANDO WARNING.")
+            if elapsed_time > timedelta(minutes=warning_delay_minutes):
+                print(f"[aggregator-retry] MAC '{wifi_mac}' ausente por mais de {warning_delay_minutes} min. GERANDO WARNING.")
                 db = SessionLocal()
                 try:
                     bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
                     emb = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
                     
                     if bed and emb:
-                        # --- Bloco para Criar e Salvar o Evento WARNING ---
                         timestamp_agora = datetime.now(timezone.utc)
-                        
-                        # 1. Cria o novo evento de WARNING no banco
                         warning_event = ReceivedEvent(
                             esp_id=esp_id, cama=beacon_mac,
                             action="WARNING", status="OK",
-                            status_detail=f"Alerta gerado para cama '{bed.nome_cama}' com MAC ausente por mais de {WARNING_DELAY_MINUTES} min.",
-                            data_on=emb.data,
+                            status_detail=f"Alerta gerado para cama '{bed.nome_cama}' com MAC ausente por mais de {warning_delay_minutes} min.",
+                            data_on=timestamp_agora,
                             raw={"reason": "Auto-generated by aggregator", "original_event_id": original_event_id}
                         )
                         db.add(warning_event)
                         db.commit()
-
-                        # 2. Despacha o WARNING para o Connecta
                         warning_payload = {
                             "quarto": emb.quarto, "cama": bed.nome_cama, 
                             "status": "WARNING", "dataOn": timestamp_agora.isoformat()
                         }
                         await loop.run_in_executor(None, dispatch_event, warning_payload)
-                        
-                        warning_created = True # Marca que o alerta foi criado para não repetir
+                        warning_created = True
                 finally:
                     db.close()
 
-    # Limpeza final da tarefa
     if wifi_mac in _pending_mac_checks:
         del _pending_mac_checks[wifi_mac]
     print(f"[aggregator-retry] Finalizada tarefa de verificação para MAC Wi-Fi '{wifi_mac}'.")
 
-# --- LÓGICA DE PROCESSAMENTO PRINCIPAL TOTALMENTE REFEITA ---
 async def _process_events_batch(events: list):
     """
-    Processa um lote de eventos para um mesmo beacon.
-    A lógica de WARNING foi movida para a tarefa de retry.
+    Processa um lote de eventos para um mesmo beacon e envia o VEREDITO para as ESPs.
     """
     loop = asyncio.get_running_loop()
     db = SessionLocal()
     
     try:
-        # --- Lógica de 'OUT' (sem alterações) ---
         out_events = [e for e in events if e.get("status") == "OUT"]
         if out_events:
             main_out_event = out_events[0]
@@ -158,12 +138,11 @@ async def _process_events_batch(events: list):
                     publish_available_beds()
                     _update_event_status(event_id, "OK", f"Cama '{bed.nome_cama}' desassociada com sucesso.")
                 else:
-                    _update_event_status(event_id, "Confirmado", "Cama já estava desassociada. Nenhuma ação necessária.")
+                    _update_event_status(event_id, "Confirmado", "Cama já estava desassociada.")
             else:
                 _update_event_status(event_id, "Erro", f"Cama com beacon '{beacon_mac}' não cadastrada.")
             return
 
-        # --- Lógica de 'GET' ---
         get_events = [e for e in events if e.get("status") == "GET"]
         if not get_events:
             return
@@ -172,47 +151,46 @@ async def _process_events_batch(events: list):
         event_id = best_event.get("event_id")
         beacon_mac = best_event.get("cama")
 
+        # --- 2. Lógica de Envio do Veredito ---
+        print(f"[aggregator-verdict] Enviando WIN para a ESP {best_event['esp_id']} pela cama {beacon_mac}")
+        publish_verdict(esp_id=best_event['esp_id'], bed_mac=beacon_mac, status="WIN")
+
         for evt in get_events:
             if evt is not best_event:
-                _update_event_status(evt.get("event_id"), "Ignorado", f"Sinal mais fraco (RSSI: {evt.get('RSSI', 'N/A')}) ou duplicado.")
+                _update_event_status(evt.get("event_id"), "Ignorado", f"Sinal mais fraco (RSSI: {evt.get('RSSI', 'N/A')}). Veredito: LOSE.")
+                print(f"[aggregator-verdict] Enviando LOSE para a ESP {evt['esp_id']} pela cama {beacon_mac}")
+                publish_verdict(esp_id=evt['esp_id'], bed_mac=beacon_mac, status="LOSE")
         
         bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
         emb = db.query(Embarcado).filter(Embarcado.id_esp == best_event['esp_id']).first()
 
         if not bed or not emb:
-            detail = f"Cama (beacon: {beacon_mac})" if not bed else f"ESP ({best_event['esp_id']})"
-            _update_event_status(event_id, "Erro", f"Componente não cadastrado: {detail}.")
+            _update_event_status(event_id, "Erro", "Componente (cama ou ESP) não cadastrado.")
             return
 
         if bed.quarto == emb.quarto:
             _update_event_status(event_id, "Confirmado", f"Cama '{bed.nome_cama}' já estava no quarto '{emb.quarto}'.")
             return
         
-        is_present = await loop.run_in_executor(None, check_presence, bed.mac_address)
         bed.quarto = emb.quarto
         db.commit()
         
+        is_present = await loop.run_in_executor(None, check_presence, bed.mac_address)
+        
         if is_present:
-            
             publish_available_beds()
-            
             dispatch_payload = {"quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET", "dataOn": datetime.now(timezone.utc).isoformat(), "wifi": best_event.get("wifi")}
             await loop.run_in_executor(None, dispatch_event, dispatch_payload)
-            
-            _update_event_status(event_id, "OK", f"Cama '{bed.nome_cama}' associada ao quarto '{emb.quarto}'.")
+            _update_event_status(event_id, "OK", f"Cama '{bed.nome_cama}' associada e confirmada no quarto '{emb.quarto}'.")
         else:
-            # --- Bloco Modificado ---
-            # MAC não encontrado: Apenas marca como Pendente e inicia a tarefa de retry.
-            # A lógica de WARNING foi movida para dentro da _retry_presence_task.
-            _update_event_status(event_id, "Pendente", "MAC da cama não encontrado. Nova verificação agendada.")
-            
+            _update_event_status(event_id, "Pendente", f"Cama associada ao quarto '{emb.quarto}', aguardando confirmação do Wi-Fi.")
             if bed.mac_address not in _pending_mac_checks:
                 task = asyncio.create_task(
                     _retry_presence_task(
                         wifi_mac=bed.mac_address, 
                         beacon_mac=beacon_mac, 
                         original_event_id=event_id,
-                        esp_id=best_event['esp_id'] # Passando o esp_id para o contexto do warning
+                        esp_id=best_event['esp_id']
                     )
                 )
                 _pending_mac_checks[bed.mac_address] = task
@@ -222,13 +200,10 @@ async def _process_events_batch(events: list):
 def cancel_pending_task(wifi_mac: str) -> bool:
     """
     Busca e cancela uma tarefa de retry pendente com base no MAC Wi-Fi da cama.
-
-    Retorna True se a tarefa foi encontrada e cancelada, False caso contrário.
     """
     if wifi_mac in _pending_mac_checks:
         task = _pending_mac_checks[wifi_mac]
         task.cancel()
-        # Remove a tarefa do dicionário para evitar chamadas futuras
         del _pending_mac_checks[wifi_mac]
         print(f"[aggregator-cancel] Tarefa para o MAC {wifi_mac} foi cancelada externamente.")
         return True
@@ -251,7 +226,6 @@ async def main_aggregator_loop():
 
         events_by_beacon = defaultdict(list)
         for evt in events_to_process:
-            # Ignora eventos sem o campo 'cama'
             if "cama" in evt:
                 events_by_beacon[evt["cama"]].append(evt)
         

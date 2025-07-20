@@ -2,7 +2,7 @@
     <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
     <form action="{{ form_action }}" method="post">
         <div class="form-group">
-            <label for="id_esp">ID da ESP</label>
+            <label for="id_esp">ID do Embarcado</label>
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required>
         </div>
         <div class="form-group">

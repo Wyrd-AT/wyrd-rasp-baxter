@@ -1,38 +1,52 @@
-// ==========================================================
-// = BAXTER - CÓDIGO FINAL DA ESP32 (RASTREAMENTO MÚLTIPLO E RESILIENTE) =
-// ==========================================================
+// ===================================================================================
+// = BAXTER - CÓDIGO COM MODO DE CONFIGURAÇÃO E LÓGICA DE VEREDITO                    =
+// ===================================================================================
 
-#include <BLEDevice.h>
 #include <WiFi.h>
-#include <PubSubClient.h>   
+#include <WiFiManager.h>
+#include <Preferences.h>
+#include <BLEDevice.h>
+#include <PubSubClient.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* SSID              = "MVISIA_2.4GHz";
-const char* PASSWORD          = "mvisia2020";
-const char* idESP             = "WRD00000003";
-const char* SERVER_IP         = "10.0.0.149";
-const uint16_t SERVER_PORT    = 8000;
-const char* MQTT_BROKER_HOST  = "10.0.0.149";
-const uint16_t MQTT_BROKER_PORT = 1883;
+// --- Identificador Fixo ---
+const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
 const char* MQTT_BED_LIST_TOPIC = "wyrd/baxter/beds/available";
+const char* MQTT_COMMAND_TOPIC = "wyrd/baxter/esp/all/command";
+String MQTT_VERDICT_TOPIC = "";
+
+// --- GATILHO PARA MODO DE CONFIGURAÇÃO ---
+String TRIGGER_HOTSPOT_SSID = ""; // Será montado no setup()
+const char* TRIGGER_HOTSPOT_PASSWORD = "baxterconfig";
+const unsigned long TRIGGER_SCAN_TIMEOUT = 5000; // 5 segundos
+
+// --- Variáveis de configuração (carregadas do NVS ou portal) ---
+char SERVER_IP[16]            = "10.0.0.149";
+char SERVER_PORT_STR[6]       = "8000";
+char MQTT_BROKER_HOST[16]     = "10.0.0.149";
+char MQTT_BROKER_PORT_STR[6]  = "1883";
+uint16_t SERVER_PORT          = 8000;
+uint16_t MQTT_BROKER_PORT     = 1883;
 
 // --- Configurações de Lógica ---
-#define RSSI_THRESHOLD          -60
-#define INERCIA_CHEGADA         30000
-#define TEMPO_SAIDA             30000
-#define RSSI_HISTORY_SIZE       5
-#define BEACON_SCAN_TIME        4
+int RSSI_THRESHOLD            = -60;
+unsigned long INERCIA_CHEGADA = 500;
+unsigned long INERCIA_SAIDA   = 15000;
+#define RSSI_HISTORY_SIZE       3
+#define BEACON_SCAN_TIME        1
 
 // --- Configurações NTP ---
 const char* NTP_SERVER          = "pool.ntp.org";
 const long  GMT_OFFSET_SEC      = -3 * 3600;
 const int   DAYLIGHT_OFFSET_SEC = 0;
 
-// ============ ESTRUTURAS DE DADOS E VARIÁVEIS GLOBAIS ============
+// ============ OBJETOS GLOBAIS E ESTRUTURAS DE DADOS ============
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
+Preferences preferences; 
+bool shouldSaveConfig = false;
 
 struct TargetBed {
     String mac = "";
@@ -42,11 +56,14 @@ struct TargetBed {
     unsigned long inicioInercia = 0;
     int mediaRSSI = -100;
 };
-
 struct LockedBed {
     String mac = "";
     bool confirmada = false;
-    unsigned long ultimaPresenca = 0;
+    bool aguardandoVeredito = false;
+    int rssiHistory[RSSI_HISTORY_SIZE];
+    uint8_t index = 0;
+    bool isFull = false;
+    unsigned long inicioInerciaSaida = 0;
 } lockedBed;
 
 #define MAX_AVAILABLE_BEDS 50
@@ -54,56 +71,69 @@ TargetBed potentialTargets[MAX_AVAILABLE_BEDS];
 int potentialTargetsCount = 0;
 
 // ============ PROTÓTIPOS DE FUNÇÕES ============
+void lerConfiguracoes();
+void salvarConfiguracoes();
+void saveConfigCallback();
+void checkInitialState();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
-void conectarWiFi();
 String obterDataAtualISO8601();
-// --- MUDANÇA NA ASSINATURA DA FUNÇÃO ---
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi);
 void processarLogicaCama();
 void configurarNTP();
 void reconnect_mqtt();
 
-// ... (mqtt_callback e a classe MyAdvertisedDeviceCallbacks continuam iguais) ...
+// =================================================================
+// =================== LÓGICA DE CONFIGURAÇÃO ======================
+// =================================================================
 
-void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-    Serial.println("------------------------------------");
-    Serial.printf("Mensagem recebida no tópico: %s\n", topic);
-
-    if (lockedBed.confirmada) {
-        Serial.printf("ESP já está travada na cama %s. Ignorando nova lista.\n", lockedBed.mac.c_str());
-        Serial.println("------------------------------------");
-        return;
-    }
+void lerConfiguracoes() {
+    preferences.begin("baxter-config", false);
+    String saved_server_ip = preferences.getString("server_ip", "192.168.0.5");
+    String saved_server_port = preferences.getString("server_port", "8000");
+    String saved_mqtt_host = preferences.getString("mqtt_host", "192.168.0.5");
+    String saved_mqtt_port = preferences.getString("mqtt_port", "1883");
     
-    potentialTargetsCount = 0;
-    StaticJsonDocument<2048> doc;
-    deserializeJson(doc, payload, length);
-    JsonArray macArray = doc.as<JsonArray>();
+    strcpy(SERVER_IP, saved_server_ip.c_str());
+    strcpy(SERVER_PORT_STR, saved_server_port.c_str());
+    strcpy(MQTT_BROKER_HOST, saved_mqtt_host.c_str());
+    strcpy(MQTT_BROKER_PORT_STR, saved_mqtt_port.c_str());
 
-    Serial.println("Inicializando nova lista de alvos potenciais:");
-    for (JsonVariant v : macArray) {
-        if (potentialTargetsCount < MAX_AVAILABLE_BEDS) {
-            String mac = v.as<String>();
-            potentialTargets[potentialTargetsCount] = TargetBed(); 
-            potentialTargets[potentialTargetsCount].mac = mac;
-            Serial.printf("  - Alvo %d: %s\n", potentialTargetsCount, mac.c_str());
-            potentialTargetsCount++;
-        }
-    }
-    Serial.println("------------------------------------");
+    SERVER_PORT = atoi(SERVER_PORT_STR);
+    MQTT_BROKER_PORT = atoi(MQTT_BROKER_PORT_STR);
+    
+    preferences.end();
+    Serial.println("Configurações carregadas da memória NVS.");
 }
 
+void salvarConfiguracoes() {
+    preferences.begin("baxter-config", false);
+    preferences.putString("server_ip", SERVER_IP);
+    preferences.putString("server_port", SERVER_PORT_STR);
+    preferences.putString("mqtt_host", MQTT_BROKER_HOST);
+    preferences.putString("mqtt_port", MQTT_BROKER_PORT_STR);
+    preferences.end();
+    Serial.println("Configurações salvas na memória NVS.");
+}
+
+void saveConfigCallback () {
+    Serial.println("Callback de salvar configuração foi acionado.");
+    shouldSaveConfig = true;
+}
+
+// =================================================================
+// =================== LÓGICA DE COMUNICAÇÃO =======================
+// =================================================================
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) override {
         String foundMac = advertisedDevice.getAddress().toString().c_str();
-
         if (lockedBed.confirmada) {
-            if (foundMac == lockedBed.mac) {
-                lockedBed.ultimaPresenca = millis();
+            if (foundMac.equalsIgnoreCase(lockedBed.mac)) {
+                lockedBed.rssiHistory[lockedBed.index] = advertisedDevice.getRSSI();
+                lockedBed.index = (lockedBed.index + 1) % RSSI_HISTORY_SIZE;
+                if (lockedBed.index == 0) lockedBed.isFull = true;
             }
             return;
         }
-
         for (int i = 0; i < potentialTargetsCount; i++) {
             if (foundMac.equalsIgnoreCase(potentialTargets[i].mac)) {
                 TargetBed &target = potentialTargets[i];
@@ -116,18 +146,181 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     }
 };
 
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+    Serial.println("------------------------------------");
+    Serial.printf("Mensagem recebida no tópico: %s\n", topic);
+    
+    String topicStr = String(topic);
+
+    // --- LÓGICA 1: Processar o Veredito da Disputa ---
+    if (topicStr == MQTT_VERDICT_TOPIC) {
+        StaticJsonDocument<128> doc;
+        deserializeJson(doc, payload, length);
+        const char* status = doc["status"];
+        String cama = doc["cama"];
+
+        if (lockedBed.aguardandoVeredito && cama.equalsIgnoreCase(lockedBed.mac)) {
+            if (strcmp(status, "WIN") == 0) {
+                Serial.printf(">>> VEREDITO RECEBIDO: VENCEU! Travando na cama %s\n", cama.c_str());
+                lockedBed.confirmada = true;
+            } else { // "LOSE"
+                Serial.printf(">>> VEREDITO RECEBIDO: PERDEU! Liberando a cama %s\n", cama.c_str());
+                lockedBed = {};
+            }
+            lockedBed.aguardandoVeredito = false;
+        }
+        return;
+    }
+    
+    // --- LÓGICA 2: Processar Comandos Gerais do Servidor ---
+    if (topicStr == MQTT_COMMAND_TOPIC) {
+        StaticJsonDocument<128> doc;
+        deserializeJson(doc, payload, length);
+        
+        const char* command = doc["command"];
+        if (command != NULL && strcmp(command, "fetch_config") == 0) {
+            Serial.println(">>> Comando 'fetch_config' recebido! Buscando novas configurações do servidor...");
+            checkInitialState();
+        }
+        return;
+    }
+
+    // --- LÓGICA 3: Processar a Lista de Camas Disponíveis ---
+    if (topicStr == MQTT_BED_LIST_TOPIC) {
+        if (lockedBed.confirmada || lockedBed.aguardandoVeredito) {
+            Serial.printf("ESP travada ou aguardando veredito. Ignorando nova lista.\n");
+            Serial.println("------------------------------------");
+            return;
+        }
+        
+        potentialTargetsCount = 0;
+        StaticJsonDocument<2048> doc;
+        deserializeJson(doc, payload, length);
+        JsonArray macArray = doc.as<JsonArray>();
+
+        Serial.println("Inicializando nova lista de alvos potenciais:");
+        for (JsonVariant v : macArray) {
+            if (potentialTargetsCount < MAX_AVAILABLE_BEDS) {
+                String mac = v.as<String>();
+                potentialTargets[potentialTargetsCount] = TargetBed();
+                potentialTargets[potentialTargetsCount].mac = mac;
+                Serial.printf("  - Alvo %d: %s\n", potentialTargetsCount, mac.c_str());
+                potentialTargetsCount++;
+            }
+        }
+        Serial.println("------------------------------------");
+    }
+}
 
 // =================================================================
 // =================== SETUP E LOOP PRINCIPAL ======================
 // =================================================================
 void setup() {
     Serial.begin(115200);
-    conectarWiFi();
-    configurarNTP();
-    BLEDevice::init("");
+    lerConfiguracoes();
+    MQTT_VERDICT_TOPIC = "wyrd/baxter/esp/" + String(idESP) + "/verdict";
+    Serial.println("\n\n==================");
+    Serial.println("= EMBARCADO BAXTER INICIANDO =");
+    Serial.println("==================");
 
-    mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
-    mqttClient.setCallback(mqtt_callback);
+    TRIGGER_HOTSPOT_SSID = "BAXTER_" + String(idESP);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    delay(100);
+
+    Serial.printf("Procurando pelo Hotspot de Configuração '%s' por %d segundos...\n", TRIGGER_HOTSPOT_SSID.c_str(), TRIGGER_SCAN_TIMEOUT / 1000);
+
+    bool triggerFound = false;
+    unsigned long startTime = millis();
+
+    while (millis() - startTime < TRIGGER_SCAN_TIMEOUT) {
+        int n = WiFi.scanNetworks();
+        if (n > 0) {
+            for (int i = 0; i < n; ++i) {
+                if (WiFi.SSID(i) == TRIGGER_HOTSPOT_SSID) {
+                    Serial.printf("\nHotspot de configuração encontrado! MAC: %s\n", WiFi.BSSIDstr(i).c_str());
+                    triggerFound = true;
+                    break;
+                }
+            }
+        }
+        if (triggerFound) break;
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println();
+    WiFi.scanDelete();
+
+    if (triggerFound) {
+        Serial.println("Iniciando Portal de Configuração...");
+        WiFiManager wm;
+        wm.setConfigPortalTimeout(0); 
+        wm.setSaveConfigCallback(saveConfigCallback);
+
+        WiFiManagerParameter custom_server_ip("server_ip", "IP Servidor HTTP", SERVER_IP, 16);
+        WiFiManagerParameter custom_server_port("server_port", "Porta Servidor HTTP", SERVER_PORT_STR, 6);
+        WiFiManagerParameter custom_mqtt_host("mqtt_host", "IP Broker MQTT", MQTT_BROKER_HOST, 16);
+        WiFiManagerParameter custom_mqtt_port("mqtt_port", "Porta Broker MQTT", MQTT_BROKER_PORT_STR, 6);
+        wm.addParameter(&custom_server_ip);
+        wm.addParameter(&custom_server_port);
+        wm.addParameter(&custom_mqtt_host);
+        wm.addParameter(&custom_mqtt_port);
+
+        String portalAPName = "CONFIG_BAXTER_" + String(idESP); 
+
+        if (wm.startConfigPortal(portalAPName.c_str())) {
+            Serial.println("Configuração salva pelo usuário.");
+            strcpy(SERVER_IP, custom_server_ip.getValue());
+            strcpy(SERVER_PORT_STR, custom_server_port.getValue());
+            strcpy(MQTT_BROKER_HOST, custom_mqtt_host.getValue());
+            strcpy(MQTT_BROKER_PORT_STR, custom_mqtt_port.getValue());
+            SERVER_PORT = atoi(SERVER_PORT_STR);
+            MQTT_BROKER_PORT = atoi(MQTT_BROKER_PORT_STR);
+            
+            salvarConfiguracoes();
+            Serial.println("Configurações salvas na memória. Reiniciando em 5 segundos...");
+            delay(5000);
+            ESP.restart();
+        } else {
+            Serial.println("Portal fechado sem salvar. Reiniciando...");
+            delay(3000);
+            ESP.restart();
+        }
+    } else {
+        Serial.println("\nHotspot de configuração não encontrado. Iniciando em modo de operação normal.");
+        
+        Serial.print("Conectando à rede Wi-Fi salva: ");
+        Serial.println(WiFi.SSID());
+        WiFi.begin();
+
+        unsigned long wifiStartTime = millis();
+        while (WiFi.status() != WL_CONNECTED) {
+            if(millis() - wifiStartTime > 20000) {
+                Serial.println("\nFalha ao conectar ao Wi-Fi. Reiniciando...");
+                delay(3000);
+                ESP.restart();
+            }
+            Serial.print(".");
+            delay(500);
+        }
+
+        Serial.println("\nWi-Fi conectado com sucesso!");
+        Serial.print("IP: ");
+        Serial.println(WiFi.localIP());
+
+        configurarNTP();
+        
+        BLEDevice::init("");
+        BLEScan* pBLEScan = BLEDevice::getScan();
+        pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+        pBLEScan->setActiveScan(true);
+
+        mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+        mqttClient.setCallback(mqtt_callback);
+        
+        checkInitialState();
+    }
 }
 
 void loop() {
@@ -135,49 +328,57 @@ void loop() {
         reconnect_mqtt();
     }
     mqttClient.loop();
-
-    BLEScan* scanner = BLEDevice::getScan();
-    scanner->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-    scanner->setActiveScan(true);
-    scanner->start(BEACON_SCAN_TIME, false);
-
+    BLEDevice::getScan()->start(BEACON_SCAN_TIME, false);
     processarLogicaCama();
-
     delay(500);
 }
 
-
-// =================================================================
 // =================== LÓGICA DE DECISÃO PRINCIPAL =================
-// =================================================================
 void processarLogicaCama() {
     unsigned long agora = millis();
 
-    // --- Parte 1: Lógica de SAÍDA ---
     if (lockedBed.confirmada) {
-        if (agora - lockedBed.ultimaPresenca > TEMPO_SAIDA) {
-            Serial.printf("Tentando reportar SAÍDA para a cama %s...\n", lockedBed.mac.c_str());
+        if (!lockedBed.isFull) { return; }
+
+        int soma = 0;
+        for (int i = 0; i < RSSI_HISTORY_SIZE; i++) { soma += lockedBed.rssiHistory[i]; }
+        int mediaRSSI = soma / RSSI_HISTORY_SIZE;
+
+        Serial.printf("Monitorando cama travada: %s | Média RSSI: %d\n", lockedBed.mac.c_str(), mediaRSSI);
+
+        if (mediaRSSI < RSSI_THRESHOLD) {
+            if (lockedBed.inicioInerciaSaida == 0) {
+                Serial.printf("Sinal fraco detectado. Iniciando contagem de inércia de SAÍDA.\n");
+                lockedBed.inicioInerciaSaida = agora;
+            }
+        } else {
+            if (lockedBed.inicioInerciaSaida > 0) {
+                Serial.println("Sinal forte restaurado. Cancelando contagem de inércia de SAÍDA.");
+                lockedBed.inicioInerciaSaida = 0;
+            }
+        }
+
+        if (lockedBed.inicioInerciaSaida > 0 && (agora - lockedBed.inicioInerciaSaida > INERCIA_SAIDA)) {
+            Serial.printf(">>> Inércia de SAÍDA atingida. Tratando como SAÍDA.\n");
             
-            // Tenta enviar o evento OUT. Se for bem-sucedido, libera a trava.
-            bool sucesso = enviarEventoHTTP(lockedBed.mac.c_str(), "OUT", -100, WiFi.RSSI());
+            bool sucesso = enviarEventoHTTP(lockedBed.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI());
             if (sucesso) {
                 Serial.println("SAÍDA reportada com sucesso. Liberando trava.");
-                lockedBed = LockedBed(); // Reseta a estrutura
+                lockedBed = {};
             } else {
-                Serial.println("Falha ao reportar SAÍDA. Manterá a trava e tentará novamente no próximo ciclo.");
+                Serial.println("Falha ao reportar SAÍDA. Manterá a trava e tentará novamente.");
             }
         }
         return; 
     }
 
-    // --- Parte 2: Lógica de ENTRADA ---
-    // (A fase de análise continua a mesma)
     for (int i = 0; i < potentialTargetsCount; i++) {
         TargetBed &target = potentialTargets[i];
-        if (!target.isFull) continue; 
+        if (!target.isFull) continue;
         int soma = 0;
         for (int j = 0; j < RSSI_HISTORY_SIZE; j++) soma += target.rssiHistory[j];
         target.mediaRSSI = soma / RSSI_HISTORY_SIZE;
+        Serial.printf("  - Alvo: %s | Média RSSI: %d\n", target.mac.c_str(), target.mediaRSSI);
         if (target.mediaRSSI > RSSI_THRESHOLD) {
             if (target.inicioInercia == 0) {
                 target.inicioInercia = agora;
@@ -186,13 +387,13 @@ void processarLogicaCama() {
             target.inicioInercia = 0;
         }
     }
+    Serial.println("------");
     
-    // (A fase de decisão continua a mesma)
     int winnerIndex = -1;
     int bestRssiOfWinners = -1000;
     for (int i = 0; i < potentialTargetsCount; i++) {
         TargetBed &target = potentialTargets[i];
-        if (target.inicioInercia > 0 && (agora - target.inicioInercia > INERCIA_CHEGADA)) {
+        if (target.inicioInercia > 0 && (agora - target.inicioInercia > 500)) {
             if (target.mediaRSSI > bestRssiOfWinners) {
                 bestRssiOfWinners = target.mediaRSSI;
                 winnerIndex = i;
@@ -200,34 +401,74 @@ void processarLogicaCama() {
         }
     }
 
-    // --- MUDANÇA NA FASE DE AÇÃO ---
     if (winnerIndex != -1) {
         TargetBed &winner = potentialTargets[winnerIndex];
-        Serial.printf("Candidato vencedor encontrado: %s. Tentando reportar ENTRADA...\n", winner.mac.c_str());
-        
-        // Tenta enviar o evento GET. Se for bem-sucedido, trava na cama.
         bool sucesso = enviarEventoHTTP(winner.mac.c_str(), "GET", winner.mediaRSSI, WiFi.RSSI());
         
         if (sucesso) {
-            Serial.println("ENTRADA reportada com sucesso. Travando na cama.");
             lockedBed.mac = winner.mac;
-            lockedBed.confirmada = true;
-            lockedBed.ultimaPresenca = agora;
+            lockedBed.aguardandoVeredito = true;
+            lockedBed.confirmada = false;
+            lockedBed.index = 0;
+            lockedBed.isFull = false;
+            
             potentialTargetsCount = 0;
+            Serial.printf("Evento de ENTRADA enviado. Aguardando veredito para a cama %s.\n", lockedBed.mac.c_str());
         } else {
-            // Se falhar, imprime o erro e "finge que não achou nada".
-            // Não fazemos nada, então no próximo loop, a análise começará do zero.
-            Serial.println("Falha ao reportar ENTRada. A ESP continuará no modo de busca.");
+            Serial.println("Falha ao reportar ENTRADA. A ESP continuará no modo de busca.");
         }
     }
 }
-
 
 // =================================================================
 // =================== FUNÇÕES AUXILIARES ==========================
 // =================================================================
 
-// --- FUNÇÃO DE ENVIO HTTP TOTALMENTE REFEITA ---
+void checkInitialState() {
+    Serial.println("Verificando estado inicial e configurações com o servidor...");
+    HTTPClient http;
+    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/esp/" + String(idESP) + "/config";
+    
+    if (!http.begin(serverUrl)) {
+        Serial.println("Falha ao iniciar conexão. Usando configurações padrão.");
+        return;
+    }
+
+    int httpResponseCode = http.GET();
+    if (httpResponseCode == 200) {
+        String payload = http.getString();
+        Serial.println("Resposta do servidor: " + payload);
+        StaticJsonDocument<256> doc;
+        deserializeJson(doc, payload);
+
+        const char* assignedMac = doc["mac_beacon"];
+        if (assignedMac != NULL) {
+            lockedBed.mac = String(assignedMac);
+            lockedBed.confirmada = true;
+            Serial.printf(">>> ESTADO RESTAURADO: ESP está travada na cama %s\n", lockedBed.mac.c_str());
+        } else {
+            Serial.println("Nenhuma cama atribuída a esta ESP. Iniciando no modo de busca.");
+        }
+
+        if (doc.containsKey("rssi_threshold")) {
+            RSSI_THRESHOLD = doc["rssi_threshold"];
+            Serial.printf(">>> Configuração remota: RSSI_THRESHOLD definido para %d\n", RSSI_THRESHOLD);
+        }
+        if (doc.containsKey("inercia_chegada")) {
+            INERCIA_CHEGADA = doc["inercia_chegada"];
+            Serial.printf(">>> Configuração remota: INERCIA_CHEGADA definida para %lu ms\n", INERCIA_CHEGADA);
+        }
+        if (doc.containsKey("inercia_saida")) {
+            INERCIA_SAIDA = doc["inercia_saida"];
+            Serial.printf(">>> Configuração remota: INERCIA_SAIDA definida para %lu ms\n", INERCIA_SAIDA);
+        }
+
+    } else {
+        Serial.printf("Erro ao verificar estado. Código: %d. Usando configurações padrão.\n", httpResponseCode);
+    }
+    http.end();
+}
+
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Erro de Envio: Wi-Fi desconectado.");
@@ -235,7 +476,7 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
     }
 
     HTTPClient http;
-    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT) + "/event";
+    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/event";
     
     if (!http.begin(serverUrl)) {
         Serial.println("Erro de Envio: Falha ao iniciar conexão HTTP.");
@@ -246,7 +487,7 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
 
     StaticJsonDocument<256> doc;
     doc["esp_id"] = idESP;
-    doc["cama"] = mac;
+    doc["cama"] = mac; 
     doc["status"] = status;
     doc["RSSI"] = rssi;
     doc["wifi"] = wifi;
@@ -258,33 +499,23 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
     Serial.println("Enviando payload: " + jsonPayload);
     int httpResponseCode = http.POST(jsonPayload);
 
-    if (httpResponseCode > 0) {
-        if (httpResponseCode == 200) {
-            Serial.printf("Sucesso! Código de Resposta: %d\n", httpResponseCode);
-            http.end();
-            return true;
-        } else {
-            Serial.printf("Erro do Servidor. Código de Resposta: %d\n", httpResponseCode);
-            String response = http.getString();
-            Serial.println(response);
-            http.end();
-            return false;
-        }
+    // Servidores mais complexos podem responder 202 (Accepted) para eventos que
+    // vão para uma fila de processamento, como a lógica de veredito.
+    if (httpResponseCode == 202) { 
+        Serial.printf("Sucesso! Evento aceito (202). Aguardando veredito.\n");
+        http.end();
+        return true;
+    } else if (httpResponseCode > 0) {
+        Serial.printf("Erro do Servidor. Código: %d\n", httpResponseCode);
+        String response = http.getString();
+        Serial.println(response);
+        http.end();
+        return false;
     } else {
-        Serial.printf("Erro de Conexão HTTP: %s\n", http.errorToString(httpResponseCode).c_str());
+        Serial.printf("Erro de conexão: %s\n", http.errorToString(httpResponseCode).c_str());
         http.end();
         return false;
     }
-}
-
-void conectarWiFi() {
-    Serial.print("Conectando ao Wi-Fi...");
-    WiFi.begin(SSID, PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("\nWi-Fi conectado. IP: " + WiFi.localIP().toString());
 }
 
 void reconnect_mqtt() {
@@ -293,6 +524,8 @@ void reconnect_mqtt() {
         if (mqttClient.connect(idESP)) {
             Serial.println(" conectado!");
             mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
+            mqttClient.subscribe(MQTT_COMMAND_TOPIC); 
+            mqttClient.subscribe(MQTT_VERDICT_TOPIC.c_str());
         } else {
             Serial.print(" falhou, rc=");
             Serial.print(mqttClient.state());

@@ -24,7 +24,7 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>ID da ESP</th>
+                    <th>ID do Embarcado</th>
                     <th>QUARTO</th>
                     <th>ANDAR</th> </tr>
             </thead>
@@ -40,7 +40,30 @@
     </div>
 
     <div class="form-column">
+        
         {% include 'embarcado_form.html' %}
+
+        <form action="{{ url_for('update_settings') }}" method="post" class="settings-form">
+            <h2>Configurações de Conectividade</h2>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="rssi_threshold">RSSI Threshold</label>
+                    <input type="number" id="rssi_threshold" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_chegada">Inércia de Chegada (ms)</label>
+                    <input type="number" id="inercia_chegada" name="inercia_chegada" value="{{ global_settings.inercia_chegada }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_saida">Inércia de Saída (ms)</label>
+                    <input type="number" id="inercia_saida" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary form-btn">Salvar Configurações</button>
+        </form>
+
     </div>
 
 </div>

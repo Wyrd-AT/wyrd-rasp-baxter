@@ -12,12 +12,18 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
+# --- NOVA TABELA PARA CONFIGURAÇÕES DA INTERFACE ---
+class GlobalSettings(Base):
+    __tablename__ = "global_settings"
+    key   = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=True)
+
 class Bed(Base):
     __tablename__ = "beds"
     id          = Column(Integer, primary_key=True, index=True)
     mac_address = Column(String, unique=True, nullable=False, index=True)
     nome_cama   = Column(String, nullable=False)
-    mac_beacon  = Column(String, nullable=True)
+    mac_beacon  = Column(String, nullable=True, unique=True)
     quarto      = Column(String, nullable=True)
 
 class Embarcado(Base):
@@ -25,19 +31,20 @@ class Embarcado(Base):
     id     = Column(Integer, primary_key=True, index=True)
     id_esp = Column(String, unique=True, nullable=False, index=True)
     quarto = Column(String, nullable=False)
-    andar  = Column(String, nullable=True) # <-- NOVA LINHA
+    andar  = Column(String, nullable=True)
 
 class ReceivedEvent(Base):
     __tablename__ = "received_events"
     id            = Column(Integer, primary_key=True, index=True)
     esp_id        = Column(String, nullable=False, index=True)
-    cama          = Column(String, nullable=False, index=True)
-    action        = Column(String, nullable=False, index=True)    
+    cama          = Column(String, nullable=False, index=True) # <-- Corrigido de 'cracha'
+    action        = Column(String, nullable=False, index=True)
     status        = Column(String, nullable=True, index=True)
-    status_detail = Column(String, nullable=True)   
+    status_detail = Column(String, nullable=True)
     rssi          = Column(Integer, nullable=True)
     wifi          = Column(Integer, nullable=True)
     data_on       = Column(DateTime(timezone=True), nullable=False, index=True)
     raw           = Column(JSON, nullable=False)
+
 def init_db():
     Base.metadata.create_all(bind=engine)

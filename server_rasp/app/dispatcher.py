@@ -3,7 +3,7 @@
 import socket
 import json
 import time
-from .config import FINAL_IP, FINAL_PORT
+from .config import settings
 
 # Função de backoff exponencial para reconexão
 def exponential_backoff(attempt):
@@ -26,8 +26,8 @@ def dispatch_event(evt):
     while attempt < 5:
         try:
             attempt += 1
-            print(f"[dispatch_event] Tentativa {attempt} de conexão em {FINAL_IP}:{FINAL_PORT}...")
-            with socket.create_connection((FINAL_IP, FINAL_PORT), timeout=5) as sock:
+            print(f"[dispatch_event] Tentativa {attempt} de conexão em {settings.get("final_ip")}:{settings.get("final_port")}...")
+            with socket.create_connection((settings.get("final_ip"), settings.get("final_port")), timeout=5) as sock:
                 sock.sendall(msg.encode())
                 print(f"[dispatch_event] Payload enviado com sucesso na tentativa {attempt}.")
             break
