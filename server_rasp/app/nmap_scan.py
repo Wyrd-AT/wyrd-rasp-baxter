@@ -1,4 +1,6 @@
 # nmap_scan.py
+# Este módulo foi atualizado para usar uma abordagem mais eficiente com 'arp -a'
+# em vez de Nmap, para verificar a presença de dispositivos na rede.
 
 import subprocess
 import re
@@ -7,6 +9,12 @@ import ipaddress
 import threading
 from .config import settings
 
+# --- Seção: Ping Paralelo ---
+# A função 'ping_ip' é uma tarefa simples para enviar um único pacote de ping
+# a um endereço IP. Ela é projetada para ser executada em paralelo (em threads)
+# para vários IPs simultaneamente, acelerando o processo. O objetivo não é
+# ver se o ping responde, mas sim forçar o sistema operacional a registrar
+# o endereço MAC do dispositivo na sua tabela ARP.
 def ping_ip(ip):
     """Função para pingar um único IP. Executada em uma thread."""
     try:
@@ -24,6 +32,11 @@ def ping_ip(ip):
         # Ignora erros (ex: host inalcançável)
         pass
 
+# --- Seção: Atualização da Tabela ARP ---
+# A função 'update_arp_table' orquestra o processo de ping. Ela lê a faixa
+# de rede do arquivo de configuração, cria uma lista de todos os IPs possíveis
+# nessa faixa e dispara uma thread de 'ping_ip' para cada um. Ao final,
+# a tabela ARP do sistema estará atualizada com os dispositivos que responderam.
 def update_arp_table():
     """
     Força a atualização da tabela ARP pingando todos os IPs na rede local.
@@ -53,7 +66,12 @@ def update_arp_table():
     except Exception as e:
         print(f"[arp_scan] ERRO ao tentar pingar a rede: {e}")
 
-
+# --- Seção: Função Principal de Coleta de MACs ---
+# 'get_connected_macs' é a função principal e pública deste módulo.
+# Ela primeiro chama 'update_arp_table' para garantir que os dados estão frescos.
+# Depois, executa o comando 'arp -a', que lista a tabela ARP do sistema.
+# Por fim, ela filtra o resultado desse comando usando uma expressão regular
+# para extrair e retornar uma lista limpa de todos os endereços MAC encontrados.
 def get_connected_macs():
     """
     Retorna uma lista atualizada de MACs na rede. Primeiro, força a atualização
