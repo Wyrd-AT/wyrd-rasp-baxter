@@ -7,52 +7,48 @@ CONFIG_FILE = 'config.ini'
 def load_configuration():
     """
     Lê o arquivo config.ini e retorna um dicionário com as configurações.
-    Se o arquivo não existir, cria um com TODAS as configurações padrão para o Baxter.
+    Se o arquivo não existir, cria um com TODAS as configurações padrão.
     """
     config = configparser.ConfigParser()
     
     if not os.path.exists(CONFIG_FILE):
         print(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão completos.")
         
-        # Seção de Rede do Servidor Baxter
         config['Network'] = {
-            'IP': '0.0.0.0',
+            'IP': '10.0.0.149',
             'Port': '8000',
-            'Network_Range_Scan': '172.28.74.0/24'
+            'Network_Range_Scan': '10.0.0.0/24' # ATENÇÃO: Ajuste para a sua rede
         }
         
-        # Seção do Dispatcher (para onde os eventos finais são enviados)
         config['Dispatcher'] = {
-            'Final_IP': '172.28.74.51',
+            'Final_IP': '10.0.0.126',
             'Final_Port': '9500'
         }
 
-        # Seção de configuração do Broker MQTT
         config['MQTT'] = {
-            'Broker_Host': '172.28.74.165',
+            'Broker_Host': '10.0.0.149',
             'Broker_Port': '1883',
+            'Bed_List_Topic': 'wyrd/baxter/beds/available',
+            'Command_Topic': 'wyrd/baxter/esp/all/command',
+            'Individual_Command_Topic': 'wyrd/baxter/esp/{esp_id}/command'
         }
 
-        # Seção de Parâmetros da Aplicação (que não são do DB)
         config['Application'] = {
             'History_Retention_Days': '7',
             'Event_Page_Size': '20',
-            'Cleanup_Interval_Sec': '3600'
+            'Cleanup_Interval_Sec': '3600',
+            'Warning_Delay_Minutes': '5',
         }
 
-        # Escreve o novo arquivo config.ini completo
         with open(CONFIG_FILE, 'w') as configfile:
             config.write(configfile)
     
-    # Lê o arquivo de configuração
     config.read(CONFIG_FILE)
     
-    # Junta todas as configurações em um único dicionário para fácil acesso
     settings = {}
     for section in config.sections():
         settings.update(config[section])
         
     return settings
 
-# Carrega as configurações para serem importadas por outros módulos
 settings = load_configuration()

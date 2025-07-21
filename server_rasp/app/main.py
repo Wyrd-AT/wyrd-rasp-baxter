@@ -36,7 +36,7 @@ def get_db():
 
 from .presence import check_presence
 from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task
-from . import mqtt_client # <-- Importe o novo módulo
+from . import mqtt_client, services # <-- Importe o novo módulo
 from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change
 from sqlalchemy import event, or_ # <--- NOVO IMPORT
 from sqlalchemy.orm import Session
@@ -304,35 +304,27 @@ def list_events(
 @app.post("/event/{event_id}/cancel", name="cancel_pending_event")
 def cancel_pending_event(request: Request, event_id: int, db: Session = Depends(get_db)):
     """
-    Funciona como uma 'confirmação manual'. Interrompe a verificação pendente
-    e finaliza o evento, mantendo a cama associada ao quarto.
+    Cancela uma verificação pendente, orquestrando a limpeza da tarefa,
+    a atualização do DB e o reset da ESP.
     """
-    event = db.query(ReceivedEvent).filter(ReceivedEvent.id == event_id).first()
-
+    event = db.query(ReceivedEvent).filter(ReceivedEvent.id == event_id, ReceivedEvent.status == 'Pendente').first()
     if not event:
-        raise HTTPException(status_code=404, detail="Evento não encontrado.")
-
-    if event.status != "Pendente":
         return RedirectResponse(request.url_for("list_events"), status_code=303)
 
     bed = db.query(Bed).filter(Bed.mac_beacon == event.cama).first()
-
-    if not bed:
-        event.status = "Erro"
-        event.status_detail = f"Confirmação manual falhou: Cama com beacon {event.cama} não encontrada."
-    else:
-        # Tenta cancelar a tarefa em background para interromper as verificações
+    
+    # Orquestração das ações:
+    if bed:
+        # 1. Manda o agregador cancelar a tarefa em segundo plano.
         cancel_pending_task(wifi_mac=bed.mac_address)
-        
-        # --- NOVA LÓGICA DE CONFIRMAÇÃO ---
-        # Define um novo status final claro e descritivo
-        event.status = "Cancelado"
-        event.status_detail = "Localização confirmada pelo operador apesar da ausência de Wi-Fi."
-        
-        # IMPORTANTE: As linhas que desassociavam a cama foram removidas.
-        # A cama CONTINUA no quarto em que estava.
-
+    
+    # 2. Atualiza o status do evento no banco de dados.
+    event.status = "Cancelado"
+    event.status_detail = "Verificação cancelada pelo operador."
     db.commit()
+
+    # 3. Chama o serviço para desassociar a cama e resetar a ESP.
+    services.synchronize_and_reset_esp(esp_id=event.esp_id)
 
     return RedirectResponse(request.url_for("list_events"), status_code=303)
 
@@ -690,6 +682,44 @@ def delete_embarcado_html(request: Request, id_esp: str):
     emb = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
     db.delete(emb)
     db.commit()
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+# ==========================================================
+#         NOVA ROTA PARA RESETAR O ESTADO DE UMA ESP
+# ==========================================================
+@app.post("/embarcados/{esp_id}/reset", name="reset_esp_state")
+def reset_esp_state(request: Request, esp_id: str, db: Session = Depends(get_db)):
+    """
+    Orquestra um reset completo para uma ESP e seu quarto associado.
+    """
+    print(f"[main] Rota de reset acionada para a ESP: {esp_id}")
+
+    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+    if embarcado:
+        bed_in_room = db.query(Bed).filter(Bed.quarto == embarcado.quarto).first()
+        
+        # Orquestração das ações:
+        if bed_in_room:
+            # 1. Encontra e cancela eventos pendentes para a cama no quarto.
+            pending_events = db.query(ReceivedEvent).filter(
+                ReceivedEvent.cama == bed_in_room.mac_beacon,
+                ReceivedEvent.status == 'Pendente'
+            ).all()
+
+            if pending_events:
+                # 2. Manda o agregador cancelar a tarefa em segundo plano.
+                cancel_pending_task(wifi_mac=bed_in_room.mac_address)
+                
+                # 3. Atualiza o status dos eventos pendentes no DB.
+                for event in pending_events:
+                    event.status = "Cancelado"
+                    event.status_detail = "Verificação cancelada devido a um reset do quarto."
+                db.commit()
+
+    # 4. Chama o serviço para desassociar a cama (se houver) e resetar a ESP.
+    services.synchronize_and_reset_esp(esp_id=esp_id)
+    
+    time.sleep(1) 
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 # ─── ROTA PARA RECEBER O JSON (com informações da cama) ───────────────────────

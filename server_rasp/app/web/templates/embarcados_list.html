@@ -17,35 +17,40 @@
                 <button type="submit" class="icon-btn" title="Pesquisar"><i data-feather="search"></i></button>
             </form>
             <div class="toolbar-actions">
-                <button class="icon-btn" title="Editar"><i data-feather="edit-2"></i></button>
-                <button class="icon-btn" title="Apagar"><i data-feather="trash-2"></i></button>
-            </div>
+                </div>
         </div>
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>ID do Embarcado</th>
+                    <th>ID da ESP</th>
                     <th>QUARTO</th>
-                    <th>ANDAR</th> </tr>
+                    <th>ANDAR</th>
+                    <th>AÇÕES</th> </tr>
             </thead>
             <tbody>
                 {% for emb in embarcados %}
                 <tr class="selectable-row" data-id="{{ emb.id_esp }}">
                     <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto }}</td>
-                    <td>{{ emb.andar or '---' }}</td> </tr>
+                    <td>{{ emb.andar or '---' }}</td>
+                    <td>
+                        <form action="{{ url_for('reset_esp_state', esp_id=emb.id_esp) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP? Isso fará com que ela esqueça qualquer cama que esteja monitorando.');">
+                            <button type="submit" class="btn-cancel" title="Forçar Reset de Estado">
+                                Resetar
+                            </button>
+                        </form>
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 
     <div class="form-column">
-        
         {% include 'embarcado_form.html' %}
 
         <form action="{{ url_for('update_settings') }}" method="post" class="settings-form">
             <h2>Configurações de Conectividade</h2>
-            
             <div class="form-row">
                 <div class="form-group">
                     <label for="rssi_threshold">RSSI Threshold</label>
@@ -60,11 +65,8 @@
                     <input type="number" id="inercia_saida" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
                 </div>
             </div>
-
-            <button type="submit" class="btn-primary form-btn">Salvar Configurações</button>
+            <button type="submit" class="btn-primary">Salvar Configurações</button>
         </form>
-
     </div>
-
 </div>
 {% endblock %}

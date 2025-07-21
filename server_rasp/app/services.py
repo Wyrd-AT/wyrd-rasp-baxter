@@ -1,42 +1,61 @@
 # app/services.py
 
-from .models import SessionLocal, Bed
-from .mqtt_client import publish_available_beds
+from .models import SessionLocal, Bed, Embarcado
+from . import mqtt_client
 
 def update_bed_assignment(bed_id: int, new_room: str | None):
     """
-    Função central e universal para gerenciar a associação de camas a quartos.
-    Esta é a ÚNICA função no sistema que deve alterar o atributo 'quarto' de uma cama.
+    Função central para gerenciar a associação de camas a quartos.
     """
     db = SessionLocal()
     try:
         bed = db.query(Bed).get(bed_id)
         if not bed:
-            print(f"[SERVICE] Cama com ID {bed_id} não encontrada.")
             return
 
-        # Verifica se houve de fato uma mudança para evitar trabalho desnecessário
         if bed.quarto != new_room:
-            print(f"[SERVICE] Atualizando cama '{bed.nome_cama}' para o quarto: '{new_room}'")
             bed.quarto = new_room
-            db.commit()  # 1. Salva a mudança no banco de dados primeiro.
-
-            # 2. Agora que a mudança está garantida, publica a nova lista.
-            print("[SERVICE] Mudança commitada. Disparando atualização MQTT.")
-            publish_available_beds()
-        else:
-            print(f"[SERVICE] Estado da cama '{bed.nome_cama}' não mudou. Nenhuma ação necessária.")
-
+            db.commit()
+            mqtt_client.publish_available_beds()
     except Exception as e:
         db.rollback()
         print(f"[SERVICE] ERRO ao atualizar cama: {e}")
     finally:
         db.close()
 
+def synchronize_and_reset_esp(esp_id: str):
+    """
+    Serviço para resetar uma ESP e sincronizar o estado do servidor.
+    1. Desassocia qualquer cama que esteja no quarto da ESP.
+    2. Envia o comando RESET_STATE para a ESP.
+    """
+    db = SessionLocal()
+    try:
+        print(f"[SERVICE] Iniciando reset e sincronização para a ESP: {esp_id}")
+        
+        embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+        
+        print(f"[SERVICE] Enviando comando RESET_STATE para a ESP: {esp_id}")
+        mqtt_client.publish_to_esp_channel(
+            esp_id=esp_id,
+            message_type="command",
+            data={"name": "RESET_STATE"}
+        )
+
+        if embarcado and embarcado.quarto:
+            bed_in_room = db.query(Bed).filter(Bed.quarto == embarcado.quarto).first()
+            
+            if bed_in_room:
+                print(f"[SERVICE] Cama '{bed_in_room.nome_cama}' encontrada. Desassociando do quarto '{embarcado.quarto}'.")
+                # Esta função já cuida do DB e de publicar a nova lista de camas.
+                update_bed_assignment(bed_id=bed_in_room.id, new_room=None)
+    
+
+    finally:
+        db.close()
+
 def trigger_mqtt_update_on_bed_change():
     """
-    Função chamada quando uma cama é criada, deletada ou seu beacon muda.
-    Ela não precisa de lógica complexa, apenas dispara a publicação.
+    Dispara a publicação da lista de camas quando uma cama é criada/alterada.
     """
-    print("[SERVICE] Cama criada/alterada/deletada. Disparando atualização MQTT.")
-    publish_available_beds()
+    mqtt_client.publish_available_beds()

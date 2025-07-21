@@ -1,4 +1,5 @@
 import asyncio
+import time 
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
@@ -6,13 +7,12 @@ from .dispatcher import dispatch_event
 from .models import SessionLocal, Bed, Embarcado, ReceivedEvent
 from .config import settings
 from .presence import check_presence
-from .mqtt_client import publish_available_beds, publish_verdict
+from .mqtt_client import publish_available_beds, publish_to_esp_channel, publish_command_to_all
+from .services import synchronize_and_reset_esp
 
 # --- Configurações ---
-# Usa .getint() para ler os valores numéricos do config.ini
-RETRY_PRESENCE_FREQUENCY_SEC = settings.get('cleanup_interval_sec')
+RETRY_PRESENCE_FREQUENCY_SEC = 30
 AGGREGATOR_LOOP_INTERVAL_SEC = 2
-DISPATCH_DELAY_SEC = 0 # Mantido como 0 por padrão, pode ser alterado no .ini se necessário
 
 # --- Estruturas de Dados em Memória ---
 _buffer = []
@@ -41,15 +41,35 @@ def _update_event_status(event_id: int, status: str, detail: str):
 async def _retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id: int, esp_id: str):
     """
     Tarefa em segundo plano que verifica a presença.
-    Se a ausência persistir, cria um novo evento de WARNING.
+    Se a ausência persistir, gera um WARNING e eventualmente expira.
     """
     print(f"[aggregator-retry] Iniciada tarefa para Beacon '{beacon_mac}' (MAC Wi-Fi: {wifi_mac}).")
     
     start_time = datetime.now(timezone.utc)
     warning_created = False
-    warning_delay_minutes = int(settings.get('warning_delay_minutes'))
+    warning_delay_minutes = int(settings.get('warning_delay_minutes', 5))
     
+    # LÓGICA DO STATUS "VENCIDO"
+    # Define um tempo máximo que uma tarefa pode ficar pendente.
+    max_pending_minutes = 15 
+
     while True:
+        if datetime.now(timezone.utc) - start_time > timedelta(minutes=max_pending_minutes):
+            print(f"[aggregator-retry] MAC '{wifi_mac}' pendente por mais de {max_pending_minutes} min. Marcando como Vencido.")
+            _update_event_status(
+                original_event_id, 
+                status="Vencido", 
+                detail=f"A presença do Wi-Fi não foi confirmada em {max_pending_minutes} minutos."
+            )
+            
+            # ================== AÇÃO DE SINCRONIZAÇÃO ==================
+            # Chama a função de serviço para desassociar a cama e resetar a ESP.
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, synchronize_and_reset_esp, esp_id)
+            # =========================================================
+
+            break # Encerra a tarefa.
+
         await asyncio.sleep(RETRY_PRESENCE_FREQUENCY_SEC)
         
         loop = asyncio.get_running_loop()
@@ -60,16 +80,17 @@ async def _retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id
             db = SessionLocal()
             try:
                 bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
-                _update_event_status(
-                    original_event_id, 
-                    status="Resolvido", 
-                    detail=f"Cama '{bed.nome_cama}' associada e confirmada no quarto '{bed.quarto}' via nova tentativa."
-                )
-                dispatch_payload = {
-                    "quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET",
-                    "dataOn": datetime.now(timezone.utc).isoformat(),
-                }
-                await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+                if bed:
+                    _update_event_status(
+                        original_event_id, 
+                        status="Resolvido", 
+                        detail=f"Cama '{bed.nome_cama}' associada e confirmada no quarto '{bed.quarto}' via nova tentativa."
+                    )
+                    dispatch_payload = {
+                        "quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET",
+                        "dataOn": datetime.now(timezone.utc).isoformat(),
+                    }
+                    await loop.run_in_executor(None, dispatch_event, dispatch_payload)
                 break 
             finally:
                 db.close()
@@ -108,9 +129,6 @@ async def _retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id
     print(f"[aggregator-retry] Finalizada tarefa de verificação para MAC Wi-Fi '{wifi_mac}'.")
 
 async def _process_events_batch(events: list):
-    """
-    Processa um lote de eventos para um mesmo beacon e envia o VEREDITO para as ESPs.
-    """
     loop = asyncio.get_running_loop()
     db = SessionLocal()
     
@@ -150,16 +168,28 @@ async def _process_events_batch(events: list):
         best_event = max(get_events, key=lambda e: e.get("RSSI", -1000))
         event_id = best_event.get("event_id")
         beacon_mac = best_event.get("cama")
+        
+        # ADIÇÃO: Extrai o ID da transação do evento vencedor.
+        transacao_id = best_event.get("transacao_id")
 
-        # --- 2. Lógica de Envio do Veredito ---
-        print(f"[aggregator-verdict] Enviando WIN para a ESP {best_event['esp_id']} pela cama {beacon_mac}")
-        publish_verdict(esp_id=best_event['esp_id'], bed_mac=beacon_mac, status="WIN")
+        # ATUALIZAÇÃO: Envia o veredito WIN incluindo o ID da transação.
+        print(f"[aggregator-verdict] Enviando WIN (ID: {transacao_id}) para a ESP {best_event['esp_id']}")
+        publish_to_esp_channel(
+            esp_id=best_event['esp_id'],
+            message_type="verdict",
+            data={"cama": beacon_mac, "status": "WIN", "transacao_id": transacao_id}
+        )
 
+        # ATUALIZAÇÃO: Envia o veredito LOSE incluindo o ID da transação.
         for evt in get_events:
             if evt is not best_event:
-                _update_event_status(evt.get("event_id"), "Ignorado", f"Sinal mais fraco (RSSI: {evt.get('RSSI', 'N/A')}). Veredito: LOSE.")
-                print(f"[aggregator-verdict] Enviando LOSE para a ESP {evt['esp_id']} pela cama {beacon_mac}")
-                publish_verdict(esp_id=evt['esp_id'], bed_mac=beacon_mac, status="LOSE")
+                _update_event_status(evt.get("event_id"), "Ignorado", f"Sinal mais fraco. Veredito: LOSE.")
+                print(f"[aggregator-verdict] Enviando LOSE (ID: {transacao_id}) para a ESP {evt['esp_id']}")
+                publish_to_esp_channel(
+                    esp_id=evt['esp_id'],
+                    message_type="verdict",
+                    data={"cama": beacon_mac, "status": "LOSE", "transacao_id": transacao_id}
+                )
         
         bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
         emb = db.query(Embarcado).filter(Embarcado.id_esp == best_event['esp_id']).first()
@@ -198,9 +228,6 @@ async def _process_events_batch(events: list):
         db.close()
 
 def cancel_pending_task(wifi_mac: str) -> bool:
-    """
-    Busca e cancela uma tarefa de retry pendente com base no MAC Wi-Fi da cama.
-    """
     if wifi_mac in _pending_mac_checks:
         task = _pending_mac_checks[wifi_mac]
         task.cancel()
@@ -215,9 +242,19 @@ async def main_aggregator_loop():
     """ O loop principal que orquestra as tarefas. """
     print(f"[aggregator] Agregador com lógica de status iniciada. Loop a cada {AGGREGATOR_LOOP_INTERVAL_SEC}s.")
     
+    # LÓGICA DO HEARTBEAT
+    last_heartbeat_time = time.time()
+    heartbeat_interval_sec = 3600
+    print(f"[aggregator] Heartbeat configurado para cada {heartbeat_interval_sec} segundos.")
+    
     while True:
         await asyncio.sleep(AGGREGATOR_LOOP_INTERVAL_SEC)
         
+        # Envia o log de "sinal de vida".
+        if time.time() - last_heartbeat_time > heartbeat_interval_sec:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Aggregator Heartbeat: Processo ativo.")
+            last_heartbeat_time = time.time()
+
         if not _buffer:
             continue
 
