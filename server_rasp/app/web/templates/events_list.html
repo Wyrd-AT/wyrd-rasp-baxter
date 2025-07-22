@@ -131,7 +131,7 @@
                         <span>{{ event.action }}</span>
                     {% endif %}
                 </td>
-                <td>{{ event.rssi or '0' }}</td>
+                <td>{{ event.wifi or '0' }}</td>
                 <td>
                     {% if event.status %}
                         <span class="status-box status-{{ event.status | lower }}" 

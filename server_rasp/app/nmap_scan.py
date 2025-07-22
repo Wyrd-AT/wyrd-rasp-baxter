@@ -1,6 +1,14 @@
-# nmap_scan.py
-# Este módulo foi atualizado para usar uma abordagem mais eficiente com 'arp -a'
-# em vez de Nmap, para verificar a presença de dispositivos na rede.
+# ==============================================================================
+# ARQUIVO: nmap_scan.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Verifica quais dispositivos estão ativos na rede Wi-Fi.
+
+Funções Chave no Fluxo:
+- `get_connected_macs()`: Retorna uma lista de todos os endereços MAC
+  atualmente conectados na rede local. É a base para a verificação de presença.
+"""
 
 import subprocess
 import re

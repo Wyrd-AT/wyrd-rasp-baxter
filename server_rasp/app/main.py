@@ -1,9 +1,30 @@
-# main.py
+# ==============================================================================
+# ARQUIVO: main.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Orquestra a aplicação, define a API HTTP e serve a interface web.
+
+Funções Chave no Fluxo:
+- `@app.on_event("startup")`: Inicia os processos centrais quando o servidor
+  liga: o `main_aggregator_loop` e o `mqtt_client`.
+- `@app.post("/event")`: É a porta de entrada. Recebe o JSON do ESP, cria um
+  registro do evento no banco com status "Enfileirado" e o passa para a
+  fila do `aggregator` com `enqueue_event(evt)`.
+- `@app.get("/events")`: Busca os eventos do banco e os exibe na página de
+  histórico, separando os que estão com status "Pendente" dos demais.
+- `@app.post("/event/{event_id}/cancel")`: Rota acionada pelo botão na
+  interface para cancelar uma operação pendente, chamando `cancel_pending_task`
+  no `aggregator`.
+- Rotas de CRUD (`/beds`, `/embarcados`): Permitem o gerenciamento de camas e
+  ESPs pela interface web, chamando `services` para garantir a sincronia com MQTT.
+"""
 
 import asyncio
 import threading
 import time
 import uvicorn
+import re
 
 # --- Seção: Importações e Configuração Inicial ---
 # Importa todos os componentes essenciais do FastAPI, tipos de dados,
@@ -41,10 +62,11 @@ def get_db():
 
 # Importa os outros módulos da aplicação que contêm a lógica de negócio.
 from .presence import check_presence
-from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task
+from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task, retry_presence_task
 from . import mqtt_client, services
 from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change
 from sqlalchemy import event, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .mqtt_client import publish_available_beds
 from .auth import authenticate_admin
@@ -78,6 +100,7 @@ app = FastAPI()
 @app.on_event("startup")
 async def on_startup():
     print("[main] Startup: Iniciando processos em segundo plano.")
+    restart_pending_tasks()
     asyncio.create_task(main_aggregator_loop()) # Inicia o cérebro do sistema.
     mqtt_client.connect_mqtt() # Conecta ao broker MQTT.
     start_cleanup_scheduler() # Inicia a limpeza periódica de eventos antigos.
@@ -99,6 +122,48 @@ def start_cleanup_scheduler():
             time.sleep(int(settings.get("cleanup_interval_sec")))
     threading.Thread(target=loop, daemon=True).start()
 
+def is_valid_mac(mac: str) -> bool:
+    """Verifica se uma string está em um formato de MAC address válido."""
+    if not mac: # Permite MACs vazios (para o beacon, por exemplo)
+        return True
+    return re.match(r"^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$", mac) is not None
+
+def restart_pending_tasks():
+    """
+    Verifica o DB por eventos pendentes na inicialização e reinicia
+    as tarefas de verificação para eles.
+    """
+    print("[main] Verificando se há tarefas pendentes para reiniciar...")
+    db = SessionLocal()
+    try:
+        pending_events = db.query(ReceivedEvent).filter(ReceivedEvent.status == 'Pendente').all()
+        if not pending_events:
+            print("[main] Nenhuma tarefa pendente encontrada.")
+            return
+
+        print(f"[main] Encontradas {len(pending_events)} tarefas pendentes. Reiniciando...")
+        
+        # Criamos um mapa de beacon -> mac_wifi para evitar consultas repetidas ao DB
+        beacon_to_wifi_map = {b.mac_beacon: b.mac_address for b in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
+
+        for event in pending_events:
+            wifi_mac = beacon_to_wifi_map.get(event.cama)
+            if not wifi_mac:
+                print(f"[main] ERRO: Não foi possível encontrar o MAC Wi-Fi para o beacon {event.cama} do evento pendente {event.id}. Ignorando.")
+                continue
+
+            print(f"  - Reiniciando tarefa para o evento {event.id} (ESP: {event.esp_id}, Cama: {event.cama})")
+            # Usa a mesma função do agregador para criar a tarefa em segundo plano
+            asyncio.create_task(
+                retry_presence_task(
+                    wifi_mac=wifi_mac,
+                    beacon_mac=event.cama,
+                    original_event_id=event.id,
+                    esp_id=event.esp_id
+                )
+            )
+    finally:
+        db.close()
 
 # --- Seção: Segurança e Painel de Administração (SQLAdmin) ---
 # Configura a autenticação para a área administrativa e define as visualizações
@@ -247,7 +312,7 @@ def list_events(
     has_next = total > page * int(settings.get("event_page_size"))
     all_beds = db.query(Bed.nome_cama, Bed.mac_beacon).filter(Bed.mac_beacon.isnot(None)).distinct().order_by(Bed.nome_cama).all()
     all_action_options = [("GET", "Conectar"), ("OUT", "Desconectar"), ("WARNING", "Alerta")]
-    all_status_options = ["OK", "Erro", "Enfileirado", "Ignorado", "Cancelado", "Resolvido", "Confirmado"]
+    all_status_options = ["OK", "Resolvido", "Confirmado", "Enfileirado", "Ignorado", "Cancelado", "Vencido", "Erro"]
     all_andares = sorted([str(a[0]) for a in db.query(Embarcado.andar).distinct().filter(Embarcado.andar.isnot(None)).all()])
     all_quartos = sorted([str(q[0]) for q in db.query(Embarcado.quarto).distinct().filter(Embarcado.quarto.isnot(None)).all()])
     def enrich_event_data(event_list):
@@ -292,11 +357,35 @@ def list_beds(request: Request, search: Optional[str] = Query(None), db: Session
     return templates.TemplateResponse("beds_list.html", {"request": request, "beds": beds, "form_action": request.url_for("create_bed"), "bed": None, "search": search})
 
 @app.post("/beds", name="create_bed")
-def create_bed(request: Request, mac_address: str = Form(...), nome: str = Form(...), mac_beacon: Optional[str] = Form("Nenhum"), db: Session = Depends(get_db)):
-    bed = Bed(mac_address=mac_address, nome_cama=nome, mac_beacon=mac_beacon if mac_beacon != "Nenhum" else None)
-    db.add(bed)
-    db.commit()
-    trigger_mqtt_update_on_bed_change()
+def create_bed(
+    request: Request,
+    mac_address: str = Form(...),
+    nome: str = Form(...),
+    mac_beacon: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    # 1. Validação do formato do MAC antes de qualquer operação
+    if not is_valid_mac(mac_address) or not is_valid_mac(mac_beacon):
+        print(f"ERRO: Tentativa de criar cama com formato de MAC inválido. MAC: {mac_address}, Beacon: {mac_beacon}")
+        # Idealmente, aqui você passaria uma mensagem de erro para o template.
+        # Por enquanto, retornamos sem criar o registro.
+        return RedirectResponse(request.url_for("list_beds"), status_code=303)
+
+    db = SessionLocal()
+    try:
+        bed = Bed(mac_address=mac_address, nome_cama=nome, mac_beacon=mac_beacon)
+        db.add(bed)
+        db.commit() # 2. Tenta salvar no banco
+        
+        trigger_mqtt_update_on_bed_change() # Notifica os ESPs via MQTT
+        
+    except IntegrityError: # 3. Captura erro se o MAC ou Beacon já existirem
+        db.rollback()
+        print(f"ERRO DE INTEGRIDADE: Tentativa de criar cama com MAC ou Beacon duplicado. MAC: {mac_address}")
+        # Novamente, o ideal é mostrar uma mensagem de erro ao usuário.
+    finally:
+        db.close()
+        
     return RedirectResponse(request.url_for("list_beds"), status_code=303)
 
 @app.get("/beds/{bed_id}/edit", name="edit_bed")
@@ -306,12 +395,44 @@ def edit_bed(request: Request, bed_id: int, db: Session = Depends(get_db)):
     return templates.TemplateResponse("beds_list.html", {"request": request, "beds": beds, "form_action": request.url_for("update_bed", bed_id=bed_id), "bed": bed, "search": None})
 
 @app.post("/beds/{bed_id}/edit", name="update_bed")
-def update_bed(request: Request, bed_id: int, mac_address: str = Form(...), nome: str = Form(...), mac_beacon: Optional[str] = Form(None), quarto: Optional[str] = Form(None), db: Session = Depends(get_db)):
-    bed = db.query(Bed).get(bed_id)
-    bed.mac_address, bed.nome_cama, bed.mac_beacon = mac_address, nome, mac_beacon
-    db.commit()
-    update_bed_assignment(bed_id=bed_id, new_room=quarto)
-    trigger_mqtt_update_on_bed_change()
+def update_bed(
+    request: Request,
+    bed_id: int,
+    mac_address: str = Form(...),
+    nome: str = Form(...),
+    mac_beacon: Optional[str] = Form(None),
+    quarto: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    # 1. Validação do formato do MAC
+    if not is_valid_mac(mac_address) or not is_valid_mac(mac_beacon):
+        print(f"ERRO: Tentativa de atualizar cama com formato de MAC inválido. MAC: {mac_address}, Beacon: {mac_beacon}")
+        return RedirectResponse(request.url_for("list_beds"), status_code=303)
+
+    db = SessionLocal()
+    try:
+        bed = db.query(Bed).get(bed_id)
+        if not bed:
+            # Se a cama não for encontrada, apenas redireciona.
+            return RedirectResponse(request.url_for("list_beds"), status_code=404)
+
+        bed.mac_address = mac_address
+        bed.nome_cama = nome
+        bed.mac_beacon = mac_beacon
+        
+        db.commit() # 2. Tenta salvar as alterações
+        
+        # A lógica de associação e notificação MQTT é chamada fora do try/except
+        # pois ela não gera erros de integridade.
+        update_bed_assignment(bed_id=bed_id, new_room=quarto)
+        trigger_mqtt_update_on_bed_change()
+
+    except IntegrityError: # 3. Captura erro de duplicidade
+        db.rollback()
+        print(f"ERRO DE INTEGRIDADE: Tentativa de atualizar para um MAC ou Beacon que já existe. MAC: {mac_address}")
+    finally:
+        db.close()
+        
     return RedirectResponse(request.url_for("list_beds"), status_code=303)
 
 @app.get("/beds/{bed_id}/delete", name="delete_bed")
@@ -421,23 +542,87 @@ def download_embarcados_csv(db: Session = Depends(get_db)):
 
 @app.get("/events/download", name="download_events_csv")
 def download_events_csv(
-    db: Session = Depends(get_db), filter_cama: Optional[str] = Query(None), filter_quarto: Optional[str] = Query(None),
-    filter_status: Optional[str] = Query(None), filter_andar: Optional[str] = Query(None), time_filter: Optional[str] = Query(None)
+    # 1. A função já aceita corretamente todos os parâmetros de filtro
+    db: Session = Depends(get_db),
+    filter_cama: Optional[str] = Query(None),
+    filter_quarto: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
+    filter_andar: Optional[str] = Query(None),
+    time_filter: Optional[str] = Query(None)
 ):
-    embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
-    beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
-    query = db.query(ReceivedEvent)
-    if filter_cama: query = query.filter(ReceivedEvent.cama == filter_cama)
-    # (A lógica completa de filtros seria repetida aqui)
-    events = query.order_by(ReceivedEvent.data_on).all()
-    def iter_csv():
-        buf = StringIO(); writer = csv.writer(buf)
-        writer.writerow(["Data/Hora", "Nome da Cama", "Andar", "Quarto", "Status", "RSSI", "Wi-Fi"]); yield buf.getvalue(); buf.seek(0); buf.truncate(0)
-        for e in events:
-            emb_data = embarcados_map.get(e.esp_id, {}); quarto = emb_data.get("quarto", ""); andar = emb_data.get("andar", "")
-            nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
-            writer.writerow([e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "", nome_cama, andar, quarto, e.status, e.rssi, e.wifi]); yield buf.getvalue(); buf.seek(0); buf.truncate(0)
-    return StreamingResponse(iter_csv(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"})
+    try:
+        # 2. A lógica de mapeamento para enriquecer os dados continua a mesma
+        embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
+        beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
+
+        # 3. CORREÇÃO: Aplicamos a mesma lógica de filtragem de `list_events`
+        query = db.query(ReceivedEvent)
+
+        if filter_cama:
+            query = query.filter(ReceivedEvent.cama == filter_cama)
+            
+        if time_filter:
+            now = datetime.now(timezone.utc)
+            if time_filter == 'daily':
+                start_date = now - timedelta(days=1)
+                query = query.filter(ReceivedEvent.data_on >= start_date)
+            # --- LÓGICA QUE ESTAVA FALTANDO ---
+            elif time_filter == 'weekly':
+                start_date = now - timedelta(weeks=1)
+                query = query.filter(ReceivedEvent.data_on >= start_date)
+            elif time_filter == 'monthly':
+                start_date = now - timedelta(days=30)
+                query = query.filter(ReceivedEvent.data_on >= start_date)
+            # ------------------------------------
+
+        if filter_quarto:
+            esps_no_quarto = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
+            query = query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else query.filter(False)
+
+        if filter_status:
+            query = query.filter(ReceivedEvent.status == filter_status)
+
+        if filter_andar:
+            esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
+            query = query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else query.filter(False)
+
+        # A busca no banco agora é feita na query JÁ FILTRADA
+        events = query.order_by(ReceivedEvent.data_on).all()
+
+        # 4. A lógica de geração do CSV continua a mesma
+        def iter_csv():
+            buf = StringIO()
+            writer = csv.writer(buf)
+
+            writer.writerow(["Data/Hora", "Nome da Cama", "Andar", "Quarto", "Status", "RSSI", "Wi-Fi"])
+            yield buf.getvalue()
+            buf.seek(0); buf.truncate(0)
+
+            for e in events:
+                emb_data = embarcados_map.get(e.esp_id, {})
+                quarto = emb_data.get("quarto", "")
+                andar = emb_data.get("andar", "")
+                nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
+
+                writer.writerow([
+                    e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
+                    nome_cama,
+                    andar,
+                    quarto,
+                    e.status,
+                    e.rssi,
+                    e.wifi
+                ])
+                yield buf.getvalue()
+                buf.seek(0); buf.truncate(0)
+    finally:
+        db.close()
+
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
+    )
 
 
 # --- Seção: Bloco de Execução Principal ---

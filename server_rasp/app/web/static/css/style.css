@@ -125,13 +125,24 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 /* Adicione ao final do seu style.css */
 .status-box { padding: 4px 8px; border-radius: 12px; font-weight: bold; font-size: 0.9em; color: #fff; text-transform: uppercase; }
-.status-ok { background-color: #28a745; }
-.status-pendente { background-color: #fd7e14; }
-.status-erro { background-color: #dc3545; }
-.status-cancelado { background-color: #495057; } /* <-- ADICIONE ESTA LINHA */
-.status-confirmado { background-color: #17a2b8; }
-.status-resolvido { background-color: #068523; } /* "Resolvido" pode usar a mesma cor do "OK" */
-.status-enfileirado { background-color: #6c757d; }
+/* --- Nível 1: SUCESSO (Verdes Vivos) --- */
+.status-ok { background-color: #28a745; }         /* Verde Padrão: Ação bem-sucedida. */
+.status-resolvido { background-color: #218838; }   /* Verde Escuro: Sucesso que veio de um estado de atenção. */
+
+/* --- Nível 2: INFORMATIVO (Azul) --- */
+.status-confirmado { background-color: #17b3b8; }  /* Azul/Ciano: Estado estável, informação confirmada. */
+
+/* --- Nível 3: ATENÇÃO (Laranja/Amarelo) --- */
+.status-pendente { background-color: #fd7e14; }    /* Laranja: Ação necessária, estado "quente", aguardando resolução. */
+.status-ignorado { background-color: #ffc107; }    /* Amarelo: Atenção, mas menos urgente. Um desvio no fluxo normal. */
+
+/* --- Nível 4: FALHA / CRÍTICO (Vermelhos) --- */
+.status-vencido { background-color: #bb0000; }     /* Vermelho Padrão: Uma falha clara (timeout). */
+.status-erro { background-color: #ff0000; }      /* Vermelho Escuro: A falha mais grave, um erro no sistema. */
+
+/* --- Nível 5: NEUTRO / INATIVO (Cinzas) --- */
+.status-enfileirado { background-color: #6c757d; } /* Cinza Médio: Estado inicial, ainda não ativo. */
+.status-cancelado { background-color: #343a40; }   /* Cinza Escuro: Estado final inativo, ação terminada sem sucesso/falha. */
 .status-detail-icon { display: inline-block; margin-left: 8px; font-weight: bold; color: #007bff; background-color: #e9ecef; border-radius: 50%; width: 20px; height: 20px; line-height: 20px; text-align: center; cursor: help; }
 .action-get { color: #28a745; font-weight: bold; }
 .action-out { color: #dc3545; font-weight: bold; }
@@ -211,4 +222,23 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 /* Garante que o botão de salvar ocupe a largura total do formulário */
 .settings-form .btn-primary {
     width: 100%;
+}
+/* Estilo para o indicador de versão, posicionado no rodapé da sidebar */
+.sidebar-version {
+    position: absolute;   /* Fixa o elemento em relação à sidebar */
+    bottom: 1.5rem;       /* Distância da parte inferior */
+    left: 0;              /* Alinhado à esquerda do container */
+    width: 100%;          /* Ocupa toda a largura da sidebar */
+    
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: center;   /* Centraliza o texto (para quando a sidebar está recolhida) */
+    white-space: nowrap;  /* Impede a quebra de linha */
+    pointer-events: none; /* Faz com que o texto não interfira com cliques do mouse */
+}
+
+/* Quando a sidebar expande, alinha o texto à esquerda */
+.sidebar.expanded .sidebar-version {
+    text-align: left;
+    padding-left: 3rem; /* Adiciona um espaçamento para alinhar com os ícones */
 }

@@ -1,5 +1,20 @@
 // ===================================================================================
-// = BAXTER - CÓDIGO COM MODO DE CONFIGURAÇÃO E LÓGICA DE VEREDITO                    =
+// = BAXTER - FIRMWARE FINAL COM ARQUITETURA DE TÓPICOS UNIFICADA                      =
+// ===================================================================================
+//
+// Este firmware é projetado para um dispositivo ESP32 que atua como um sensor de
+// localização em um quarto. Ele escaneia por beacons Bluetooth (BLE) de baixa energia
+// que estão atrelados a camas e se comunica com um servidor central para determinar
+// a localização de cada cama em tempo real.
+//
+// PRINCIPAIS FUNCIONALIDADES:
+// 1. Conectividade Wi-Fi com portal de configuração.
+// 2. Comunicação via MQTT para receber comandos e listas de alvos.
+// 3. Scanner Bluetooth para detectar a proximidade de beacons.
+// 4. Envio de eventos (entrada/saída) para o servidor via HTTP POST.
+// 5. Lógica de "veredito" para evitar que múltiplas ESPs compitam pela mesma cama.
+// 6. Capacidade de ter seu estado resetado remotamente pelo servidor.
+//
 // ===================================================================================
 
 #include <WiFi.h>
@@ -11,18 +26,26 @@
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
+
 // --- Identificador Fixo ---
-const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
+// Este ID deve ser único para cada placa ESP32.
+const char* idESP = "WRD00000002"; // <-- MUDE CONFORME A ESP
+
+// --- Tópicos MQTT ---
+// Tópico público onde o servidor publica a lista de MACs de beacons de camas disponíveis.
 const char* MQTT_BED_LIST_TOPIC = "wyrd/baxter/beds/available";
+// Tópico público para comandos que devem ser executados por TODAS as ESPs (ex: buscar nova config).
 const char* MQTT_COMMAND_TOPIC = "wyrd/baxter/esp/all/command";
-String MQTT_VERDICT_TOPIC = "";
+// Tópico PRIVADO e UNIFICADO para comunicação individual. Vereditos (WIN/LOSE) e comandos
+// direcionados (RESET_STATE) chegam por este canal. É construído dinamicamente no setup().
+String MQTT_INDIVIDUAL_TOPIC = ""; 
 
 // --- GATILHO PARA MODO DE CONFIGURAÇÃO ---
-String TRIGGER_HOTSPOT_SSID = ""; // Será montado no setup()
+String TRIGGER_HOTSPOT_SSID = ""; // Nome do Wi-Fi temporário para entrar em modo de configuração.
 const char* TRIGGER_HOTSPOT_PASSWORD = "baxterconfig";
-const unsigned long TRIGGER_SCAN_TIMEOUT = 5000; // 5 segundos
+const unsigned long TRIGGER_SCAN_TIMEOUT = 5000; // Tempo em ms que a ESP procura pelo hotspot.
 
-// --- Variáveis de configuração (carregadas do NVS ou portal) ---
+// --- Variáveis de configuração (carregadas da memória NVS ou portal) ---
 char SERVER_IP[16]            = "10.0.0.149";
 char SERVER_PORT_STR[6]       = "8000";
 char MQTT_BROKER_HOST[16]     = "10.0.0.149";
@@ -30,24 +53,27 @@ char MQTT_BROKER_PORT_STR[6]  = "1883";
 uint16_t SERVER_PORT          = 8000;
 uint16_t MQTT_BROKER_PORT     = 1883;
 
-// --- Configurações de Lógica ---
-int RSSI_THRESHOLD            = -60;
-unsigned long INERCIA_CHEGADA = 500;
-unsigned long INERCIA_SAIDA   = 15000;
-#define RSSI_HISTORY_SIZE       3
-#define BEACON_SCAN_TIME        1
+// --- Parâmetros de Lógica de Detecção ---
+int RSSI_THRESHOLD            = -60;   // Limite de força do sinal BLE para considerar uma "entrada".
+unsigned long INERCIA_CHEGADA = 500;   // Tempo em ms que o sinal precisa ficar acima do threshold para confirmar uma entrada.
+unsigned long INERCIA_SAIDA   = 15000; // Tempo em ms que o sinal precisa ficar abaixo do threshold para confirmar uma saída.
+#define RSSI_HISTORY_SIZE       3      // Número de leituras de RSSI para calcular a média e suavizar o sinal.
+#define BEACON_SCAN_TIME        1      // Duração em segundos de cada ciclo de scan BLE.
 
-// --- Configurações NTP ---
+
+// --- Configurações de Tempo (NTP) ---
 const char* NTP_SERVER          = "pool.ntp.org";
-const long  GMT_OFFSET_SEC      = -3 * 3600;
+const long  GMT_OFFSET_SEC      = -3 * 3600; // Offset para o fuso horário de Brasília (UTC-3).
 const int   DAYLIGHT_OFFSET_SEC = 0;
 
 // ============ OBJETOS GLOBAIS E ESTRUTURAS DE DADOS ============
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
-Preferences preferences; 
+Preferences preferences; // Objeto para salvar/ler configurações da memória flash (NVS).
 bool shouldSaveConfig = false;
+uint32_t idTransacaoAguardada = 0;
 
+// Estrutura para armazenar informações de um beacon sendo rastreado (antes de ser confirmado).
 struct TargetBed {
     String mac = "";
     int rssiHistory[RSSI_HISTORY_SIZE];
@@ -56,10 +82,11 @@ struct TargetBed {
     unsigned long inicioInercia = 0;
     int mediaRSSI = -100;
 };
+// Estrutura para armazenar a cama que está "travada" nesta ESP.
 struct LockedBed {
     String mac = "";
-    bool confirmada = false;
-    bool aguardandoVeredito = false;
+    bool confirmada = false;        // true se o servidor enviou 'WIN'.
+    bool aguardandoVeredito = false; // true após enviar um 'GET', esperando a resposta do servidor.
     int rssiHistory[RSSI_HISTORY_SIZE];
     uint8_t index = 0;
     bool isFull = false;
@@ -86,6 +113,7 @@ void reconnect_mqtt();
 // =================== LÓGICA DE CONFIGURAÇÃO ======================
 // =================================================================
 
+// Lê as configurações de IP/Porta da memória NVS.
 void lerConfiguracoes() {
     preferences.begin("baxter-config", false);
     String saved_server_ip = preferences.getString("server_ip", "192.168.0.5");
@@ -105,6 +133,7 @@ void lerConfiguracoes() {
     Serial.println("Configurações carregadas da memória NVS.");
 }
 
+// Salva as configurações na memória NVS.
 void salvarConfiguracoes() {
     preferences.begin("baxter-config", false);
     preferences.putString("server_ip", SERVER_IP);
@@ -115,6 +144,7 @@ void salvarConfiguracoes() {
     Serial.println("Configurações salvas na memória NVS.");
 }
 
+// Callback do WiFiManager para sinalizar que novas configurações devem ser salvas.
 void saveConfigCallback () {
     Serial.println("Callback de salvar configuração foi acionado.");
     shouldSaveConfig = true;
@@ -123,9 +153,13 @@ void saveConfigCallback () {
 // =================================================================
 // =================== LÓGICA DE COMUNICAÇÃO =======================
 // =================================================================
+
+// Callback para cada dispositivo Bluetooth encontrado durante o scan.
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) override {
         String foundMac = advertisedDevice.getAddress().toString().c_str();
+
+        // Se a ESP já está travada em uma cama, só nos importamos com o RSSI dessa cama.
         if (lockedBed.confirmada) {
             if (foundMac.equalsIgnoreCase(lockedBed.mac)) {
                 lockedBed.rssiHistory[lockedBed.index] = advertisedDevice.getRSSI();
@@ -134,6 +168,8 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
             }
             return;
         }
+
+        // Se não, adicionamos o RSSI a qualquer alvo potencial que corresponda ao MAC.
         for (int i = 0; i < potentialTargetsCount; i++) {
             if (foundMac.equalsIgnoreCase(potentialTargets[i].mac)) {
                 TargetBed &target = potentialTargets[i];
@@ -146,56 +182,83 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     }
 };
 
+// Função principal que trata TODAS as mensagens MQTT recebidas.
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     Serial.println("------------------------------------");
     Serial.printf("Mensagem recebida no tópico: %s\n", topic);
     
     String topicStr = String(topic);
+    StaticJsonDocument<256> doc;
+    DeserializationError error = deserializeJson(doc, payload, length);
 
-    // --- LÓGICA 1: Processar o Veredito da Disputa ---
-    if (topicStr == MQTT_VERDICT_TOPIC) {
-        StaticJsonDocument<128> doc;
-        deserializeJson(doc, payload, length);
-        const char* status = doc["status"];
-        String cama = doc["cama"];
+    if (error) {
+        Serial.print(F("Falha ao decodificar JSON: "));
+        Serial.println(error.c_str());
+        return;
+    }
 
-        if (lockedBed.aguardandoVeredito && cama.equalsIgnoreCase(lockedBed.mac)) {
-            if (strcmp(status, "WIN") == 0) {
-                Serial.printf(">>> VEREDITO RECEBIDO: VENCEU! Travando na cama %s\n", cama.c_str());
-                lockedBed.confirmada = true;
-            } else { // "LOSE"
-                Serial.printf(">>> VEREDITO RECEBIDO: PERDEU! Liberando a cama %s\n", cama.c_str());
-                lockedBed = {};
+    // --- LÓGICA 1: Processar mensagens no CANAL INDIVIDUAL UNIFICADO ---
+    if (topicStr == MQTT_INDIVIDUAL_TOPIC) {
+        // Primeiro, lemos o campo "type" para saber o que fazer com a mensagem.
+        const char* type = doc["type"];
+        if (type == NULL) return; // Mensagem inválida.
+
+        // CASO 1.1: A mensagem é um VEREDITO (WIN/LOSE)
+        if (strcmp(type, "verdict") == 0) {
+            JsonObject data = doc["data"];
+            uint32_t idTransacaoRecebida = data["transacao_id"];
+            
+            // VALIDAÇÃO CRÍTICA: A ESP só age se o ID recebido for o que ela está esperando.
+            if (lockedBed.aguardandoVeredito && idTransacaoRecebida == idTransacaoAguardada) {
+                const char* status = data["status"];
+                String cama = data["cama"];
+
+                if (cama.equalsIgnoreCase(lockedBed.mac)) {
+                    if (strcmp(status, "WIN") == 0) {
+                        Serial.printf(">>> VEREDITO VÁLIDO (ID: %u): VENCEU! Travando na cama %s\n", idTransacaoRecebida, cama.c_str());
+                        lockedBed.confirmada = true;
+                    } else { // "LOSE"
+                        Serial.printf(">>> VEREDITO VÁLIDO (ID: %u): PERDEU! Liberando a cama %s\n", idTransacaoRecebida, cama.c_str());
+                        lockedBed = {};
+                    }
+                    lockedBed.aguardandoVeredito = false;
+                    idTransacaoAguardada = 0; // Limpa o ID esperado.
+                }
+            } else {
+                Serial.printf(">>> VEREDITO IGNORADO! ID esperado: %u, ID recebido: %u.\n", idTransacaoAguardada, idTransacaoRecebida);
             }
-            lockedBed.aguardandoVeredito = false;
+        }
+        // CASO 1.2: A mensagem é um COMANDO (RESET_STATE)
+        else if (strcmp(type, "command") == 0) {
+            JsonObject data = doc["data"];
+            const char* command_name = data["name"];
+            if (strcmp(command_name, "RESET_STATE") == 0) {
+                Serial.println(">>> Comando 'RESET_STATE' recebido! Limpando estado.");
+                lockedBed = {}; // Ação: reseta a struct para o estado inicial.
+            }
         }
         return;
     }
     
-    // --- LÓGICA 2: Processar Comandos Gerais do Servidor ---
+    // --- LÓGICA 2: Processar mensagens no CANAL DE COMANDO GERAL ---
     if (topicStr == MQTT_COMMAND_TOPIC) {
-        StaticJsonDocument<128> doc;
-        deserializeJson(doc, payload, length);
-        
         const char* command = doc["command"];
         if (command != NULL && strcmp(command, "fetch_config") == 0) {
-            Serial.println(">>> Comando 'fetch_config' recebido! Buscando novas configurações do servidor...");
+            Serial.println(">>> Comando GERAL 'fetch_config' recebido!");
             checkInitialState();
         }
         return;
     }
 
-    // --- LÓGICA 3: Processar a Lista de Camas Disponíveis ---
+    // --- LÓGICA 3: Processar a LISTA DE CAMAS DISPONÍVEIS ---
     if (topicStr == MQTT_BED_LIST_TOPIC) {
+        // Se a ESP já está ocupada, ela ignora novas listas para evitar confusão.
         if (lockedBed.confirmada || lockedBed.aguardandoVeredito) {
             Serial.printf("ESP travada ou aguardando veredito. Ignorando nova lista.\n");
-            Serial.println("------------------------------------");
             return;
         }
         
         potentialTargetsCount = 0;
-        StaticJsonDocument<2048> doc;
-        deserializeJson(doc, payload, length);
         JsonArray macArray = doc.as<JsonArray>();
 
         Serial.println("Inicializando nova lista de alvos potenciais:");
@@ -218,28 +281,28 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 void setup() {
     Serial.begin(115200);
     lerConfiguracoes();
-    MQTT_VERDICT_TOPIC = "wyrd/baxter/esp/" + String(idESP) + "/verdict";
+    
+    // Constrói dinamicamente os nomes dos tópicos específicos desta ESP.
+    MQTT_INDIVIDUAL_TOPIC = "wyrd/baxter/esp/" + String(idESP) + "/command";
+    TRIGGER_HOTSPOT_SSID = "BAXTER_" + String(idESP);
+
     Serial.println("\n\n==================");
     Serial.println("= EMBARCADO BAXTER INICIANDO =");
     Serial.println("==================");
-
-    TRIGGER_HOTSPOT_SSID = "BAXTER_" + String(idESP);
 
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     delay(100);
 
+    // Lógica para detectar se deve entrar em modo de configuração.
     Serial.printf("Procurando pelo Hotspot de Configuração '%s' por %d segundos...\n", TRIGGER_HOTSPOT_SSID.c_str(), TRIGGER_SCAN_TIMEOUT / 1000);
-
     bool triggerFound = false;
     unsigned long startTime = millis();
-
     while (millis() - startTime < TRIGGER_SCAN_TIMEOUT) {
         int n = WiFi.scanNetworks();
         if (n > 0) {
             for (int i = 0; i < n; ++i) {
                 if (WiFi.SSID(i) == TRIGGER_HOTSPOT_SSID) {
-                    Serial.printf("\nHotspot de configuração encontrado! MAC: %s\n", WiFi.BSSIDstr(i).c_str());
                     triggerFound = true;
                     break;
                 }
@@ -252,6 +315,7 @@ void setup() {
     Serial.println();
     WiFi.scanDelete();
 
+    // Se encontrou o hotspot, inicia o portal de configuração.
     if (triggerFound) {
         Serial.println("Iniciando Portal de Configuração...");
         WiFiManager wm;
@@ -268,9 +332,7 @@ void setup() {
         wm.addParameter(&custom_mqtt_port);
 
         String portalAPName = "CONFIG_BAXTER_" + String(idESP); 
-
         if (wm.startConfigPortal(portalAPName.c_str())) {
-            Serial.println("Configuração salva pelo usuário.");
             strcpy(SERVER_IP, custom_server_ip.getValue());
             strcpy(SERVER_PORT_STR, custom_server_port.getValue());
             strcpy(MQTT_BROKER_HOST, custom_mqtt_host.getValue());
@@ -279,7 +341,7 @@ void setup() {
             MQTT_BROKER_PORT = atoi(MQTT_BROKER_PORT_STR);
             
             salvarConfiguracoes();
-            Serial.println("Configurações salvas na memória. Reiniciando em 5 segundos...");
+            Serial.println("Configurações salvas. Reiniciando em 5 segundos...");
             delay(5000);
             ESP.restart();
         } else {
@@ -287,11 +349,11 @@ void setup() {
             delay(3000);
             ESP.restart();
         }
-    } else {
+    } 
+    // Se não, inicia em modo de operação normal.
+    else {
         Serial.println("\nHotspot de configuração não encontrado. Iniciando em modo de operação normal.");
-        
-        Serial.print("Conectando à rede Wi-Fi salva: ");
-        Serial.println(WiFi.SSID());
+        Serial.print("Conectando à rede Wi-Fi salva...");
         WiFi.begin();
 
         unsigned long wifiStartTime = millis();
@@ -319,18 +381,24 @@ void setup() {
         mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
         mqttClient.setCallback(mqtt_callback);
         
+        // Pergunta ao servidor qual era seu último estado conhecido.
         checkInitialState();
     }
 }
 
+// O loop principal da aplicação.
 void loop() {
     if (!mqttClient.connected()) {
         reconnect_mqtt();
     }
-    mqttClient.loop();
+    mqttClient.loop(); // Processa mensagens MQTT recebidas.
+
+    // Inicia um novo ciclo de scan BLE. O resultado será tratado no callback onResult.
     BLEDevice::getScan()->start(BEACON_SCAN_TIME, false);
+
+    // Executa a lógica de decisão principal (verificar inércias, enviar eventos, etc.).
     processarLogicaCama();
-    delay(500);
+    delay(500); // Pequena pausa para não sobrecarregar o processador.
 }
 
 // =================== LÓGICA DE DECISÃO PRINCIPAL =================
@@ -393,7 +461,7 @@ void processarLogicaCama() {
     int bestRssiOfWinners = -1000;
     for (int i = 0; i < potentialTargetsCount; i++) {
         TargetBed &target = potentialTargets[i];
-        if (target.inicioInercia > 0 && (agora - target.inicioInercia > 500)) {
+        if (target.inicioInercia > 0 && (agora - target.inicioInercia > INERCIA_CHEGADA)) {
             if (target.mediaRSSI > bestRssiOfWinners) {
                 bestRssiOfWinners = target.mediaRSSI;
                 winnerIndex = i;
@@ -493,6 +561,13 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
     doc["wifi"] = wifi;
     doc["data_on"] = obterDataAtualISO8601();
 
+    // ADIÇÃO: Se o evento for um GET, gera e adiciona um ID de transação.
+    if (strcmp(status, "GET") == 0) {
+        idTransacaoAguardada = random(1, 4294967295); // Gera um número aleatório de 32 bits.
+        doc["transacao_id"] = idTransacaoAguardada;
+        Serial.printf("Gerado novo ID de Transação para GET: %u\n", idTransacaoAguardada);
+    }
+
     String jsonPayload;
     serializeJson(doc, jsonPayload);
 
@@ -525,7 +600,7 @@ void reconnect_mqtt() {
             Serial.println(" conectado!");
             mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
             mqttClient.subscribe(MQTT_COMMAND_TOPIC); 
-            mqttClient.subscribe(MQTT_VERDICT_TOPIC.c_str());
+            mqttClient.subscribe(MQTT_INDIVIDUAL_TOPIC.c_str());
         } else {
             Serial.print(" falhou, rc=");
             Serial.print(mqttClient.state());

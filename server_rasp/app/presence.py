@@ -1,5 +1,14 @@
-# presence.py
-# Módulo que fornece uma interface simples para verificar se um MAC está na rede.
+# ==============================================================================
+# ARQUIVO: presence.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Simplifica a verificação de presença de um MAC na rede.
+
+Funções Chave no Fluxo:
+- `check_presence(mac)`: Recebe um MAC e retorna `True` ou `False`,
+  indicando se o dispositivo está online. É usado pelo `aggregator`.
+"""
 
 # Importa a função principal do módulo de scan.
 from .nmap_scan import get_connected_macs

@@ -5,14 +5,23 @@
             <label for="nome">Nome</label>
             <input type="text" id="nome" name="nome" value="{{ bed.nome_cama if bed else '' }}" placeholder="insira um nome para esse ativo" required>
         </div>
+
         <div class="form-group">
             <label for="mac">MAC da cama</label>
-            <input type="text" id="mac" name="mac_address" value="{{ bed.mac_address if bed else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
+            <input type="text" id="mac" name="mac_address" value="{{ bed.mac_address if bed else '' }}" placeholder="XX:XX:XX:XX:XX:XX"
+                   required
+                   pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+                   title="O MAC deve estar no formato XX:XX:XX:XX:XX:XX">
         </div>
+
         <div class="form-group">
             <label for="mac_beacon">MAC do Beacon</label>
-            <input type="text" id="mac_beacon" name="mac_beacon" value="{{ bed.mac_beacon if bed else '' }}" placeholder="XX:XX:XX:XX:XX:XX">
+            <input type="text" id="mac_beacon" name="mac_beacon" value="{{ bed.mac_beacon if bed else '' }}" placeholder="XX:XX:XX:XX:XX:XX"
+                   required
+                   pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+                   title="O MAC do Beacon deve estar no formato XX:XX:XX:XX:XX:XX (campo opcional)">
         </div>
+
         <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if bed else 'Salvar' }}</button>
     </form>
 </div>

@@ -1,6 +1,17 @@
-# app/services.py
-# Este módulo contém funções de lógica de negócio que orquestram
-# operações no banco de dados e a comunicação via MQTT.
+# ==============================================================================
+# ARQUIVO: services.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Centraliza lógicas de negócio importantes e reutilizáveis.
+
+Funções Chave no Fluxo:
+- `update_bed_assignment(...)`: Atualiza o quarto de uma cama no banco e
+  sempre dispara a publicação da nova lista de camas livres via MQTT.
+- `synchronize_and_reset_esp(...)`: Força um ESP e seu quarto a um estado
+  limpo, desassociando a cama no servidor e enviando um comando de reset
+  para o dispositivo.
+"""
 
 from .models import SessionLocal, Bed, Embarcado
 from . import mqtt_client

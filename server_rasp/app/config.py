@@ -1,5 +1,14 @@
-# config.py
-# Módulo responsável por gerenciar as configurações da aplicação.
+# ==============================================================================
+# ARQUIVO: config.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Define e carrega todas as configurações do sistema a partir de `config.ini`.
+
+Funções Chave no Fluxo:
+- `load_configuration()`: Lê `config.ini` e fornece os IPs, portas e tópicos
+  MQTT para os outros módulos.
+"""
 
 import configparser
 import os

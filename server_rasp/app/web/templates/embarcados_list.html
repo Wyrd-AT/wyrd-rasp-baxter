@@ -13,12 +13,15 @@
     <div class="list-column">
         <div class="table-toolbar">
             <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
-                <input type="text" name="search" placeholder="Pesquisar" value="{{ search or '' }}">
+                <input type="text" name="search" placeholder="Buscar por ID ou Quarto..." value="{{ search or '' }}">
                 <button type="submit" class="icon-btn" title="Pesquisar"><i data-feather="search"></i></button>
             </form>
             <div class="toolbar-actions">
-                </div>
+                <button type="button" class="icon-btn" title="Editar"><i data-feather="edit-2"></i></button>
+                <button type="button" class="icon-btn" title="Apagar"><i data-feather="trash-2"></i></button>
+            </div>
         </div>
+
         <table class="data-table">
             <thead>
                 <tr>

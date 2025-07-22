@@ -1,5 +1,15 @@
-# dispatcher.py
-# Responsável por enviar o evento processado para o destino final (Connecta).
+# ==============================================================================
+# ARQUIVO: dispatcher.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Envia o resultado final de um evento para o sistema externo (Connecta).
+
+Funções Chave no Fluxo:
+- `dispatch_event(evt)`: Recebe os dados de um evento resolvido (ex: "Cama X
+  no Quarto Y"), formata em JSON e envia via socket TCP, com tentativas
+  automáticas em caso de falha.
+"""
 
 import socket
 import json

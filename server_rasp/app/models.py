@@ -1,5 +1,16 @@
-# models.py
-# Define todas as tabelas do banco de dados usando SQLAlchemy ORM.
+# ==============================================================================
+# ARQUIVO: models.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Define a estrutura das tabelas do banco de dados (Camas, ESPs, Eventos).
+
+Funções Chave no Fluxo:
+- `init_db()`: Cria as tabelas no banco de dados na primeira vez que o
+  servidor é iniciado.
+- Classes (`Bed`, `Embarcado`, `ReceivedEvent`): Mapeiam o código para as
+  tabelas do banco, permitindo que o resto da aplicação leia e escreva dados.
+"""
 
 from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine
 from sqlalchemy.ext.declarative import declarative_base
@@ -38,7 +49,7 @@ class Bed(Base):
     id          = Column(Integer, primary_key=True, index=True)
     mac_address = Column(String, unique=True, nullable=False, index=True)
     nome_cama   = Column(String, nullable=False)
-    mac_beacon  = Column(String, nullable=True, unique=True)
+    mac_beacon  = Column(String, nullable=False, unique=True)
     quarto      = Column(String, nullable=True)
 
 # Tabela 'embarcados': Cadastra cada dispositivo ESP32, associando seu ID
