@@ -32,7 +32,7 @@ from .models import SessionLocal, Bed, Embarcado, ReceivedEvent
 from .config import settings
 from .presence import check_presence
 from .mqtt_client import publish_available_beds, publish_to_esp_channel
-from .services import synchronize_and_reset_esp
+from .services import synchronize_and_reset_esp, update_bed_assignment
 
 # --- Seção: Configurações e Estruturas de Dados em Memória ---
 RETRY_PRESENCE_FREQUENCY_SEC = 30 # A cada quantos segundos tentar verificar a presença de um Wi-Fi ausente.
@@ -197,15 +197,15 @@ async def _process_events_batch(events: list):
                         pending_event.status_detail = "Cancelado por evento de saída subsequente."
                 
                 # 3. Processa a desassociação da cama.
-                if bed.quarto is not None:
-                    print(f"[aggregator] Desassociando cama '{bed.nome_cama}' do quarto '{bed.quarto}'.")
-                    bed.quarto = None
-                    publish_available_beds()
+                quarto_anterior = bed.quarto
+
+                update_bed_assignment(bed_id=bed.id, new_room=None)
+                
+                if quarto_anterior is not None:
                     _update_event_status(event_id, "OK", f"Cama '{bed.nome_cama}' desassociada com sucesso.")
                 else:
                     _update_event_status(event_id, "Confirmado", "Cama já estava desassociada.")
-                
-                # 4. Salva TODAS as alterações (status do pendente, quarto da cama) de uma só vez.
+
                 db.commit()
 
             else:

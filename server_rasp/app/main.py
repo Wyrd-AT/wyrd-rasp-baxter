@@ -25,6 +25,8 @@ import threading
 import time
 import uvicorn
 import re
+import sys
+import os
 
 # --- Seção: Importações e Configuração Inicial ---
 # Importa todos os componentes essenciais do FastAPI, tipos de dados,
@@ -203,13 +205,22 @@ app.mount("/admin", admin_app) # Monta a interface do admin na rota /admin.
 # --- Seção: Configuração da Interface Web (Templates e Estáticos) ---
 # Define onde a aplicação deve procurar por arquivos estáticos (CSS, JS)
 # e pelos templates HTML que formam as páginas.
-app.mount("/static", StaticFiles(directory="app/web/static"), name="static")
-templates = Jinja2Templates(directory="app/web/templates")
+try:
+    base_path = sys._MEIPASS
+except Exception:
+    base_path = os.path.dirname(os.path.abspath(__file__))
+
+templates_path = os.path.join(base_path, "web/templates")
+static_path = os.path.join(base_path, "web/static")
+
+app.mount("/static", StaticFiles(directory=static_path), name="static")
+templates = Jinja2Templates(directory=templates_path)
 
 # Função de validação interna, usada por rotas mais antigas.
 def validate_bed_data(data: dict):
     if "cama" not in data or "quarto" not in data or "status" not in data:
         raise HTTPException(status_code=400, detail="Dados da cama incompletos.")
+
 
 @app.get("/", name="main", include_in_schema=False)
 def main_page(request: Request):

@@ -27,27 +27,27 @@ from . import mqtt_client
 def update_bed_assignment(bed_id: int, new_room: str | None):
     """
     Função central para gerenciar a associação de camas a quartos.
+    Agora ela gerencia sua própria sessão de DB para ser atômica.
     """
+    # --- CORREÇÃO AQUI ---
     db = SessionLocal()
     try:
         bed = db.query(Bed).get(bed_id)
         if not bed:
             return
 
-        # Só executa a lógica se o estado realmente mudou.
+        # Apenas executa se o estado realmente mudou
         if bed.quarto != new_room:
-            # Atualiza o quarto no banco de dados. Se 'new_room' for None,
-            # a cama é desassociada.
             bed.quarto = new_room
-            db.commit()
-            # Imediatamente após confirmar a mudança no banco, publica a nova
-            # lista de camas livres para todos os ESPs.
+            db.commit() # Salva a alteração
+            
+            # Chama a publicação MQTT DEPOIS que a alteração foi confirmada
             mqtt_client.publish_available_beds()
     except Exception as e:
-        db.rollback() # Desfaz a alteração no banco em caso de erro.
+        db.rollback()
         print(f"[SERVICE] ERRO ao atualizar cama: {e}")
     finally:
-        db.close()
+        db.close() # Garante que a sessão seja sempre fechada
 
 # --- Seção: Serviço de Sincronização e Reset ---
 # 'synchronize_and_reset_esp' é uma função de orquestração poderosa.
