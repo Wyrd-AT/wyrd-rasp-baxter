@@ -7,101 +7,119 @@ import ipaddress
 import threading
 from .config import settings
 
+# --- INÍCIO DA CORREÇÃO ---
+
 def clear_arp_cache():
-    """Força a limpeza do cache ARP do sistema operacional."""
+    """
+    Força a limpeza do cache ARP do sistema operacional.
+    Isso garante que apenas os dispositivos atualmente ativos sejam encontrados.
+    """
+    #print("[arp_scan] Limpando o cache ARP para garantir uma leitura nova...")
     system = platform.system().lower()
-    command = "arp -d *" if system == "windows" else "sudo ip -s -s neigh flush all"
+    
     try:
-        subprocess.run(command, shell=True, capture_output=True, check=False)
-    except Exception:
-        pass # Ignora erros se o comando falhar (ex: falta de sudo)
+        if system == "windows":
+            # Comando para limpar o cache ARP no Windows
+            subprocess.run(
+                "arp -d *", 
+                shell=True, 
+                capture_output=True, 
+                check=False
+            )
+        elif system == "linux":
+            # Comando para limpar o cache ARP no Linux (requer privilégios de root)
+            # O ideal é executar o servidor com sudo ou configurar permissões.
+            subprocess.run(
+                "sudo ip -s -s neigh flush all", 
+                shell=True, 
+                capture_output=True, 
+                check=False
+            )
+        # macOS também usa um comando similar ao Linux, mas pode variar.
+        # Por enquanto, focamos nos dois principais.
+        #print("[arp_scan] Cache ARP limpo.")
+    except Exception as e:
+        print(f"[arp_scan] AVISO: Falha ao tentar limpar o cache ARP: {e}")
+        print("[arp_scan] A verificação de presença pode incluir dispositivos recém-desconectados.")
+
+# --- FIM DA CORREÇÃO ---
+
 
 def ping_ip(ip):
-    """Envia um único pacote de ping para um IP."""
+    """Função para pingar um único IP. Executada em uma thread."""
     try:
         subprocess.run(
             ["ping", "-n", "1", "-w", "200", str(ip)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False
         )
     except Exception:
         pass
 
-def get_arp_candidates() -> dict:
+def update_arp_table():
     """
-    Passo 1: Limpa o cache e usa pings para popular uma lista de
-    candidatos (IP -> MAC) a partir da tabela ARP.
-    Esta lista pode conter dispositivos que acabaram de sair.
+    Força a atualização da tabela ARP pingando todos os IPs na rede local.
     """
-    clear_arp_cache()
-    
     network_range_str = settings.get('network_range_scan')
     if not network_range_str:
-        print("[arp_scan] ERRO: 'network_range_scan' não definido.")
-        return {}
+        print("[arp_scan] ERRO: 'network_range_scan' não definido no config.ini.")
+        return
 
-    #print(f"[arp_scan] A popular a lista de candidatos para a rede {network_range_str}...")
+    #print(f"[arp_scan] Forçando atualização da tabela ARP para a rede {network_range_str}...")
+    
     try:
         network = ipaddress.ip_network(network_range_str, strict=False)
-        threads = [threading.Thread(target=ping_ip, args=(ip,)) for ip in network.hosts()]
-        for thread in threads: thread.start()
-        for thread in threads: thread.join()
+        threads = []
+        for ip in network.hosts():
+            thread = threading.Thread(target=ping_ip, args=(ip,))
+            threads.append(thread)
+            thread.start()
+        
+        for thread in threads:
+            thread.join()
+
+        print("[arp_scan] Tabela ARP atualizada com sucesso.")
+
     except Exception as e:
-        print(f"[arp_scan] ERRO ao pingar a rede: {e}")
+        print(f"[arp_scan] ERRO ao tentar pingar a rede: {e}")
 
-    # Agora, lê a tabela ARP populada
-    try:
-        result = subprocess.run("arp -a", shell=True, capture_output=True, text=True, timeout=10)
-        arp_table = {}
-        for line in result.stdout.splitlines():
-            # Procura por linhas que contenham um IP e um MAC
-            match = re.search(r"([\d\.]+)\s+([0-9a-fA-F:-]{17})", line)
-            if match:
-                ip_addr, mac_addr = match.groups()
-                # Exclui endereços de multicast e broadcast
-                if not ip_addr.endswith('.255') and not mac_addr.startswith('01:00:5e'):
-                    arp_table[ip_addr] = mac_addr.lower().replace('-', ':')
-        print(f"[arp_scan] Encontrados {len(arp_table)} candidatos na tabela ARP.")
-        return arp_table
-    except Exception:
-        return {}
-
-def verify_host_is_up(ip: str) -> bool:
-    """
-    Passo 2: Usa uma verificação nmap rápida e fiável num ÚNICO IP
-    para confirmar se ele está realmente online.
-    """
-    try:
-        # -sn: Apenas verificação de ping
-        # -PR: Força uma verificação ARP, que é o mais fiável na rede local
-        # -T4: Acelera
-        # -n: Não fazer resolução DNS
-        result = subprocess.run(
-            ["nmap", "-sn", "-PR", "-T4", "-n", ip],
-            capture_output=True, text=True, timeout=5
-        )
-        # O anfitrião está online se o nmap o reportar como "Host is up"
-        return "Host is up" in result.stdout
-    except Exception:
-        return False
 
 def get_connected_macs():
     """
-    Retorna uma lista de MACs ATUAIS e fiáveis na rede.
+    Retorna uma lista atualizada de MACs na rede. Primeiro, LIMPA o cache ARP,
+    depois força a atualização com pings, e finalmente lê a tabela.
     """
-    # 1. Obtém a lista abrangente de "suspeitos" da tabela ARP
-    arp_candidates = get_arp_candidates()
-    if not arp_candidates:
-        return []
+    # --- MUDANÇA NO FLUXO ---
+    # 1. Limpa o cache para remover entradas antigas.
+    clear_arp_cache()
 
-    #print(f"[arp_scan] A verificar ativamente os {len(arp_candidates)} candidatos...")
-    verified_macs = []
-    
-    # 2. Para cada suspeito, faz uma verificação ativa para confirmar se está online
-    for ip, mac in arp_candidates.items():
-        if verify_host_is_up(ip):
-            verified_macs.append(mac)
-    
-    # Usa set() para garantir que não há duplicados no resultado final
-    final_macs = list(set(verified_macs))
-    print(f"[arp_scan] Verificação Concluída. MACs atualmente conectados e confirmados: {final_macs}")
-    return final_macs
+    # 2. Força a atualização da tabela ARP com pings.
+    update_arp_table()
+    # --- FIM DA MUDANÇA ---
+
+    # 3. Lê a tabela ARP agora atualizada
+    #print("[arp_scan] Lendo a tabela ARP atualizada com o comando 'arp -a'...")
+    try:
+        result = subprocess.run(
+            "arp -a", 
+            shell=True,
+            capture_output=True, 
+            text=True,
+            timeout=60
+        )
+
+        if result.returncode != 0:
+            print(f"[arp_scan] ERRO: O comando 'arp -a' falhou. Stderr: {result.stderr}")
+            return []
+
+        output = result.stdout
+        mac_addresses = re.findall(r"([0-9a-fA-F]{2}(?:[-:][0-9a-fA-F]{2}){5})", output)
+        mac_addresses_standardized = [mac.lower().replace('-', ':') for mac in mac_addresses]
+        
+        #print(f"[arp_scan] MACs encontrados (via ARP): {mac_addresses_standardized}")
+        return mac_addresses_standardized
+
+    except Exception as e:
+        #print(f"[arp_scan] ERRO CRÍTICO ao executar o scan com ARP: {e}")
+        return []
