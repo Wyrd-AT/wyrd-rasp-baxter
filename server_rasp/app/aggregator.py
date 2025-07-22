@@ -108,10 +108,13 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
                         status="Resolvido", 
                         detail=f"Cama '{bed.nome_cama}' associada e confirmada no quarto '{bed.quarto}' via nova tentativa."
                     )
-                    # Monta o payload e o despacha para o sistema final (Connecta).
+
+                    br_timezone = timezone(timedelta(hours=-3))
+                    timestamp_agora_br = datetime.now(br_timezone)
+
                     dispatch_payload = {
                         "quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET",
-                        "dataOn": datetime.now(timezone.utc).isoformat(),
+                        "dataOn": timestamp_agora_br.isoformat(),
                     }
                     await loop.run_in_executor(None, dispatch_event, dispatch_payload)
                 break # Encerra a tarefa de retry.
@@ -167,9 +170,10 @@ async def _process_events_batch(events: list):
     db = SessionLocal()
     
     try:
-        # 1. Prioridade para Eventos de Saída ('OUT'):
+        # --- 1. PROCESSAMENTO DE EVENTOS 'OUT' (Sem alterações) ---
         out_events = [e for e in events if e.get("status") == "OUT"]
         if out_events:
+            # (Toda a sua lógica de 'OUT', que já está correta, continua aqui)
             main_out_event = out_events[0]
             event_id = main_out_event.get("event_id")
             beacon_mac = main_out_event.get("cama")
@@ -180,11 +184,7 @@ async def _process_events_batch(events: list):
 
             bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
             if bed:
-                # 1. Cancela a tarefa de verificação de Wi-Fi, se existir.
-                # A função cancel_pending_task já lida com o caso de não haver tarefa.
                 task_cancelled = cancel_pending_task(wifi_mac=bed.mac_address)
-                
-                # 2. Se uma tarefa foi de fato cancelada, atualizamos o evento original.
                 if task_cancelled:
                     pending_event = db.query(ReceivedEvent).filter(
                         ReceivedEvent.cama == beacon_mac,
@@ -196,52 +196,27 @@ async def _process_events_batch(events: list):
                         pending_event.status = "Cancelado"
                         pending_event.status_detail = "Cancelado por evento de saída subsequente."
                 
-                # 3. Processa a desassociação da cama.
                 quarto_anterior = bed.quarto
-
                 update_bed_assignment(bed_id=bed.id, new_room=None)
                 
                 if quarto_anterior is not None:
                     _update_event_status(event_id, "OK", f"Cama '{bed.nome_cama}' desassociada com sucesso.")
                 else:
                     _update_event_status(event_id, "Confirmado", "Cama já estava desassociada.")
-
                 db.commit()
-
             else:
                 _update_event_status(event_id, "Erro", f"Cama com beacon '{beacon_mac}' não cadastrada.")
-            
             return
 
-        # 2. Processamento de Eventos de Entrada ('GET'):
+        # --- 2. PROCESSAMENTO DE EVENTOS 'GET' (Lógica Reestruturada) ---
         get_events = [e for e in events if e.get("status") == "GET"]
         if not get_events:
             return
 
-        # O Veredito: O evento com o maior RSSI (sinal mais forte) é o vencedor.
+        # ETAPA A: Achar o vencedor baseado no RSSI (isso não muda)
         best_event = max(get_events, key=lambda e: e.get("RSSI", -1000))
         event_id = best_event.get("event_id")
         beacon_mac = best_event.get("cama")
-        transacao_id = best_event.get("transacao_id")
-
-        # Notifica a ESP vencedora via MQTT.
-        print(f"[aggregator-verdict] Enviando WIN (ID: {transacao_id}) para a ESP {best_event['esp_id']}")
-        publish_to_esp_channel(
-            esp_id=best_event['esp_id'],
-            message_type="verdict",
-            data={"cama": beacon_mac, "status": "WIN", "transacao_id": transacao_id}
-        )
-
-        # Notifica as ESPs perdedoras e atualiza seus eventos no DB.
-        for evt in get_events:
-            if evt is not best_event:
-                _update_event_status(evt.get("event_id"), "Ignorado", f"Sinal mais fraco. Veredito: LOSE.")
-                print(f"[aggregator-verdict] Enviando LOSE (ID: {transacao_id}) para a ESP {evt['esp_id']}")
-                publish_to_esp_channel(
-                    esp_id=evt['esp_id'],
-                    message_type="verdict",
-                    data={"cama": beacon_mac, "status": "LOSE", "transacao_id": transacao_id}
-                )
         
         bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
         emb = db.query(Embarcado).filter(Embarcado.id_esp == best_event['esp_id']).first()
@@ -250,28 +225,53 @@ async def _process_events_batch(events: list):
             _update_event_status(event_id, "Erro", "Componente (cama ou ESP) não cadastrado.")
             return
         
-        # Se a cama já está no quarto correto, apenas confirma e encerra.
-        if bed.quarto == emb.quarto:
-            _update_event_status(event_id, "Confirmado", f"Cama '{bed.nome_cama}' já estava no quarto '{emb.quarto}'.")
-            return
+        # ETAPA B: Validar o estado da cama ANTES de enviar qualquer veredito
+        if bed.quarto is not None:
+            if bed.quarto == emb.quarto:
+                # O vencedor já está no quarto correto. É apenas uma confirmação.
+                _update_event_status(event_id, "Confirmado", f"Cama '{bed.nome_cama}' já estava no quarto '{emb.quarto}'.")
+                return
+            
+            if bed.mac_address in _pending_mac_checks:
+                # A cama está em outro quarto E está pendente. Bloqueia a tentativa de roubo.
+                print(f"[aggregator] Cama {beacon_mac} já está em processo pendente. Ignorando GET da ESP {best_event['esp_id']}.")
+                _update_event_status(event_id, "Ignorado", "A cama já está em um processo de associação pendente.")
+                publish_to_esp_channel(
+                    esp_id=best_event['esp_id'], message_type="verdict",
+                    data={"cama": beacon_mac, "status": "LOSE", "transacao_id": best_event.get("transacao_id")}
+                )
+                return
+
+        # ETAPA C: Enviar os Vereditos (APÓS a validação)
+        # Se chegamos aqui, a associação é legítima. Agora sim podemos enviar os vereditos.
+        transacao_id = best_event.get("transacao_id")
+        print(f"[aggregator-verdict] Enviando WIN (ID: {transacao_id}) para a ESP {best_event['esp_id']}")
+        publish_to_esp_channel(
+            esp_id=best_event['esp_id'], message_type="verdict",
+            data={"cama": beacon_mac, "status": "WIN", "transacao_id": transacao_id}
+        )
+        for evt in get_events:
+            if evt is not best_event:
+                _update_event_status(evt.get("event_id"), "Ignorado", "Sinal mais fraco. Veredito: LOSE.")
+                publish_to_esp_channel(
+                    esp_id=evt['esp_id'], message_type="verdict",
+                    data={"cama": beacon_mac, "status": "LOSE", "transacao_id": transacao_id}
+                )
         
-        # Associação: Atualiza o quarto da cama no banco de dados.
+        # ETAPA D: Associar a cama e verificar o Wi-Fi (como antes)
         bed.quarto = emb.quarto
         db.commit()
         
-        # 3. Verificação Final de Presença do Wi-Fi:
         is_present = await loop.run_in_executor(None, check_presence, bed.mac_address)
-        
+        publish_available_beds()
         if is_present:
-            # Se o Wi-Fi está online, a operação foi um sucesso.
-            publish_available_beds() # Notifica que a cama não está mais livre.
-            dispatch_payload = {"quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET", "dataOn": datetime.now(timezone.utc).isoformat(), "wifi": best_event.get("wifi")}
+            br_timezone = timezone(timedelta(hours=-3))
+            timestamp_agora_br = datetime.now(br_timezone)
+            dispatch_payload = {"quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET", "dataOn": timestamp_agora_br.isoformat(), "wifi": best_event.get("wifi")}
             await loop.run_in_executor(None, dispatch_event, dispatch_payload)
             _update_event_status(event_id, "OK", f"Cama '{bed.nome_cama}' associada e confirmada no quarto '{emb.quarto}'.")
         else:
-            # Se o Wi-Fi não está online, o status do evento vira "Pendente".
             _update_event_status(event_id, "Pendente", f"Cama associada ao quarto '{emb.quarto}', aguardando confirmação do Wi-Fi.")
-            # E a tarefa de verificação em background é iniciada.
             if bed.mac_address not in _pending_mac_checks:
                 task = asyncio.create_task(
                     retry_presence_task(
@@ -329,4 +329,4 @@ async def main_aggregator_loop():
         print(f"\n[aggregator] Processando {len(events_to_process)} eventos para {len(events_by_beacon)} beacons...")
         # Chama a função de processamento para cada grupo de eventos.
         for beacon_mac, events in events_by_beacon.items():
-            await _process_events_batch(events)
+            asyncio.create_task(_process_events_batch(events))

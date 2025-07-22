@@ -279,6 +279,8 @@ def get_assigned_bed_for_esp(esp_id: str, db: Session = Depends(get_db)):
 def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
     settings = get_global_settings(db)
+
+    trigger_mqtt_update_on_bed_change()
     if not embarcado:
         return {
             "mac_beacon": None, "rssi_threshold": int(settings.get("rssi_threshold")),

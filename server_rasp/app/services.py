@@ -27,22 +27,41 @@ from . import mqtt_client
 def update_bed_assignment(bed_id: int, new_room: str | None):
     """
     Função central para gerenciar a associação de camas a quartos.
-    Agora ela gerencia sua própria sessão de DB para ser atômica.
+    Agora, ela também força um reset na ESP do quarto que está sendo desocupado.
     """
-    # --- CORREÇÃO AQUI ---
     db = SessionLocal()
     try:
         bed = db.query(Bed).get(bed_id)
         if not bed:
             return
 
+        # Guarda o quarto antigo ANTES de fazer qualquer alteração
+        quarto_anterior = bed.quarto
+
         # Apenas executa se o estado realmente mudou
-        if bed.quarto != new_room:
+        if quarto_anterior != new_room:
+            # Atualiza o quarto da cama no banco de dados
             bed.quarto = new_room
-            db.commit() # Salva a alteração
-            
-            # Chama a publicação MQTT DEPOIS que a alteração foi confirmada
+            db.commit() # Salva a alteração da cama
+
+            if new_room is None and quarto_anterior is not None:
+                print(f"[SERVICE] Cama '{bed.nome_cama}' foi desassociada do quarto '{quarto_anterior}'. Procurando ESP para resetar.")
+                
+                # ...procuramos pela ESP que estava naquele quarto.
+                esp_no_quarto = db.query(Embarcado).filter(Embarcado.quarto == quarto_anterior).first()
+                
+                if esp_no_quarto:
+                    # Se encontrarmos a ESP, enviamos um comando direto para ela se resetar.
+                    print(f"[SERVICE] Enviando comando RESET_STATE para a ESP: {esp_no_quarto.id_esp}")
+                    mqtt_client.publish_to_esp_channel(
+                        esp_id=esp_no_quarto.id_esp,
+                        message_type="command",
+                        data={"name": "RESET_STATE"}
+                    )
+                else:
+                    print(f"[SERVICE] Nenhuma ESP encontrada no quarto '{quarto_anterior}'. Nenhum reset enviado.")
             mqtt_client.publish_available_beds()
+            
     except Exception as e:
         db.rollback()
         print(f"[SERVICE] ERRO ao atualizar cama: {e}")
@@ -87,6 +106,7 @@ def synchronize_and_reset_esp(esp_id: str):
                 # Reutiliza a função 'update_bed_assignment', que já cuida
                 # de tudo (DB + MQTT).
                 update_bed_assignment(bed_id=bed_in_room.id, new_room=None)
+        trigger_mqtt_update_on_bed_change()
     
     finally:
         db.close()

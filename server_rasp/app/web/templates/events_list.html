@@ -110,7 +110,8 @@
                 <th>CAMA</th>
                 <th>QUARTO</th>
                 <th>AÇÃO</th>
-                <th>SINAL</th>
+                <th>WIFI</th>
+                <th>RSSI</th>
                 <th>STATUS</th>
             </tr>
         </thead>
@@ -132,6 +133,7 @@
                     {% endif %}
                 </td>
                 <td>{{ event.wifi or '0' }}</td>
+                <td>{{ event.rssi or '0' }}</td>
                 <td>
                     {% if event.status %}
                         <span class="status-box status-{{ event.status | lower }}" 

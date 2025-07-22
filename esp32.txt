@@ -29,16 +29,18 @@
 
 // --- Identificador Fixo ---
 // Este ID deve ser único para cada placa ESP32.
-const char* idESP = "WRD00000002"; // <-- MUDE CONFORME A ESP
+const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
 
 // --- Tópicos MQTT ---
 // Tópico público onde o servidor publica a lista de MACs de beacons de camas disponíveis.
 const char* MQTT_BED_LIST_TOPIC = "wyrd/baxter/beds/available";
-// Tópico público para comandos que devem ser executados por TODAS as ESPs (ex: buscar nova config).
 const char* MQTT_COMMAND_TOPIC = "wyrd/baxter/esp/all/command";
-// Tópico PRIVADO e UNIFICADO para comunicação individual. Vereditos (WIN/LOSE) e comandos
-// direcionados (RESET_STATE) chegam por este canal. É construído dinamicamente no setup().
 String MQTT_INDIVIDUAL_TOPIC = ""; 
+
+// --- Parâmetros do GET de Emergência por Evento ---
+const unsigned long EMERGENCY_COOLDOWN_MS = 60000; // 1 minuto (60.000 ms)
+unsigned long emergencyCooldownStart = 0;
+bool inEmergencyCooldown = false;
 
 // --- GATILHO PARA MODO DE CONFIGURAÇÃO ---
 String TRIGGER_HOTSPOT_SSID = ""; // Nome do Wi-Fi temporário para entrar em modo de configuração.
@@ -57,6 +59,8 @@ uint16_t MQTT_BROKER_PORT     = 1883;
 int RSSI_THRESHOLD            = -60;   // Limite de força do sinal BLE para considerar uma "entrada".
 unsigned long INERCIA_CHEGADA = 500;   // Tempo em ms que o sinal precisa ficar acima do threshold para confirmar uma entrada.
 unsigned long INERCIA_SAIDA   = 15000; // Tempo em ms que o sinal precisa ficar abaixo do threshold para confirmar uma saída.
+const unsigned long VEREDICT_TIMEOUT_MS = 30000; // 30 segundos
+unsigned long inicioAguardandoVeredito = 0;
 #define RSSI_HISTORY_SIZE       3      // Número de leituras de RSSI para calcular a média e suavizar o sinal.
 #define BEACON_SCAN_TIME        1      // Duração em segundos de cada ciclo de scan BLE.
 
@@ -272,6 +276,22 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
             }
         }
         Serial.println("------------------------------------");
+
+        // --- LÓGICA DO GET DE EMERGÊNCIA POR EVENTO ---
+        // Se a lista de alvos veio vazia E não estamos em cooldown...
+        if (potentialTargetsCount == 0 && !inEmergencyCooldown) {
+            Serial.println("\n>>> ALERTA: Lista de alvos vazia recebida! Possível dessincronização.");
+            Serial.println(">>> Disparando GET de emergência para re-sincronizar...");
+            
+            // Pede o estado e as configs para o servidor. Se o servidor achar que
+            // a ESP deveria estar com uma cama, esta chamada irá corrigir o estado.
+            checkInitialState(); 
+
+            // Inicia o cooldown para evitar spam de requisições.
+            inEmergencyCooldown = true;
+            emergencyCooldownStart = millis();
+            Serial.println(">>> Cooldown de 1 minuto iniciado.");
+        }
     }
 }
 
@@ -388,6 +408,12 @@ void setup() {
 
 // O loop principal da aplicação.
 void loop() {
+    if (inEmergencyCooldown && (millis() - emergencyCooldownStart > EMERGENCY_COOLDOWN_MS)) {
+        Serial.println(">>> Cooldown de emergência finalizado. ESP pode pedir nova sincronização se necessário.");
+        inEmergencyCooldown = false;
+        emergencyCooldownStart = 0;
+    }
+
     if (!mqttClient.connected()) {
         reconnect_mqtt();
     }
@@ -404,6 +430,13 @@ void loop() {
 // =================== LÓGICA DE DECISÃO PRINCIPAL =================
 void processarLogicaCama() {
     unsigned long agora = millis();
+
+    if (lockedBed.aguardandoVeredito && (agora - inicioAguardandoVeredito > VEREDICT_TIMEOUT_MS)) {
+        Serial.println(">>> ERRO: Timeout! Veredito não recebido em 30 segundos. Resetando estado.");
+        lockedBed = {}; // Reseta a trava
+        idTransacaoAguardada = 0; // Limpa o ID da transação
+        inicioAguardandoVeredito = 0;
+        return;
 
     if (lockedBed.confirmada) {
         if (!lockedBed.isFull) { return; }
@@ -426,15 +459,15 @@ void processarLogicaCama() {
             }
         }
 
-        if (lockedBed.inicioInerciaSaida > 0 && (agora - lockedBed.inicioInerciaSaida > INERCIA_SAIDA)) {
+         if (lockedBed.inicioInerciaSaida > 0 && (agora - lockedBed.inicioInerciaSaida > INERCIA_SAIDA)) {
             Serial.printf(">>> Inércia de SAÍDA atingida. Tratando como SAÍDA.\n");
-            
             bool sucesso = enviarEventoHTTP(lockedBed.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI());
             if (sucesso) {
                 Serial.println("SAÍDA reportada com sucesso. Liberando trava.");
                 lockedBed = {};
             } else {
-                Serial.println("Falha ao reportar SAÍDA. Manterá a trava e tentará novamente.");
+                Serial.println("Falha ao reportar SAÍDA. Manterá a trava, mas resetando inércia para evitar flood.");
+                lockedBed.inicioInerciaSaida = 0;
             }
         }
         return; 
@@ -480,6 +513,8 @@ void processarLogicaCama() {
             lockedBed.index = 0;
             lockedBed.isFull = false;
             
+            inicioAguardandoVeredito = millis();
+
             potentialTargetsCount = 0;
             Serial.printf("Evento de ENTRADA enviado. Aguardando veredito para a cama %s.\n", lockedBed.mac.c_str());
         } else {
@@ -601,6 +636,8 @@ void reconnect_mqtt() {
             mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
             mqttClient.subscribe(MQTT_COMMAND_TOPIC); 
             mqttClient.subscribe(MQTT_INDIVIDUAL_TOPIC.c_str());
+            Serial.println("Reconectado ao MQTT. Sincronizando estado com o servidor...");
+            checkInitialState();
         } else {
             Serial.print(" falhou, rc=");
             Serial.print(mqttClient.state());
