@@ -3,7 +3,7 @@ from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = "sqlite:///./beds.db"
+DATABASE_URL = "sqlite:///./wh_connect.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}

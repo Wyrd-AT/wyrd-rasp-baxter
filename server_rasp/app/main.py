@@ -44,9 +44,10 @@ def get_db():
 from .aggregator import main_aggregator_loop, enqueue_event
 from . import mqtt_client
 # MUDANÇA: Funções de serviço e MQTT são renomeadas para refletir 'badge'
-from .services import update_badge_assignment, trigger_mqtt_update_on_badge_change
+from .services import update_badge_assignment, trigger_mqtt_update_on_badge_change, synchronize_and_reset_esp
 from sqlalchemy import event, or_
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from .mqtt_client import publish_available_badges
 from .auth import authenticate_admin
 from .config import settings
@@ -289,6 +290,13 @@ def update_settings(
 
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
+@app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
+def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    # Chama o novo serviço de orquestração
+    synchronize_and_reset_esp(db=db, embarcado_id=embarcado_id)
+    time.sleep(1) # Uma pequena pausa para dar tempo da mensagem MQTT ser enviada
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
 # ==========================================================
 #     ROTAS DE DOWNLOAD E STARTUP (com pequenas atualizações)
 # ==========================================================
@@ -435,10 +443,18 @@ def list_badges(request: Request, search: Optional[str] = Query(None), db: Sessi
 @app.post("/badges", name="create_badge")
 def create_badge(request: Request, nome_cracha: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
     badge = Badge(nome_cracha=nome_cracha, mac_beacon=mac_beacon.lower())
-    db.add(badge)
-    db.commit()
-
-    trigger_mqtt_update_on_badge_change()
+    try:
+        db.add(badge)
+        db.commit()
+        # O gatilho só deve ser chamado em caso de sucesso.
+        trigger_mqtt_update_on_badge_change()
+    except IntegrityError:
+        db.rollback()
+        print(f"[main-db] ERRO: Tentativa de criar crachá com MAC de beacon duplicado: {mac_beacon.lower()}")
+        # Aqui você poderia adicionar uma mensagem de erro para o usuário, se desejado.
+    except Exception as e:
+        db.rollback()
+        print(f"[main-db] ERRO inesperado ao criar crachá: {e}")
 
     return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
@@ -540,10 +556,17 @@ def create_embarcado(
         id_esp=id_esp,
         quarto=quarto,
         andar=andar,
-        
     )
-    db.add(emb)
-    db.commit()
+    try:
+        db.add(emb)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        print(f"[main-db] ERRO: Tentativa de criar embarcado com ID de ESP duplicado: {id_esp}")
+    except Exception as e:
+        db.rollback()
+        print(f"[main-db] ERRO inesperado ao criar embarcado: {e}")
+
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 

@@ -50,12 +50,16 @@ async def _resolve_dispute(beacon_mac: str):
     print(f"[aggregator] Vencedor da disputa: ESP '{winner_esp_id}' com RSSI {best_event.get('RSSI')}.")
 
     # 2. Envia o veredito ("WIN" ou "LOSE") para cada participante da disputa
+    transacao_id = best_event.get("transacao_id")
+
     for evt in events:
         esp_id = evt.get("esp_id")
         if esp_id == winner_esp_id:
-            publish_verdict(esp_id, "WIN", beacon_mac)
+            # --- ALTERAÇÃO AQUI: Passamos o transacao_id ---
+            publish_verdict(esp_id, "WIN", beacon_mac, transacao_id)
         else:
-            publish_verdict(esp_id, "LOSE", beacon_mac)
+            # --- ALTERAÇÃO AQUI: Passamos o transacao_id ---
+            publish_verdict(esp_id, "LOSE", beacon_mac, transacao_id)
             detail = f"Sinal mais fraco (RSSI: {evt.get('RSSI', 'N/A')}). Perdeu disputa para ESP '{winner_esp_id}'."
             _update_event_status(evt.get("event_id"), "Ignorado", detail)
     
@@ -76,10 +80,13 @@ async def _resolve_dispute(beacon_mac: str):
                 "cracha": badge.mac_beacon, "quarto": emb.quarto,
                 "data_evento": best_event.get("data_on"), "tipo_evento": "wyrd.ENTRADA"
             }
-            dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
-
-            detail = f"Crachá associado ao quarto '{emb.quarto}' após vencer disputa."
-            _update_event_status(best_event.get("event_id"), "OK", detail)
+            success = await dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
+            if success:
+                detail = f"Crachá associado ao quarto '{emb.quarto}' e evento de entrada enviado com sucesso."
+                _update_event_status(best_event.get("event_id"), "OK", detail)
+            else:
+                detail = f"Crachá associado ao quarto '{emb.quarto}', mas a notificação para a Eritel falhou."
+                _update_event_status(best_event.get("event_id"), "Erro", detail)
 
         elif badge and emb and badge.quarto == emb.quarto:
              _update_event_status(best_event.get("event_id"), "Confirmado", f"Crachá já estava no quarto '{emb.quarto}'.")
@@ -114,9 +121,12 @@ async def enqueue_event(evt: dict):
                     "cracha": beacon_mac, "quarto": quarto_anterior,
                     "data_evento": evt.get("data_on"), "tipo_evento": "wyrd.SAIDA"
                 }
-                dispatch_event_to_eritel("wyrd.SAIDA", event_data)
+                success = await dispatch_event_to_eritel("wyrd.SAIDA", event_data)
+                if success:
+                    _update_event_status(event_id, "OK", f"Crachá desassociado e evento de saída enviado com sucesso para o quarto '{quarto_anterior}'.")
+                else:
+                    _update_event_status(event_id, "Erro", f"O crachá foi desassociado, mas a notificação para a Eritel falhou.")
                 
-                _update_event_status(event_id, "OK", f"Crachá desassociado do quarto '{quarto_anterior}'.")
             elif badge:
                  _update_event_status(event_id, "Confirmado", "Crachá já estava desassociado.")
             else:

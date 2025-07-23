@@ -9,7 +9,7 @@
 </div>
 
 <div class="page-with-form">
-    
+
     <div class="list-column">
         <div class="table-toolbar">
             <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
@@ -26,7 +26,8 @@
                 <tr>
                     <th>ID do Embarcado</th>
                     <th>QUARTO</th>
-                    <th>ANDAR</th> 
+                    <th>ANDAR</th>
+                    <th style="text-align: center;">AÇÕES</th>
                 </tr>
             </thead>
             <tbody>
@@ -34,7 +35,14 @@
                 <tr class="selectable-row" data-id="{{ emb.id }}">
                     <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto }}</td>
-                    <td>{{ emb.andar or '---' }}</td> 
+                    <td>{{ emb.andar or '---' }}</td>
+                    <td style="text-align: center;">
+                        <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP? Isso forçará a desassociação de qualquer crachá no quarto e reiniciará a ESP.');">
+                            <button type="submit" class="btn-cancel" title="Forçar Reset de Estado">
+                                Resetar
+                            </button>
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -42,9 +50,7 @@
     </div>
 
     <div class="form-column">
-        
         {% include 'embarcado_form.html' %}
-
         <div class="form-card" style="margin-top: 2rem;">
             <h3>Configurações de Conectividade</h3>
             <form action="{{ url_for('update_settings') }}" method="post">
@@ -65,7 +71,7 @@
                 <button type="submit" class="btn-primary form-btn">Salvar Configurações</button>
             </form>
         </div>
-        </div>
+    </div>
 
 </div>
 {% endblock %}
