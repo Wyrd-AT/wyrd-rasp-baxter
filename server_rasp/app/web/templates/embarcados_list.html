@@ -13,7 +13,7 @@
     <div class="list-column">
         <div class="table-toolbar">
             <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
-                <input type="text" name="search" placeholder="Pesquisar por ID, quarto ou andar" value="{{ search or '' }}">
+                <input type="text" name="search" placeholder="Pesquisar por ID ou quarto" value="{{ search or '' }}">
                 <button type="submit" class="icon-btn" title="Pesquisar"><i data-feather="search"></i></button>
             </form>
             <div class="toolbar-actions">
@@ -26,7 +26,6 @@
                 <tr>
                     <th>ID do Embarcado</th>
                     <th>QUARTO</th>
-                    <th>ANDAR</th>
                     <th style="text-align: center;">AÇÕES</th>
                 </tr>
             </thead>
@@ -34,8 +33,7 @@
                 {% for emb in embarcados %}
                 <tr class="selectable-row" data-id="{{ emb.id }}">
                     <td>{{ emb.id_esp }}</td>
-                    <td>{{ emb.quarto }}</td>
-                    <td>{{ emb.andar or '---' }}</td>
+                    <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
                     <td style="text-align: center;">
                         <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP? Isso forçará a desassociação de qualquer crachá no quarto e reiniciará a ESP.');">
                             <button type="submit" class="btn-cancel" title="Forçar Reset de Estado">
@@ -50,28 +48,9 @@
     </div>
 
     <div class="form-column">
-        {% include 'embarcado_form.html' %}
-        <div class="form-card" style="margin-top: 2rem;">
-            <h3>Configurações de Conectividade</h3>
-            <form action="{{ url_for('update_settings') }}" method="post">
-                <div class="settings-grid">
-                    <div class="form-group">
-                        <label for="rssi_threshold">RSSI Threshold</label>
-                        <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="inercia_chegada">Inércia de Chegada (ms)</label>
-                        <input type="number" name="inercia_chegada" value="{{ global_settings.inercia_chegada }}" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="inercia_saida">Inércia de Saída (ms)</label>
-                        <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
-                    </div>
-                </div>
-                <button type="submit" class="btn-primary form-btn">Salvar Configurações</button>
-            </form>
+        {% include 'embarcado_form.html' with context %}
+        
         </div>
-    </div>
 
 </div>
 {% endblock %}

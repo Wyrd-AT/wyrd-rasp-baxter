@@ -14,7 +14,7 @@ def get_available_badges_macs():
     """Busca no banco de dados os MACs de BEACONS dos crachás disponíveis."""
     db = SessionLocal()
     try:
-        available_badges = db.query(Badge.mac_beacon).filter(Badge.quarto.is_(None)).all()
+        available_badges = db.query(Badge.mac_beacon).filter(Badge.quarto_id.is_(None)).all()
         mac_list = [mac for mac, in available_badges if mac]
         return mac_list
     finally:

@@ -33,7 +33,7 @@
                 <tr class="selectable-row" data-id="{{ badge.id }}">
                     <td>{{ badge.nome_cracha }}</td>
                     <td>{{ badge.mac_beacon }}</td>
-                    <td>{{ badge.quarto or '---' }}</td>
+                    <td>{{ badge.quarto.nome if badge.quarto else '---' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

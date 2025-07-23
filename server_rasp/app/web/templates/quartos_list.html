@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Gestão de Quartos{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Quartos</h1>
+</div>
+
+<div class="page-with-form">
+    <div class="list-column">
+        <div class="table-toolbar">
+            <div class="toolbar-actions">
+                <p>Clique em um quarto na lista para editar o nome.</p>
+            </div>
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>NOME ATUAL DO QUARTO</th>
+                    <th>AÇÕES</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for q in quartos %}
+                <tr>
+                    <td>{{ q.nome }}</td>
+                    <td style="text-align: center;">
+                        <a href="{{ url_for('edit_quarto', quarto_id=q.id) }}" class="btn-primary" style="padding: 5px 10px; font-size: 12px;">
+                            EDITAR
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="form-column">
+        {% if quarto_para_editar %}
+            {% include 'quarto_form.html' %}
+        {% else %}
+            <div class="form-card" style="text-align: center; padding: 4rem 2rem;">
+                <p class="text-secondary">Selecione um quarto na lista ao lado para renomeá-lo.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

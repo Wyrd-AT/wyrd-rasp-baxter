@@ -1,40 +1,66 @@
-// ==========================================================
-// = BAXTER - CÓDIGO FINAL DA ESP32 (MONITORAMENTO CONTÍNUO) =
-// ==========================================================
+// ===================================================================================
+// = ERITEL - FIRMWARE v0.2.3 - VERSÃO ROBUSTA E FINAL                               =
+// = Integra Timeout de Veredito, ID de Transação e Re-sincronização de Emergência   =
+// ===================================================================================
 
-#include <BLEDevice.h>
 #include <WiFi.h>
+#include <WiFiManager.h>
+#include <Preferences.h>
+#include <BLEDevice.h>
 #include <PubSubClient.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* SSID              = "MVISIA_2.4GHz";
-const char* PASSWORD          = "mvisia2020";
-const char* idESP             = "WRD00000001";
-const char* SERVER_IP         = "10.0.0.149";
-const uint16_t SERVER_PORT    = 8000;
-const char* MQTT_BROKER_HOST  = "10.0.0.149";
-const uint16_t MQTT_BROKER_PORT = 1883;
+const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
+
+// --- Tópicos MQTT ---
 const char* MQTT_BADGE_LIST_TOPIC = "wyrd/eritel/badges/available";
+const char* MQTT_COMMAND_TOPIC = "wyrd/eritel/esp/all/command";
+String MQTT_VERDICT_TOPIC = "";
+String MQTT_INDIVIDUAL_COMMAND_TOPIC = "";
+
+// --- Gatilho para Modo de Configuração ---
+String TRIGGER_HOTSPOT_SSID = "";
+const char* TRIGGER_HOTSPOT_PASSWORD = "eritelconfig";
+const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
+
+// --- Variáveis de configuração ---
+char SERVER_IP[16]          = "192.168.0.5";
+char SERVER_PORT_STR[6]     = "8000";
+char MQTT_BROKER_HOST[16]   = "192.168.0.5";
+char MQTT_BROKER_PORT_STR[6]= "1883";
+uint16_t SERVER_PORT        = 8000;
+uint16_t MQTT_BROKER_PORT   = 1883;
 
 // --- Configurações de Lógica ---
-#define RSSI_THRESHOLD          -60
-#define INERCIA_CHEGADA         1000
-#define INERCIA_SAIDA           15000
-#define RSSI_HISTORY_SIZE       3
-#define BEACON_SCAN_TIME        2
+int RSSI_THRESHOLD          = -60;
+unsigned long INERCIA_CHEGADA = 500;
+unsigned long INERCIA_SAIDA   = 15000;
+#define RSSI_HISTORY_SIZE     3
+#define BEACON_SCAN_TIME      1
+
+// --- Constantes de Resiliência ---
+const unsigned long VEREDICT_TIMEOUT_MS = 30000;
+const unsigned long EMERGENCY_COOLDOWN_MS = 60000;
 
 // --- Configurações NTP ---
-const char* NTP_SERVER          = "pool.ntp.org";
-const long  GMT_OFFSET_SEC      = -3 * 3600;
+const char* NTP_SERVER        = "pool.ntp.org";
+const long  GMT_OFFSET_SEC    = -3 * 3600;
 const int   DAYLIGHT_OFFSET_SEC = 0;
 
-// ============ ESTRUTURAS DE DADOS E VARIÁVEIS GLOBAIS ============
+// ============ OBJETOS GLOBAIS E ESTRUTURAS DE DADOS ============
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
+Preferences preferences;
+bool shouldSaveConfig = false;
 
-struct TargetBed {
+uint32_t idTransacaoAguardada = 0;
+unsigned long inicioAguardandoVeredito = 0;
+unsigned long emergencyCooldownStart = 0;
+bool inEmergencyCooldown = false;
+
+struct TargetBadge {
     String mac = "";
     int rssiHistory[RSSI_HISTORY_SIZE];
     uint8_t index = 0;
@@ -43,79 +69,76 @@ struct TargetBed {
     int mediaRSSI = -100;
 };
 
-// --- MUDANÇA: A CAMA TRAVADA AGORA TAMBÉM TEM UM HISTÓRICO DE SINAL ---
-struct LockedBed {
+struct LockedBadge {
     String mac = "";
     bool confirmada = false;
+    bool aguardandoVeredito = false;
     int rssiHistory[RSSI_HISTORY_SIZE];
     uint8_t index = 0;
     bool isFull = false;
-    unsigned long inicioInerciaSaida = 0; 
-} lockedBed;
+    unsigned long inicioInerciaSaida = 0;
+} lockedBadge;
 
-#define MAX_AVAILABLE_BEDS 50
-TargetBed potentialTargets[MAX_AVAILABLE_BEDS];
+#define MAX_AVAILABLE_BADGES 50
+TargetBadge potentialTargets[MAX_AVAILABLE_BADGES];
 int potentialTargetsCount = 0;
 
 // ============ PROTÓTIPOS DE FUNÇÕES ============
+void lerConfiguracoes();
+void salvarConfiguracoes();
+void saveConfigCallback();
 void checkInitialState();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
-void conectarWiFi();
 String obterDataAtualISO8601();
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi);
-void processarLogicaCama();
+void processarLogicaCracha();
 void configurarNTP();
 void reconnect_mqtt();
 
-// =================================================================
-// =================== LÓGICA DE COMUNICAÇÃO =======================
-// =================================================================
-
-void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-    Serial.println("------------------------------------");
-    Serial.printf("Mensagem recebida no tópico: %s\n", topic);
-
-    if (lockedBed.confirmada) {
-        Serial.printf("ESP já está travada na cama %s. Ignorando nova lista.\n", lockedBed.mac.c_str());
-        Serial.println("------------------------------------");
-        return;
-    }
-    
-    potentialTargetsCount = 0;
-    StaticJsonDocument<2048> doc;
-    deserializeJson(doc, payload, length);
-    JsonArray macArray = doc.as<JsonArray>();
-
-    Serial.println("Inicializando nova lista de alvos potenciais:");
-    for (JsonVariant v : macArray) {
-        if (potentialTargetsCount < MAX_AVAILABLE_BEDS) {
-            String mac = v.as<String>();
-            potentialTargets[potentialTargetsCount] = TargetBed();
-            potentialTargets[potentialTargetsCount].mac = mac;
-            Serial.printf("  - Alvo %d: %s\n", potentialTargetsCount, mac.c_str());
-            potentialTargetsCount++;
-        }
-    }
-    Serial.println("------------------------------------");
+// =================== LÓGICA DE CONFIGURAÇÃO ===================
+void lerConfiguracoes() {
+    preferences.begin("eritel-config", false);
+    String saved_server_ip = preferences.getString("server_ip", "192.168.0.5");
+    String saved_server_port = preferences.getString("server_port", "8000");
+    String saved_mqtt_host = preferences.getString("mqtt_host", "192.168.0.5");
+    String saved_mqtt_port = preferences.getString("mqtt_port", "1883");
+    strcpy(SERVER_IP, saved_server_ip.c_str());
+    strcpy(SERVER_PORT_STR, saved_server_port.c_str());
+    strcpy(MQTT_BROKER_HOST, saved_mqtt_host.c_str());
+    strcpy(MQTT_BROKER_PORT_STR, saved_mqtt_port.c_str());
+    SERVER_PORT = atoi(SERVER_PORT_STR);
+    MQTT_BROKER_PORT = atoi(MQTT_BROKER_PORT_STR);
+    preferences.end();
 }
 
+void salvarConfiguracoes() {
+    preferences.begin("eritel-config", false);
+    preferences.putString("server_ip", SERVER_IP);
+    preferences.putString("server_port", SERVER_PORT_STR);
+    preferences.putString("mqtt_host", MQTT_BROKER_HOST);
+    preferences.putString("mqtt_port", MQTT_BROKER_PORT_STR);
+    preferences.end();
+}
+
+void saveConfigCallback () {
+    shouldSaveConfig = true;
+}
+
+// =================== LÓGICA DE COMUNICAÇÃO ===================
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) override {
         String foundMac = advertisedDevice.getAddress().toString().c_str();
-
-        if (lockedBed.confirmada) {
-            if (foundMac.equalsIgnoreCase(lockedBed.mac)) {
-                // Em vez de apenas atualizar um timestamp, agora guardamos o histórico
-                lockedBed.rssiHistory[lockedBed.index] = advertisedDevice.getRSSI();
-                lockedBed.index = (lockedBed.index + 1) % RSSI_HISTORY_SIZE;
-                if (lockedBed.index == 0) lockedBed.isFull = true;
+        if (lockedBadge.confirmada) {
+            if (foundMac.equalsIgnoreCase(lockedBadge.mac)) {
+                lockedBadge.rssiHistory[lockedBadge.index] = advertisedDevice.getRSSI();
+                lockedBadge.index = (lockedBadge.index + 1) % RSSI_HISTORY_SIZE;
+                if (lockedBadge.index == 0) lockedBadge.isFull = true;
             }
             return;
         }
-
         for (int i = 0; i < potentialTargetsCount; i++) {
             if (foundMac.equalsIgnoreCase(potentialTargets[i].mac)) {
-                TargetBed &target = potentialTargets[i];
+                TargetBadge &target = potentialTargets[i];
                 target.rssiHistory[target.index] = advertisedDevice.getRSSI();
                 target.index = (target.index + 1) % RSSI_HISTORY_SIZE;
                 if (target.index == 0) target.isFull = true;
@@ -125,114 +148,259 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     }
 };
 
-// =================================================================
-// =================== SETUP E LOOP PRINCIPAL ======================
-// =================================================================
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+    Serial.println("------------------------------------");
+    Serial.printf("Mensagem recebida no tópico: %s\n", topic);
+    String topicStr = String(topic);
+
+    if (topicStr == MQTT_VERDICT_TOPIC) {
+        StaticJsonDocument<128> doc;
+        deserializeJson(doc, payload, length);
+        uint32_t idTransacaoRecebida = doc["transacao_id"];
+
+        if (lockedBadge.aguardandoVeredito && idTransacaoRecebida == idTransacaoAguardada) {
+            const char* status = doc["status"];
+            String cracha = doc["cracha"];
+            if (strcmp(status, "WIN") == 0) {
+                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): VENCEU! Travando no crachá %s\n", idTransacaoRecebida, cracha.c_str());
+                lockedBadge.confirmada = true;
+            } else {
+                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): PERDEU! Liberando o crachá %s\n", idTransacaoRecebida, cracha.c_str());
+                lockedBadge = {};
+            }
+            lockedBadge.aguardandoVeredito = false;
+            idTransacaoAguardada = 0;
+        } else {
+            Serial.printf(">>> VEREDITO IGNORADO! ID esperado: %u, ID recebido: %u.\n", idTransacaoAguardada, idTransacaoRecebida);
+        }
+        return;
+    }
+
+    if (topicStr == MQTT_INDIVIDUAL_COMMAND_TOPIC) {
+        StaticJsonDocument<128> doc;
+        deserializeJson(doc, payload, length);
+        if (doc.containsKey("type") && strcmp(doc["type"], "command") == 0 && doc.containsKey("data") && strcmp(doc["data"]["name"], "RESET_STATE") == 0) {
+            Serial.println(">>> Comando 'RESET_STATE' recebido! Limpando estado.");
+            lockedBadge = {};
+        }
+        return;
+    }
+
+    if (topicStr == MQTT_COMMAND_TOPIC) {
+        StaticJsonDocument<128> doc;
+        deserializeJson(doc, payload, length);
+        if (doc.containsKey("command") && strcmp(doc["command"], "fetch_config") == 0) {
+            Serial.println(">>> Comando 'fetch_config' recebido! Buscando novas configurações.");
+            checkInitialState();
+        }
+        return;
+    }
+
+    if (topicStr == MQTT_BADGE_LIST_TOPIC) {
+        if (lockedBadge.confirmada || lockedBadge.aguardandoVeredito) {
+            return;
+        }
+        potentialTargetsCount = 0;
+        StaticJsonDocument<2048> doc;
+        deserializeJson(doc, payload, length);
+        JsonArray macArray = doc.as<JsonArray>();
+
+        if (macArray.size() == 0 && !inEmergencyCooldown) {
+            Serial.println("\n>>> ALERTA: Lista de alvos vazia recebida! Possível dessincronização.");
+            Serial.println(">>> Disparando GET de emergência para re-sincronizar...");
+            checkInitialState();
+            inEmergencyCooldown = true;
+            emergencyCooldownStart = millis();
+            Serial.println(">>> Cooldown de emergência de 1 minuto iniciado.");
+        } else {
+            for (JsonVariant v : macArray) {
+                if (potentialTargetsCount < MAX_AVAILABLE_BADGES) {
+                    String mac = v.as<String>();
+                    potentialTargets[potentialTargetsCount] = TargetBadge();
+                    potentialTargets[potentialTargetsCount].mac = mac;
+                    Serial.printf("  - Alvo %d: %s\n", potentialTargetsCount, mac.c_str());
+                    potentialTargetsCount++;
+                }
+            }
+            Serial.printf("Nova lista com %d alvos recebida.\n", potentialTargetsCount);
+        }
+    }
+}
+
+// =================== SETUP E LOOP PRINCIPAL ===================
 void setup() {
     Serial.begin(115200);
-    conectarWiFi();
-    configurarNTP();
-    checkInitialState();
-    BLEDevice::init("");
-    mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
-    mqttClient.setCallback(mqtt_callback);
+    lerConfiguracoes();
+
+    MQTT_VERDICT_TOPIC = "wyrd/eritel/esp/" + String(idESP) + "/verdict";
+    MQTT_INDIVIDUAL_COMMAND_TOPIC = "wyrd/eritel/esp/" + String(idESP) + "/command";
+    TRIGGER_HOTSPOT_SSID = "ERITEL_" + String(idESP);
+
+    Serial.println("\n==============================");
+    Serial.println("= EMBARCADO ERITEL v0.2.3    =");
+    Serial.println("==============================");
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    delay(100);
+
+    Serial.printf("Procurando pelo Hotspot de Configuração '%s'...\n", TRIGGER_HOTSPOT_SSID.c_str());
+    bool triggerFound = false;
+    unsigned long startTime = millis();
+    while (millis() - startTime < TRIGGER_SCAN_TIMEOUT) {
+        int n = WiFi.scanNetworks();
+        for (int i = 0; i < n; ++i) {
+            if (WiFi.SSID(i) == TRIGGER_HOTSPOT_SSID) {
+                triggerFound = true;
+                break;
+            }
+        }
+        if (triggerFound) break;
+        delay(500);
+    }
+    WiFi.scanDelete();
+
+    if (triggerFound) {
+        Serial.println("Hotspot encontrado! Iniciando Portal de Configuração...");
+        WiFiManager wm;
+        wm.setConfigPortalTimeout(0);
+        wm.setSaveConfigCallback(saveConfigCallback);
+        WiFiManagerParameter custom_server_ip("server_ip", "IP Servidor HTTP", SERVER_IP, 16);
+        WiFiManagerParameter custom_server_port("server_port", "Porta Servidor HTTP", SERVER_PORT_STR, 6);
+        WiFiManagerParameter custom_mqtt_host("mqtt_host", "IP Broker MQTT", MQTT_BROKER_HOST, 16);
+        WiFiManagerParameter custom_mqtt_port("mqtt_port", "Porta Broker MQTT", MQTT_BROKER_PORT_STR, 6);
+        wm.addParameter(&custom_server_ip);
+        wm.addParameter(&custom_server_port);
+        wm.addParameter(&custom_mqtt_host);
+        wm.addParameter(&custom_mqtt_port);
+        String portalAPName = "CONFIG_ERITEL_" + String(idESP);
+        if (wm.startConfigPortal(portalAPName.c_str())) {
+            strcpy(SERVER_IP, custom_server_ip.getValue());
+            strcpy(SERVER_PORT_STR, custom_server_port.getValue());
+            strcpy(MQTT_BROKER_HOST, custom_mqtt_host.getValue());
+            strcpy(MQTT_BROKER_PORT_STR, custom_mqtt_port.getValue());
+            SERVER_PORT = atoi(SERVER_PORT_STR);
+            MQTT_BROKER_PORT = atoi(MQTT_BROKER_PORT_STR);
+            salvarConfiguracoes();
+            Serial.println("Configurações salvas. Reiniciando...");
+            delay(5000);
+            ESP.restart();
+        } else {
+            Serial.println("Portal fechado. Reiniciando...");
+            delay(3000);
+            ESP.restart();
+        }
+    } else {
+        Serial.println("Iniciando em modo de operação normal.");
+        WiFi.begin();
+        unsigned long wifiStartTime = millis();
+        while (WiFi.status() != WL_CONNECTED) {
+            if(millis() - wifiStartTime > 20000) {
+                Serial.println("Falha ao conectar ao Wi-Fi. Reiniciando...");
+                delay(3000);
+                ESP.restart();
+            }
+            delay(500);
+        }
+        Serial.println("Wi-Fi conectado!");
+
+        configurarNTP();
+        BLEDevice::init("");
+        BLEScan* pBLEScan = BLEDevice::getScan();
+        pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+        pBLEScan->setActiveScan(true);
+        mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+        mqttClient.setCallback(mqtt_callback);
+        checkInitialState();
+    }
 }
 
 void loop() {
+    if (inEmergencyCooldown && (millis() - emergencyCooldownStart > EMERGENCY_COOLDOWN_MS)) {
+        Serial.println(">>> Cooldown de emergência finalizado.");
+        inEmergencyCooldown = false;
+    }
+
     if (!mqttClient.connected()) {
         reconnect_mqtt();
     }
     mqttClient.loop();
-
-    BLEScan* scanner = BLEDevice::getScan();
-    scanner->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
-    scanner->setActiveScan(true);
-    scanner->start(BEACON_SCAN_TIME, false);
-
-    processarLogicaCama();
-
+    BLEDevice::getScan()->start(BEACON_SCAN_TIME, false);
+    processarLogicaCracha();
     delay(500);
 }
 
-
-// =================== LÓGICA DE DECISÃO PRINCIPAL =================
-void processarLogicaCama() {
+// =================== LÓGICA DE DECISÃO PRINCIPAL ===================
+void processarLogicaCracha() {
     unsigned long agora = millis();
 
-    // --- Parte 1: Lógica de SAÍDA (se já estiver travado em uma cama) ---
-    if (lockedBed.confirmada) {
-        if (!lockedBed.isFull) {
-            // Ainda não temos leituras suficientes da cama travada para decidir, então aguardamos.
+    if (lockedBadge.aguardandoVeredito && (agora - inicioAguardandoVeredito > VEREDICT_TIMEOUT_MS)) {
+        Serial.println(">>> ERRO: Timeout! Veredito não recebido em 30 segundos. Resetando estado.");
+        lockedBadge = {};
+        idTransacaoAguardada = 0;
+        return;
+    }
+
+    if (lockedBadge.aguardandoVeredito) {
+        return;
+    }
+    
+    if (lockedBadge.confirmada) {
+        if (!lockedBadge.isFull) {
             return;
         }
 
         int soma = 0;
         for (int i = 0; i < RSSI_HISTORY_SIZE; i++) {
-            soma += lockedBed.rssiHistory[i];
+            soma += lockedBadge.rssiHistory[i];
         }
         int mediaRSSI = soma / RSSI_HISTORY_SIZE;
+        Serial.printf("Monitorando cracha travado: %s | Média RSSI: %d\n", lockedBadge.mac.c_str(), mediaRSSI);
 
-        Serial.printf("Monitorando cama travada: %s | Média RSSI: %d\n", lockedBed.mac.c_str(), mediaRSSI);
-
-        // --- NOVA LÓGICA DE INÉRCIA DE SAÍDA ---
         if (mediaRSSI < RSSI_THRESHOLD) {
-            // O sinal está fraco. Se o contador de inércia ainda não começou, inicie-o.
-            if (lockedBed.inicioInerciaSaida == 0) {
-                Serial.printf("Sinal fraco detectado. Iniciando contagem de inércia de SAÍDA (%d ms).\n", INERCIA_SAIDA);
-                lockedBed.inicioInerciaSaida = agora;
+            if (lockedBadge.inicioInerciaSaida == 0) {
+                Serial.printf("Sinal fraco detectado. Iniciando contagem de inércia de SAÍDA (X ms).\n");
+                lockedBadge.inicioInerciaSaida = agora;
             }
         } else {
-            // O sinal voltou a ficar forte. Reseta o contador de inércia.
-            if (lockedBed.inicioInerciaSaida > 0) {
+            if (lockedBadge.inicioInerciaSaida > 0) {
                 Serial.println("Sinal forte restaurado. Cancelando contagem de inércia de SAÍDA.");
-                lockedBed.inicioInerciaSaida = 0;
+                lockedBadge.inicioInerciaSaida = 0;
             }
         }
 
-        // Verifica se o tempo de inércia de saída foi atingido
-        if (lockedBed.inicioInerciaSaida > 0 && (agora - lockedBed.inicioInerciaSaida > INERCIA_SAIDA)) {
-            Serial.printf(">>> Inércia de SAÍDA atingida. O sinal permaneceu fraco. Tratando como SAÍDA.\n");
-            
-            bool sucesso = enviarEventoHTTP(lockedBed.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI());
+        if (lockedBadge.inicioInerciaSaida > 0 && (agora - lockedBadge.inicioInerciaSaida > INERCIA_SAIDA)) {
+            Serial.printf(">>> Inércia de SAÍDA atingida. Tratando como SAÍDA.\n");
+            bool sucesso = enviarEventoHTTP(lockedBadge.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI());
             if (sucesso) {
                 Serial.println("SAÍDA reportada com sucesso. Liberando trava.");
-                // Reseta a estrutura da cama travada para o estado inicial
-                lockedBed = LockedBed();
+                lockedBadge = {}; // Reseta a struct
             } else {
                 Serial.println("Falha ao reportar SAÍDA. Manterá a trava e tentará novamente.");
-                // Opcional: Você pode resetar 'inicioInerciaSaida' aqui para tentar o envio novamente no próximo ciclo,
-                // ou mantê-lo para evitar múltiplos envios falhos em sequência.
-                // Por enquanto, não vamos resetar para que ele tente enviar novamente.
             }
         }
-        
-        return; // Finaliza o processamento deste ciclo, pois já está tratando de uma cama travada.
+        return;
     }
 
-    // --- Parte 2: Lógica de ENTRADA (se NÃO estiver travado) ---
-    // (Esta parte continua com a mesma lógica de antes)
     for (int i = 0; i < potentialTargetsCount; i++) {
-        TargetBed &target = potentialTargets[i];
+        TargetBadge &target = potentialTargets[i];
         if (!target.isFull) continue;
         int soma = 0;
         for (int j = 0; j < RSSI_HISTORY_SIZE; j++) soma += target.rssiHistory[j];
         target.mediaRSSI = soma / RSSI_HISTORY_SIZE;
         Serial.printf("  - Alvo: %s | Média RSSI: %d\n", target.mac.c_str(), target.mediaRSSI);
-
         if (target.mediaRSSI > RSSI_THRESHOLD) {
-            if (target.inicioInercia == 0) {
-                target.inicioInercia = agora;
-            }
+            if (target.inicioInercia == 0) target.inicioInercia = agora;
         } else {
             target.inicioInercia = 0;
         }
     }
     Serial.println("------");
-    
+
     int winnerIndex = -1;
     int bestRssiOfWinners = -1000;
     for (int i = 0; i < potentialTargetsCount; i++) {
-        TargetBed &target = potentialTargets[i];
+        TargetBadge &target = potentialTargets[i];
         if (target.inicioInercia > 0 && (agora - target.inicioInercia > INERCIA_CHEGADA)) {
             if (target.mediaRSSI > bestRssiOfWinners) {
                 bestRssiOfWinners = target.mediaRSSI;
@@ -242,79 +410,43 @@ void processarLogicaCama() {
     }
 
     if (winnerIndex != -1) {
-        TargetBed &winner = potentialTargets[winnerIndex];
-        bool sucesso = enviarEventoHTTP(winner.mac.c_str(), "GET", winner.mediaRSSI, WiFi.RSSI());
-        
-        if (sucesso) {
-            lockedBed.mac = winner.mac;
-            lockedBed.confirmada = true;
-            // Zera o histórico da cama travada para começar a preencher do zero.
-            lockedBed.index = 0;
-            lockedBed.isFull = false;
-
+        if (enviarEventoHTTP(potentialTargets[winnerIndex].mac.c_str(), "GET", potentialTargets[winnerIndex].mediaRSSI, WiFi.RSSI())) {
+            lockedBadge.mac = potentialTargets[winnerIndex].mac;
+            lockedBadge.aguardandoVeredito = true;
+            inicioAguardandoVeredito = millis(); // Inicia o timer para o timeout
             potentialTargetsCount = 0;
-            Serial.printf("ENTRADA reportada com sucesso. Travando na cama %s.\n", lockedBed.mac.c_str());
-        } else {
-            Serial.println("Falha ao reportar ENTRada. A ESP continuará no modo de busca.");
         }
     }
 }
 
-// =================================================================
-// =================== FUNÇÕES AUXILIARES ==========================
-// =================================================================
-
-// --- NOVA FUNÇÃO PARA VERIFICAR O ESTADO INICIAL ---
+// =================== FUNÇÕES AUXILIARES ===================
 void checkInitialState() {
-    Serial.println("Verificando estado inicial com o servidor...");
     HTTPClient http;
-    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT) + "/esp/" + String(idESP) + "/assigned_badge";
-    
-    if (!http.begin(serverUrl)) {
-        Serial.println("Falha ao iniciar conexão para verificar estado.");
-        return;
-    }
-
+    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/esp/" + String(idESP) + "/config";
+    if (!http.begin(serverUrl)) return;
     int httpResponseCode = http.GET();
-
     if (httpResponseCode == 200) {
         String payload = http.getString();
-        StaticJsonDocument<128> doc;
+        StaticJsonDocument<256> doc;
         deserializeJson(doc, payload);
-
         const char* assignedMac = doc["mac_beacon"];
-        
         if (assignedMac != NULL) {
-            lockedBed.mac = String(assignedMac);
-            lockedBed.confirmada = true;
-            // lockedBed.ultimaPresenca = millis(); // Inicia o contador de timeout
-            Serial.printf(">>> ESTADO RESTAURADO: ESP está travada na cama %s\n", lockedBed.mac.c_str());
-        } else {
-            Serial.println("Nenhuma cama atribuída a esta ESP. Iniciando no modo de busca.");
+            lockedBadge.mac = String(assignedMac);
+            lockedBadge.confirmada = true;
         }
-    } else {
-        Serial.printf("Erro ao verificar estado. Código: %d. Iniciando no modo de busca.\n", httpResponseCode);
+        if (doc.containsKey("rssi_threshold")) RSSI_THRESHOLD = doc["rssi_threshold"];
+        if (doc.containsKey("inercia_chegada")) INERCIA_CHEGADA = doc["inercia_chegada"];
+        if (doc.containsKey("inercia_saida")) INERCIA_SAIDA = doc["inercia_saida"];
     }
-
     http.end();
 }
 
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Erro de Envio: Wi-Fi desconectado.");
-        return false;
-    }
-
+    if (WiFi.status() != WL_CONNECTED) return false;
     HTTPClient http;
-    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT) + "/event";
-    
-    if (!http.begin(serverUrl)) {
-        Serial.println("Erro de Envio: Falha ao iniciar conexão HTTP.");
-        return false;
-    }
-
+    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/event";
+    if (!http.begin(serverUrl)) return false;
     http.addHeader("Content-Type", "application/json");
-
     StaticJsonDocument<256> doc;
     doc["esp_id"] = idESP;
     doc["cracha"] = mac;
@@ -323,51 +455,27 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
     doc["wifi"] = wifi;
     doc["data_on"] = obterDataAtualISO8601();
 
+    if (strcmp(status, "GET") == 0) {
+        idTransacaoAguardada = random(1, 4294967295);
+        doc["transacao_id"] = idTransacaoAguardada;
+        Serial.printf("Gerado novo ID de Transação para GET: %u\n", idTransacaoAguardada);
+    }
+
     String jsonPayload;
     serializeJson(doc, jsonPayload);
-
-    Serial.println("Enviando payload: " + jsonPayload);
     int httpResponseCode = http.POST(jsonPayload);
-
-    if (httpResponseCode > 0) {
-        if (httpResponseCode == 200) {
-            Serial.printf("Sucesso! Código de Resposta: %d\n", httpResponseCode);
-            http.end();
-            return true;
-        } else {
-            Serial.printf("Erro do Servidor. Código de Resposta: %d\n", httpResponseCode);
-            String response = http.getString();
-            Serial.println(response);
-            http.end();
-            return false;
-        }
-    } else {
-        Serial.printf("Erro de Conexão HTTP: %s\n", http.errorToString(httpResponseCode).c_str());
-        http.end();
-        return false;
-    }
-}
-
-void conectarWiFi() {
-    Serial.print("Conectando ao Wi-Fi...");
-    WiFi.begin(SSID, PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("\nWi-Fi conectado. IP: " + WiFi.localIP().toString());
+    http.end();
+    return (httpResponseCode == 202);
 }
 
 void reconnect_mqtt() {
     while (!mqttClient.connected()) {
-        Serial.print("Tentando conectar ao Broker MQTT...");
         if (mqttClient.connect(idESP)) {
-            Serial.println(" conectado!");
             mqttClient.subscribe(MQTT_BADGE_LIST_TOPIC);
+            mqttClient.subscribe(MQTT_COMMAND_TOPIC);
+            mqttClient.subscribe(MQTT_VERDICT_TOPIC.c_str());
+            mqttClient.subscribe(MQTT_INDIVIDUAL_COMMAND_TOPIC.c_str());
         } else {
-            Serial.print(" falhou, rc=");
-            Serial.print(mqttClient.state());
-            Serial.println(" tentando novamente em 5 segundos");
             delay(5000);
         }
     }
@@ -379,9 +487,7 @@ void configurarNTP() {
 
 String obterDataAtualISO8601() {
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
-        return "1970-01-01T00:00:00.000Z";
-    }
+    if (!getLocalTime(&timeinfo)) return "1970-01-01T00:00:00.000Z";
     char buffer[30];
     strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S.000Z", &timeinfo);
     return String(buffer);

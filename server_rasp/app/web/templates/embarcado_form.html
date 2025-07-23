@@ -3,16 +3,21 @@
     <form action="{{ form_action }}" method="post">
         <div class="form-group">
             <label for="id_esp">ID da ESP</label>
-            <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required>
+            <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
+        
         <div class="form-group">
-            <label for="quarto">Quarto</label>
-            <input type="text" id="quarto" name="quarto" value="{{ embarcado.quarto if embarcado else '' }}" placeholder="Informe o quarto" required>
+            <label for="quarto_id">Quarto</label>
+            <select id="quarto_id" name="quarto_id" class="filter-dropdown-main" required>
+                <option value="" disabled {% if not embarcado %}selected{% endif %}>Selecione um quarto</option>
+                {% for q in all_quartos %}
+                <option value="{{ q.id }}" {% if embarcado and embarcado.quarto_id == q.id %}selected{% endif %}>
+                    {{ q.nome }}
+                </option>
+                {% endfor %}
+            </select>
         </div>
-        <div class="form-group">
-            <label for="andar">Andar</label>
-            <input type="text" id="andar" name="andar" value="{{ embarcado.andar if embarcado else '' }}" placeholder="Informe o andar">
-        </div>
+        
         <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if embarcado else 'Salvar' }}</button>
     </form>
 </div>

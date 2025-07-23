@@ -1,9 +1,9 @@
 # models.py
-from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine
+from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine, ForeignKey
+from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = "sqlite:///./wh_connect.db"
+DATABASE_URL = "sqlite:///./base_wh.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -11,7 +11,17 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
-# NOVO MODELO PARA CONFIGURAÇÕES GLOBAIS
+# --- NOVO MODELO ---
+# 1. Adicionamos a nova tabela para centralizar a informação dos quartos.
+class Quarto(Base):
+    __tablename__ = "quartos"
+    id   = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    
+    # Relações inversas para fácil acesso a partir de um objeto Quarto
+    embarcados = relationship("Embarcado", back_populates="quarto")
+    badges     = relationship("Badge", back_populates="quarto")
+
 class GlobalSetting(Base):
     __tablename__ = "global_settings"
     key = Column(String, primary_key=True, index=True)
@@ -22,21 +32,31 @@ class Badge(Base):
     id          = Column(Integer, primary_key=True, index=True)
     nome_cracha = Column(String, nullable=False, unique=True)
     mac_beacon  = Column(String, unique=True, nullable=False, index=True)
-    quarto      = Column(String, nullable=True)
+    
+    # --- ALTERAÇÃO AQUI ---
+    # 2. Substituímos o campo de texto 'quarto' por uma chave estrangeira.
+    #    Um crachá pertence a um quarto (ou a nenhum, por isso 'nullable=True').
+    quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
+    quarto = relationship("Quarto", back_populates="badges")
+
 
 class Embarcado(Base):
     __tablename__ = "embarcados"
     id     = Column(Integer, primary_key=True, index=True)
     id_esp = Column(String, unique=True, nullable=False, index=True)
-    quarto = Column(String, nullable=False)
-    andar  = Column(String, nullable=True)
-    # As colunas de configuração foram REMOVIDAS daqui.
+    
+    # --- ALTERAÇÃO AQUI ---
+    # 3. O ESP também agora se relaciona diretamente com a tabela 'quartos'.
+    #    Um embarcado DEVE pertencer a um quarto (nullable=False).
+    quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
+    quarto = relationship("Quarto", back_populates="embarcados")
+
 
 class ReceivedEvent(Base):
     __tablename__ = "received_events"
     id            = Column(Integer, primary_key=True, index=True)
     esp_id        = Column(String, nullable=False, index=True)
-    cracha          = Column(String, nullable=False, index=True)
+    cracha        = Column(String, nullable=False, index=True)
     action        = Column(String, nullable=False, index=True)    
     status        = Column(String, nullable=True, index=True)
     status_detail = Column(String, nullable=True)   
@@ -44,5 +64,6 @@ class ReceivedEvent(Base):
     wifi          = Column(Integer, nullable=True)
     data_on       = Column(DateTime(timezone=True), nullable=False, index=True)
     raw           = Column(JSON, nullable=False)
+
 def init_db():
     Base.metadata.create_all(bind=engine)
