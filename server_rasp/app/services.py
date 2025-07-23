@@ -1,53 +1,57 @@
-# services.py (versão atualizada com lógica de sincronização e reset)
+# services.py (Versão final para multi-crachá)
 from sqlalchemy.orm import Session
-from .models import Badge, Embarcado
+from .models import Badge, Embarcado, Quarto
 from . import mqtt_client
 
-def update_badge_assignment(db: Session, badge_id: int, new_room: str | None):
+def update_badge_assignment(db: Session, badge_id: int, new_quarto_id: int | None):
     """
-    Função central para gerenciar a associação de CRACHÁS a quartos.
-    AGORA, também força um reset na ESP do quarto que está sendo desocupado.
+    Função central para associar um CRACHÁ a um novo QUARTO (ou a nenhum).
+    Também notifica a ESP do quarto que está sendo desocupado.
     """
     try:
-        badge = db.query(Badge).get(badge_id)
+        badge = db.query(Badge).options(joinedload(Badge.quarto)).get(badge_id)
         if not badge:
             print(f"[SERVICE] Crachá com ID {badge_id} não encontrado.")
             return
 
         quarto_anterior = badge.quarto
 
-        if quarto_anterior != new_room:
-            print(f"[SERVICE] Atualizando crachá '{badge.nome_cracha}': do quarto '{quarto_anterior}' para '{new_room}'")
-            badge.quarto = new_room
+        # Verifica se houve mudança
+        if (quarto_anterior is None and new_quarto_id is not None) or \
+           (quarto_anterior is not None and new_quarto_id != quarto_anterior.id) or \
+           (quarto_anterior is not None and new_quarto_id is None):
+            
+            badge.quarto_id = new_quarto_id
             db.commit()
 
+            print(f"[SERVICE] Crachá '{badge.nome_cracha}' movido do quarto '{quarto_anterior.nome if quarto_anterior else 'Nenhum'}' para o quarto ID '{new_quarto_id}'.")
+
             # Se um quarto ficou vago, precisamos notificar a ESP daquele quarto.
-            if new_room is None and quarto_anterior is not None:
-                print(f"[SERVICE] Quarto '{quarto_anterior}' ficou vago. Procurando ESP para notificar...")
-                esp_no_quarto_anterior = db.query(Embarcado).filter(Embarcado.quarto == quarto_anterior).first()
+            if new_quarto_id is None and quarto_anterior is not None:
+                print(f"[SERVICE] Quarto '{quarto_anterior.nome}' ficou vago. Procurando ESP para notificar...")
+                esp_no_quarto_anterior = db.query(Embarcado).filter(Embarcado.quarto_id == quarto_anterior.id).first()
 
                 if esp_no_quarto_anterior:
                     print(f"[SERVICE] ESP '{esp_no_quarto_anterior.id_esp}' encontrada. Enviando comando RESET_STATE.")
-                    # Usamos nossa nova função para enviar um comando direto para a ESP se resetar.
                     mqtt_client.publish_command_to_esp(
                         esp_id=esp_no_quarto_anterior.id_esp,
                         command={"type": "command", "data": {"name": "RESET_STATE"}}
                     )
                 else:
-                    print(f"[SERVICE] Nenhuma ESP encontrada no quarto '{quarto_anterior}'. Nenhum reset enviado.")
+                    print(f"[SERVICE] Nenhuma ESP encontrada no quarto '{quarto_anterior.nome}'. Nenhum reset enviado.")
 
-            print("[SERVICE] Mudança de estado commitada. Disparando atualização da lista de crachás.")
-            mqtt_client.publish_available_badges()
+            # Sempre que uma associação muda, a lista de crachás disponíveis é atualizada
+            trigger_mqtt_update_on_badge_change()
 
     except Exception as e:
         db.rollback()
         print(f"[SERVICE] ERRO ao atualizar crachá: {e}")
 
-# --- NOVA FUNÇÃO DE ORQUESTRAÇÃO ---
+
 def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     """
     Serviço completo para forçar um ESP e seu quarto a um estado limpo.
-    1. Desassocia qualquer crachá que o servidor pense estar no quarto da ESP.
+    1. Desassocia TODOS os crachás que o servidor pensa estarem no quarto da ESP.
     2. Envia um comando RESET_STATE para a ESP.
     """
     try:
@@ -56,19 +60,22 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
             print(f"[SERVICE] Embarcado com ID '{embarcado_id}' não encontrado. Abortando reset.")
             return
 
-        print(f"[SERVICE] Iniciando reset e sincronização completa para a ESP: {embarcado.id_esp}")
+        print(f"[SERVICE] Iniciando reset e sincronização para a ESP: {embarcado.id_esp} no Quarto ID: {embarcado.quarto_id}")
 
-        # 1. Sincroniza o lado do servidor
-        if embarcado.quarto:
-            badge_no_quarto = db.query(Badge).filter(Badge.quarto == embarcado.quarto).first()
-            if badge_no_quarto:
-                print(f"[SERVICE] Crachá '{badge_no_quarto.nome_cracha}' encontrado no quarto '{embarcado.quarto}'. Desassociando...")
-                # Reutilizamos a lógica principal, que já cuida de tudo
-                update_badge_assignment(db=db, badge_id=badge_no_quarto.id, new_room=None)
-            else:
-                print(f"[SERVICE] Servidor já indica que o quarto '{embarcado.quarto}' está vazio. OK.")
+        # --- MUDANÇA PRINCIPAL AQUI ---
+        # 1. Encontra e desassocia TODOS os crachás no quarto.
+        badges_no_quarto = db.query(Badge).filter(Badge.quarto_id == embarcado.quarto_id).all()
+        
+        if badges_no_quarto:
+            print(f"[SERVICE] Encontrados {len(badges_no_quarto)} crachás no quarto. Desassociando todos...")
+            for badge in badges_no_quarto:
+                print(f"[SERVICE] Desassociando crachá '{badge.nome_cracha}'...")
+                # Usamos a função central, que já cuida da notificação MQTT
+                update_badge_assignment(db=db, badge_id=badge.id, new_quarto_id=None)
+        else:
+            print(f"[SERVICE] Servidor já indica que o quarto está vazio. OK.")
 
-        # 2. Força o lado do cliente
+        # 2. Força o reset no lado do cliente (ESP)
         print(f"[SERVICE] Enviando comando final RESET_STATE para a ESP '{embarcado.id_esp}'.")
         mqtt_client.publish_command_to_esp(
             esp_id=embarcado.id_esp,

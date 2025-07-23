@@ -218,3 +218,92 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
     gap: 2rem; 
     width: 100%;
 }
+
+/* ================================================== */
+/* == Estilos para o Dashboard de Status dos Quartos == */
+/* ================================================== */
+
+/* Container para os cards em tela cheia */
+.room-cards-container-fullwidth {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 2rem;
+    width: 100%;
+}
+
+.room-card {
+    background-color: var(--background-color);
+    /* Usando a mesma borda e raio do form-card */
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    /* Adicionando uma transição suave */
+    transition: box-shadow 0.2s ease-in-out;
+}
+
+.room-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.room-card-header {
+    /* Usando o mesmo padding horizontal do form-card */
+    padding: 1.5rem 2rem; 
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.room-card-header h3 {
+    font-family: 'Lexend', sans-serif;
+    font-size: 18px;
+    margin: 0;
+    flex-grow: 1;
+}
+
+/* Estilo para o campo de input da edição inline */
+.room-name-input {
+    flex-grow: 1;
+    border: none;
+    border-bottom: 1px solid var(--primary-color);
+    padding: 0.5rem 0;
+    font-family: 'Lexend', sans-serif;
+    font-size: 18px;
+    background: transparent;
+    outline: none;
+}
+
+.room-block-body {
+    /* Usando o mesmo padding horizontal do form-card */
+    padding: 1.5rem 2rem; 
+    flex-grow: 1;
+}
+
+.no-assets-message {
+    color: var(--text-secondary);
+    text-align: center;
+    font-size: 14px;
+    padding: 1rem 0;
+}
+
+.asset-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.asset-list li {
+    display: flex;
+    align-items: center;
+    padding: 0.4rem 0;
+    font-size: 15px;
+}
+
+.asset-list .asset-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--primary-color);
+    margin-right: 0.75rem;
+}

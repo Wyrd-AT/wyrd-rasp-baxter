@@ -19,94 +19,95 @@
     </div>
 
     <script>
-    // Ativa os ícones da biblioteca Feather
-    feather.replace();
-
-    // --- Script da Sidebar e Overlay ---
-    const sidebar = document.getElementById('sidebar');
-    const toggleButton = document.getElementById('sidebar-toggle');
-    const overlay = document.getElementById('overlay');
-
-    function toggleSidebar() {
-        sidebar.classList.toggle('expanded');
-        overlay.classList.toggle('active');
-    }
-
-    if (toggleButton && sidebar && overlay) {
-        toggleButton.addEventListener('click', toggleSidebar);
-        overlay.addEventListener('click', toggleSidebar);
-    }
-
-    // --- Script de Interatividade da Tabela ---
+    // Roda APENAS UMA VEZ, depois que todo o HTML da página foi carregado.
     document.addEventListener('DOMContentLoaded', function() {
-        const table = document.querySelector('.data-table');
-        if (!table) return;
+    
+        // 1. Ativa todos os ícones da biblioteca Feather na página.
+        feather.replace();
 
-        const editBtn = document.querySelector('.toolbar-actions .icon-btn[title="Editar"]');
-        const deleteBtn = document.querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
-        let selectedRow = null;
+        // 2. Lógica da Sidebar e do Overlay (fundo escurecido).
+        const sidebar = document.getElementById('sidebar');
+        const toggleButton = document.getElementById('sidebar-toggle');
+        const overlay = document.getElementById('overlay');
 
-        table.addEventListener('click', (event) => {
-            const row = event.target.closest('.selectable-row');
-            if (!row) return;
-
-            if (selectedRow) {
-                selectedRow.style.backgroundColor = '';
-            }
-            row.style.backgroundColor = '#e0eafc';
-            selectedRow = row;
-        });
-
-        if (editBtn) {
-            editBtn.addEventListener('click', () => {
-                if (!selectedRow) {
-                    alert('Por favor, selecione um item na tabela para editar.');
-                    return;
-                }
-                const itemId = selectedRow.dataset.id;
-                const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                let editUrl = '';
-
-                // MUDANÇA CRÍTICA AQUI
-                if (pageTitle.includes('crachás')) {
-                    editUrl = `/badges/${itemId}/edit`;
-                } else if (pageTitle.includes('embarcados')) {
-                    editUrl = `/embarcados/${itemId}/edit`;
-                }
-
-                if (editUrl) {
-                    window.location.href = editUrl;
-                }
-            });
+        if (toggleButton && sidebar && overlay) {
+            const toggleSidebar = () => {
+                sidebar.classList.toggle('expanded');
+                overlay.classList.toggle('active');
+            };
+            toggleButton.addEventListener('click', toggleSidebar);
+            overlay.addEventListener('click', toggleSidebar);
         }
 
-        if (deleteBtn) {
-            deleteBtn.addEventListener('click', () => {
-                if (!selectedRow) {
-                    alert('Por favor, selecione um item na tabela para apagar.');
-                    return;
-                }
+        // 3. Lógica de Interatividade da Tabela (para Crachás e Embarcados).
+        const table = document.querySelector('.data-table');
+        // Só continua se a página atual TIVER uma tabela com a classe '.data-table'.
+        if (table) {
+            const editBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Editar"]');
+            const deleteBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
+            let selectedRow = null;
 
-                if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
-                    const itemId = selectedRow.dataset.id; // Este é o ID do banco de dados
+            table.addEventListener('click', (event) => {
+                const row = event.target.closest('.selectable-row');
+                if (!row) return;
+
+                if (selectedRow) {
+                    selectedRow.style.backgroundColor = '';
+                }
+                row.style.backgroundColor = '#e0eafc'; // Cor de seleção
+                selectedRow = row;
+            });
+
+            if (editBtn) {
+                editBtn.addEventListener('click', () => {
+                    if (!selectedRow) {
+                        alert('Por favor, selecione um item na tabela para editar.');
+                        return;
+                    }
+                    const itemId = selectedRow.dataset.id;
                     const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                    let deleteUrl = '';
+                    let editUrl = '';
 
                     if (pageTitle.includes('crachás')) {
-                        // Correto: /badges/1/delete
-                        deleteUrl = `/badges/${itemId}/delete`; 
+                        editUrl = `/badges/${itemId}/edit`;
                     } else if (pageTitle.includes('embarcados')) {
-                        // Correto: /embarcados/1/delete
-                        deleteUrl = `/embarcados/${itemId}/delete`;
+                        editUrl = `/embarcados/${itemId}/edit`;
                     }
 
-                    if (deleteUrl) {
-                        window.location.href = deleteUrl;
+                    if (editUrl) {
+                        window.location.href = editUrl;
                     }
-                }
-            });
+                });
+            }
+
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', () => {
+                    if (!selectedRow) {
+                        alert('Por favor, selecione um item na tabela para apagar.');
+                        return;
+                    }
+                    if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
+                        const itemId = selectedRow.dataset.id;
+                        const pageTitle = document.querySelector('h1').textContent.toLowerCase();
+                        let deleteUrl = '';
+
+                        if (pageTitle.includes('crachás')) {
+                            deleteUrl = `/badges/${itemId}/delete`; 
+                        } else if (pageTitle.includes('embarcados')) {
+                            deleteUrl = `/embarcados/${itemId}/delete`;
+                        }
+
+                        if (deleteUrl) {
+                            window.location.href = deleteUrl;
+                        }
+                    }
+                });
+            }
         }
     });
     </script>
+    
+    {% block scripts %}{% endblock %}
+
 </body>
 </html>

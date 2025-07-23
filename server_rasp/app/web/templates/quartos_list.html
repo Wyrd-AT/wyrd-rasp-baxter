@@ -1,49 +1,78 @@
 {% extends "base.html" %}
 
-{% block title %}Gestão de Quartos{% endblock %}
+{% block title %}Status dos Quartos{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Quartos</h1>
+    <h1>Status dos Quartos</h1>
 </div>
 
-<div class="page-with-form">
-    <div class="list-column">
-        <div class="table-toolbar">
-            <div class="toolbar-actions">
-                <p>Clique em um quarto na lista para editar o nome.</p>
-            </div>
+<div class="room-cards-container-fullwidth">
+    {% for quarto in quartos %}
+    <div class="room-card">
+        <form class="room-card-header" action="{{ url_for('update_quarto', quarto_id=quarto.id) }}" method="post">
+            
+            <h3 class="room-name-display">{{ quarto.nome }}</h3>
+            
+            <input type="text" name="nome" value="{{ quarto.nome }}" class="room-name-input" hidden>
+            
+            <button type="button" class="icon-btn room-edit-btn" title="Editar nome">
+                <i data-feather="edit-2"></i>
+            </button>
+
+            <button type="submit" class="icon-btn room-save-btn" title="Salvar" hidden>
+                <i data-feather="check"></i>
+            </button>
+        </form>
+
+        <div class="room-block-body">
+            {% if quarto.badges %}
+                <ul class="asset-list">
+                    {% for badge in quarto.badges %}
+                        <li>
+                            <i data-feather="credit-card" class="asset-icon"></i>
+                            <span>{{ badge.nome_cracha }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="no-assets-message">Nenhum ativo cadastrado.</p>
+            {% endif %}
         </div>
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>NOME ATUAL DO QUARTO</th>
-                    <th>AÇÕES</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for q in quartos %}
-                <tr>
-                    <td>{{ q.nome }}</td>
-                    <td style="text-align: center;">
-                        <a href="{{ url_for('edit_quarto', quarto_id=q.id) }}" class="btn-primary" style="padding: 5px 10px; font-size: 12px;">
-                            EDITAR
-                        </a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
     </div>
-
-    <div class="form-column">
-        {% if quarto_para_editar %}
-            {% include 'quarto_form.html' %}
-        {% else %}
-            <div class="form-card" style="text-align: center; padding: 4rem 2rem;">
-                <p class="text-secondary">Selecione um quarto na lista ao lado para renomeá-lo.</p>
-            </div>
-        {% endif %}
-    </div>
+    {% endfor %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const editButtons = document.querySelectorAll('.room-edit-btn');
+
+    editButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const header = this.closest('.room-card-header');
+            const nameDisplay = header.querySelector('.room-name-display');
+            const nameInput = header.querySelector('.room-name-input');
+            const saveBtn = header.querySelector('.room-save-btn');
+
+            // Esconde o nome e o botão de editar
+            nameDisplay.hidden = true;
+            this.hidden = true;
+
+            // Mostra o campo de input e o botão de salvar
+            nameInput.hidden = false;
+            saveBtn.hidden = false;
+            
+            // Foca no campo de input
+            nameInput.focus();
+            nameInput.select();
+
+            // --- MELHORIA ADICIONADA ---
+            // Garante que o novo ícone (check) seja renderizado
+            feather.replace(); 
+        });
+    });
+});
+</script>
 {% endblock %}

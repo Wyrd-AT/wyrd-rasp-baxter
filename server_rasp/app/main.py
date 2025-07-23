@@ -153,11 +153,31 @@ def get_global_settings(db: Session) -> dict:
 
 @app.get("/esp/{esp_id}/config", name="get_config")
 def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
-    print(f"INFO: Rota /config para {esp_id} chamada. A lógica multi-crachá será implementada aqui.")
+    """
+    Retorna a configuração inicial para uma ESP específica.
+    - Lista de MACs de crachás que já estão no seu quarto.
+    - Configurações globais de sensibilidade.
+    """
+    print(f"INFO: ESP '{esp_id}' solicitou sua configuração inicial.")
+    
+    # Busca as configurações globais primeiro
     settings = get_global_settings(db)
-    # Lógica final será implementada no próximo passo
+    
+    # Encontra o embarcado e seu quarto
+    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+    
+    macs_no_quarto = []
+    if embarcado:
+        # --- LÓGICA MULTI-CRACHÁ IMPLEMENTADA ---
+        # Busca TODOS os crachás que estão no mesmo quarto que o embarcado.
+        badges_no_quarto = db.query(Badge).filter(Badge.quarto_id == embarcado.quarto_id).all()
+        macs_no_quarto = [b.mac_beacon for b in badges_no_quarto]
+        print(f"INFO: Para ESP '{esp_id}', encontrados {len(macs_no_quarto)} crachás no quarto ID {embarcado.quarto_id}: {macs_no_quarto}")
+    else:
+        print(f"AVISO: ESP com ID '{esp_id}' não cadastrado no sistema.")
+
     return {
-        "macs_beacons": [],
+        "macs_beacons": macs_no_quarto, # Retorna a lista de MACs
         "rssi_threshold": int(settings.get("rssi_threshold")),
         "inercia_chegada": int(settings.get("inercia_chegada")),
         "inercia_saida": int(settings.get("inercia_saida")),
@@ -168,37 +188,26 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
 # ===================================================================
 @app.get("/quartos", name="list_quartos")
 def list_quartos(request: Request, db: Session = Depends(get_db)):
-    """ Exibe a lista fixa de 3 quartos. """
-    quartos = db.query(Quarto).order_by(Quarto.id).all()
+    """
+    Exibe o dashboard de status dos quartos. A edição é feita na própria página (inline).
+    """
+    quartos_com_badges = db.query(Quarto).options(joinedload(Quarto.badges)).order_by(Quarto.id).all()
     return templates.TemplateResponse("quartos_list.html", {
         "request": request,
-        "quartos": quartos,
-        "quarto_para_editar": None # Nenhum quarto selecionado para edição inicialmente
-    })
-
-# Rota para criar foi REMOVIDA
-
-@app.get("/quartos/{quarto_id}/edit", name="edit_quarto")
-def edit_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db)):
-    """ Prepara a página para editar um quarto específico. """
-    quarto_para_editar = db.query(Quarto).get(quarto_id)
-    todos_os_quartos = db.query(Quarto).order_by(Quarto.id).all()
-    
-    return templates.TemplateResponse("quartos_list.html", {
-        "request": request,
-        "quartos": todos_os_quartos,
-        "form_action": request.url_for("update_quarto", quarto_id=quarto_id),
-        "quarto_para_editar": quarto_para_editar # Passa o objeto para o formulário
+        "quartos": quartos_com_badges
     })
 
 @app.post("/quartos/{quarto_id}/edit", name="update_quarto")
 def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: Session = Depends(get_db)):
-    """ Processa a atualização do nome de um quarto. """
+    """
+    Processa a atualização do nome de um quarto (submetido pelo formulário inline).
+    """
     quarto = db.query(Quarto).get(quarto_id)
     if quarto:
         quarto.nome = nome
         db.commit()
     return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
 
 # ===================================================================
 # SEÇÃO 3: CRUD PARA EMBARCADOS

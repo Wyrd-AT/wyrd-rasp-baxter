@@ -77,15 +77,15 @@ async def _resolve_dispute(beacon_mac: str):
             
             # Prepara e despacha o evento para a Eritel
             event_data = {
-                "cracha": badge.mac_beacon, "quarto": emb.quarto,
+                "cracha": badge.mac_beacon, "quarto": emb.quarto.nome,
                 "data_evento": best_event.get("data_on"), "tipo_evento": "wyrd.ENTRADA"
             }
             success = await dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
             if success:
-                detail = f"Crachá associado ao quarto '{emb.quarto}' e evento de entrada enviado com sucesso."
+                detail = f"Crachá associado ao quarto '{emb.quarto.nome}' e evento de entrada enviado com sucesso."
                 _update_event_status(best_event.get("event_id"), "OK", detail)
             else:
-                detail = f"Crachá associado ao quarto '{emb.quarto}', mas a notificação para a Eritel falhou."
+                detail = f"Crachá associado ao quarto '{emb.quarto.nome}', mas a notificação para a Eritel falhou."
                 _update_event_status(best_event.get("event_id"), "Erro", detail)
 
         elif badge and emb and badge.quarto == emb.quarto:
@@ -118,7 +118,7 @@ async def enqueue_event(evt: dict):
                 
                 # Despacha o evento de SAÍDA
                 event_data = {
-                    "cracha": beacon_mac, "quarto": quarto_anterior,
+                    "cracha": beacon_mac, "quarto": quarto_anterior.nome,
                     "data_evento": evt.get("data_on"), "tipo_evento": "wyrd.SAIDA"
                 }
                 success = await dispatch_event_to_eritel("wyrd.SAIDA", event_data)
