@@ -1,5 +1,5 @@
 # services.py (Versão final para multi-crachá)
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from .models import Badge, Embarcado, Quarto
 from . import mqtt_client
 
@@ -55,12 +55,20 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     2. Envia um comando RESET_STATE para a ESP.
     """
     try:
+
         embarcado = db.query(Embarcado).get(embarcado_id)
         if not embarcado:
             print(f"[SERVICE] Embarcado com ID '{embarcado_id}' não encontrado. Abortando reset.")
             return
 
         print(f"[SERVICE] Iniciando reset e sincronização para a ESP: {embarcado.id_esp} no Quarto ID: {embarcado.quarto_id}")
+
+        # 2. Força o reset no lado do cliente (ESP)
+        print(f"[SERVICE] Enviando comando final RESET_STATE para a ESP '{embarcado.id_esp}'.")
+        mqtt_client.publish_command_to_esp(
+            esp_id=embarcado.id_esp,
+            command={"type": "command", "data": {"name": "RESET_STATE"}}
+        )
 
         # --- MUDANÇA PRINCIPAL AQUI ---
         # 1. Encontra e desassocia TODOS os crachás no quarto.
@@ -74,13 +82,6 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
                 update_badge_assignment(db=db, badge_id=badge.id, new_quarto_id=None)
         else:
             print(f"[SERVICE] Servidor já indica que o quarto está vazio. OK.")
-
-        # 2. Força o reset no lado do cliente (ESP)
-        print(f"[SERVICE] Enviando comando final RESET_STATE para a ESP '{embarcado.id_esp}'.")
-        mqtt_client.publish_command_to_esp(
-            esp_id=embarcado.id_esp,
-            command={"type": "command", "data": {"name": "RESET_STATE"}}
-        )
 
     except Exception as e:
         print(f"[SERVICE] ERRO durante a sincronização e reset da ESP ID '{embarcado_id}': {e}")

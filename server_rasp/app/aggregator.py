@@ -9,7 +9,7 @@ from .models import SessionLocal, Badge, Embarcado, ReceivedEvent
 from .mqtt_client import publish_available_badges, publish_verdict # Importa a nova função de veredito
 
 # --- Configurações ---
-DISPUTE_WINDOW_SEC = 5  # Janela de 5 segundos para a disputa
+DISPUTE_WINDOW_SEC = 3  # Janela de 5 segundos para a disputa
 
 # --- Estruturas de Dados em Memória ---
 _dispute_windows = {}

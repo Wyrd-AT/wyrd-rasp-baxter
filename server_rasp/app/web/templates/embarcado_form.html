@@ -9,8 +9,8 @@
         <div class="form-group">
             <label for="quarto_id">Quarto</label>
             <select id="quarto_id" name="quarto_id" class="filter-dropdown-main" required>
-                <option value="" disabled {% if not embarcado %}selected{% endif %}>Selecione um quarto</option>
-                {% for q in all_quartos %}
+                <option value="" disabled {% if not embarcado %}selected{% endif %}>Selecione um quarto disponível</option>
+                {% for q in available_quartos %}
                 <option value="{{ q.id }}" {% if embarcado and embarcado.quarto_id == q.id %}selected{% endif %}>
                     {{ q.nome }}
                 </option>

@@ -50,7 +50,27 @@
     <div class="form-column">
         {% include 'embarcado_form.html' with context %}
         
+        <div class="form-card" style="margin-top: 2rem;">
+            <h3>Configurações Globais de Sensibilidade</h3>
+            <form action="{{ url_for('update_settings') }}" method="post">
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
+                        <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" placeholder="-60" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="inercia_chegada">Inércia de Chegada (ms)</label>
+                        <input type="number" name="inercia_chegada" value="{{ global_settings.inercia_chegada }}" placeholder="500" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="inercia_saida">Inércia de Saída (ms)</label>
+                        <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" placeholder="15000" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary form-btn">Salvar Configurações Globais</button>
+            </form>
         </div>
+    </div>
 
 </div>
 {% endblock %}

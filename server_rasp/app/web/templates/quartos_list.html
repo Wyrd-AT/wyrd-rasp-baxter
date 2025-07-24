@@ -29,7 +29,7 @@
             {% if quarto.badges %}
                 <ul class="asset-list">
                     {% for badge in quarto.badges %}
-                        <li>
+                        <li title="Entrada em: {{ badge.data_entrada_str }}">
                             <i data-feather="credit-card" class="asset-icon"></i>
                             <span>{{ badge.nome_cracha }}</span>
                         </li>

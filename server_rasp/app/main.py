@@ -189,13 +189,38 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
 @app.get("/quartos", name="list_quartos")
 def list_quartos(request: Request, db: Session = Depends(get_db)):
     """
-    Exibe o dashboard de status dos quartos. A edição é feita na própria página (inline).
+    Exibe o dashboard de status dos quartos, com os crachás ordenados por hora de entrada.
     """
     quartos_com_badges = db.query(Quarto).options(joinedload(Quarto.badges)).order_by(Quarto.id).all()
+
+    # --- LÓGICA DE BUSCA E ORDENAÇÃO ---
+    for quarto in quartos_com_badges:
+        for badge in quarto.badges:
+            # 1. Busca o evento 'GET' mais recente para este crachá
+            ultimo_evento_entrada = db.query(ReceivedEvent).filter(
+                ReceivedEvent.cracha == badge.mac_beacon,
+                ReceivedEvent.action == 'GET',
+                ReceivedEvent.status == 'OK'
+            ).order_by(ReceivedEvent.data_on.desc()).first()
+
+            if ultimo_evento_entrada:
+                # 2. Armazena a data como um objeto e como texto formatado
+                badge.data_entrada_obj = ultimo_evento_entrada.data_on
+                badge.data_entrada_str = ultimo_evento_entrada.data_on.strftime("%d/%m/%Y às %H:%M:%S")
+            else:
+                # Usa uma data muito antiga para garantir que fiquem no início
+                badge.data_entrada_obj = datetime.min.replace(tzinfo=timezone.utc)
+                badge.data_entrada_str = "Horário de entrada não registrado"
+        
+        # 3. --- CORREÇÃO ADICIONADA AQUI ---
+        # Ordena a lista de crachás do quarto com base na data de entrada que acabamos de encontrar.
+        quarto.badges.sort(key=lambda b: b.data_entrada_obj)
+
     return templates.TemplateResponse("quartos_list.html", {
         "request": request,
         "quartos": quartos_com_badges
     })
+
 
 @app.post("/quartos/{quarto_id}/edit", name="update_quarto")
 def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: Session = Depends(get_db)):
@@ -220,10 +245,18 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
             Embarcado.id_esp.ilike(f"%{search}%"),
             Embarcado.quarto.has(Quarto.nome.ilike(f"%{search}%"))
         ))
+    
+    # --- LÓGICA DE FILTRO DE QUARTOS DISPONÍVEIS ---
+    # 1. Pega os IDs de todos os quartos que já foram atribuídos.
+    assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
+    
+    # 2. Busca apenas os quartos cujos IDs NÃO estão na lista de atribuídos.
+    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
+    
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
         "embarcados": query.order_by(Embarcado.id_esp).all(),
-        "all_quartos": db.query(Quarto).order_by(Quarto.nome).all(),
+        "available_quartos": available_quartos, # <-- Passa a lista filtrada para o template
         "form_action": request.url_for("create_embarcado"),
         "embarcado": None, "search": search,
         "global_settings": get_global_settings(db)
@@ -231,6 +264,7 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
 
 @app.post("/embarcados", name="create_embarcado")
 def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int = Form(...), db: Session = Depends(get_db)):
+    # A lógica de criação não muda, pois a validação foi feita na exibição do formulário.
     try:
         db.add(Embarcado(id_esp=id_esp, quarto_id=quarto_id))
         db.commit()
@@ -241,12 +275,26 @@ def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int =
 
 @app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
 def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    emb_para_editar = db.query(Embarcado).get(embarcado_id)
+    
+    # --- LÓGICA DE FILTRO DE QUARTOS DISPONÍVEIS (PARA EDIÇÃO) ---
+    # 1. Pega os IDs dos quartos atribuídos a OUTROS embarcados.
+    assigned_quarto_ids = {
+        emb.quarto_id for emb in db.query(Embarcado).filter(
+            Embarcado.id != embarcado_id, # Exclui o embarcado atual da verificação
+            Embarcado.quarto_id.isnot(None)
+        ).all()
+    }
+    
+    # 2. Busca os quartos que não estão na lista de atribuídos.
+    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
+    
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
         "embarcados": db.query(Embarcado).options(joinedload(Embarcado.quarto)).order_by(Embarcado.id_esp).all(),
-        "all_quartos": db.query(Quarto).order_by(Quarto.nome).all(),
+        "available_quartos": available_quartos, # <-- Passa a lista filtrada
         "form_action": request.url_for("update_embarcado", embarcado_id=embarcado_id),
-        "embarcado": db.query(Embarcado).get(embarcado_id),
+        "embarcado": emb_para_editar,
         "search": None, "global_settings": get_global_settings(db)
     })
 
@@ -286,9 +334,16 @@ def list_badges(request: Request, search: Optional[str] = Query(None), db: Sessi
 
 @app.post("/badges", name="create_badge")
 def create_badge(request: Request, nome_cracha: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+    badge = Badge(nome_cracha=nome_cracha, mac_beacon=mac_beacon.lower())
     try:
-        db.add(Badge(nome_cracha=nome_cracha, mac_beacon=mac_beacon.lower()))
+        db.add(badge)
         db.commit()
+        # --- CORREÇÃO ADICIONADA ---
+        # Notifica o sistema que a lista de crachás mudou.
+        trigger_mqtt_update_on_badge_change()
+    except IntegrityError:
+        db.rollback()
+        print(f"[main-db] ERRO: Tentativa de criar crachá com nome ou MAC duplicado: {nome_cracha} / {mac_beacon.lower()}")
     except Exception as e:
         db.rollback()
         print(f"[main-db] ERRO ao criar crachá: {e}")
@@ -296,6 +351,7 @@ def create_badge(request: Request, nome_cracha: str = Form(...), mac_beacon: str
 
 @app.get("/badges/{badge_id}/edit", name="edit_badge")
 def edit_badge(request: Request, badge_id: int, db: Session = Depends(get_db)):
+    # Esta rota não precisa de mudanças, ela apenas exibe o formulário.
     return templates.TemplateResponse("badges_list.html", {
         "request": request, "badges": db.query(Badge).order_by(Badge.nome_cracha).all(),
         "form_action": request.url_for("update_badge", badge_id=badge_id),
@@ -306,9 +362,19 @@ def edit_badge(request: Request, badge_id: int, db: Session = Depends(get_db)):
 def update_badge(request: Request, badge_id: int, nome_cracha: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
     badge = db.query(Badge).get(badge_id)
     if badge:
+        # --- LÓGICA DE VERIFICAÇÃO ADICIONADA ---
+        # Verifica se o MAC mudou ANTES de salvar.
+        mac_mudou = badge.mac_beacon != mac_beacon.lower()
+
         badge.nome_cracha = nome_cracha
         badge.mac_beacon = mac_beacon.lower()
         db.commit()
+
+        # --- CORREÇÃO ADICIONADA ---
+        # Só dispara a atualização se o MAC realmente mudou.
+        if mac_mudou:
+            trigger_mqtt_update_on_badge_change()
+            
     return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
 @app.get("/badges/{badge_id}/delete", name="delete_badge")
@@ -317,6 +383,9 @@ def delete_badge(request: Request, badge_id: int, db: Session = Depends(get_db))
     if badge:
         db.delete(badge)
         db.commit()
+        # --- CORREÇÃO ADICIONADA ---
+        # Notifica o sistema que um crachá foi removido.
+        trigger_mqtt_update_on_badge_change()
     return RedirectResponse(request.url_for("list_badges"), status_code=303)
 
 
@@ -363,21 +432,104 @@ def list_events(
         "current_filters": {"cracha": filter_cracha, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
     })
 
-# As rotas de download podem ser melhoradas para usar os filtros também
 @app.get("/events/download", name="download_events_csv")
-def download_events_csv(db: Session = Depends(get_db)):
-    # ... (código de download)
-    pass
+def download_events_csv(
+    db: Session = Depends(get_db),
+    # Parâmetros de filtro, agora incluindo a AÇÃO
+    filter_cracha: Optional[str] = Query(None),
+    filter_quarto: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
+    filter_action: Optional[str] = Query(None), # <-- PARÂMETRO ADICIONADO
+    time_filter: Optional[str] = Query(None)
+):
+    embarcados_map = {emb.id_esp: emb.quarto.nome for emb in db.query(Embarcado).options(joinedload(Embarcado.quarto)).all() if emb.quarto}
+    beacon_to_badge_name_map = {b.mac_beacon: b.nome_cracha for b in db.query(Badge).filter(Badge.mac_beacon.isnot(None)).all()}
+
+    query = db.query(ReceivedEvent)
+
+    # Aplica todos os mesmos filtros da página de eventos
+    if filter_cracha: query = query.filter(ReceivedEvent.cracha == filter_cracha)
+    if time_filter:
+        now = datetime.now(timezone.utc)
+        if time_filter == 'daily': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
+        elif time_filter == 'weekly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(weeks=1))
+        elif time_filter == 'monthly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=30))
+    if filter_quarto:
+        esps_ids = [id for id, nome in embarcados_map.items() if nome == filter_quarto]
+        query = query.filter(ReceivedEvent.esp_id.in_(esps_ids)) if esps_ids else query.filter(False)
+    if filter_status: query = query.filter(ReceivedEvent.status == filter_status)
+    
+    # --- LÓGICA DE FILTRO ADICIONADA AQUI ---
+    if filter_action:
+        query = query.filter(ReceivedEvent.action == filter_action)
+
+    events = query.order_by(ReceivedEvent.data_on.desc()).all()
+
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["Data/Hora", "Nome do Crachá", "Quarto", "Status", "Ação", "RSSI"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+        action_map = {"GET": "Conectar", "OUT": "Desconectar"}
+
+        for e in events:
+            quarto = embarcados_map.get(e.esp_id, "Desconhecido")
+            nome_cracha = beacon_to_badge_name_map.get(e.cracha, e.cracha)
+            acao_traduzida = action_map.get(e.action, e.action)
+            writer.writerow([
+                e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
+                nome_cracha, quarto, e.status, acao_traduzida, e.rssi
+            ])
+            yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+    return StreamingResponse(
+        iter_csv(), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
+    )
+
 @app.get("/badges/download", name="download_badges_csv")
 def download_badges_csv(db: Session = Depends(get_db)):
-    # ... (código de download)
-    pass
+    # --- CORREÇÃO AQUI: Usa 'joinedload' para carregar o quarto junto ---
+    badges = db.query(Badge).options(joinedload(Badge.quarto)).order_by(Badge.nome_cracha).all()
+    
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["NOME DO CRACHÁ", "MAC BEACON", "QUARTO ATUAL"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        for badge in badges:
+            # --- CORREÇÃO AQUI: Acessa o nome do quarto de forma segura ---
+            quarto_nome = badge.quarto.nome if badge.quarto else ""
+            writer.writerow([badge.nome_cracha, badge.mac_beacon, quarto_nome])
+            yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+            
+    return StreamingResponse(
+        iter_csv(), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=crachas_export.csv"}
+    )
+
 @app.get("/embarcados/download", name="download_embarcados_csv")
 def download_embarcados_csv(db: Session = Depends(get_db)):
-    # ... (código de download)
-    pass
-
-
+    # --- CORREÇÃO AQUI: Usa 'joinedload' para carregar o quarto junto ---
+    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).order_by(Embarcado.id_esp).all()
+    
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        # --- CORREÇÃO AQUI: Remove a coluna 'ANDAR' que não existe mais ---
+        writer.writerow(["ID DO EMBARCADO", "QUARTO"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        for emb in embarcados:
+            # --- CORREÇÃO AQUI: Acessa o nome do quarto e remove 'andar' ---
+            quarto_nome = emb.quarto.nome if emb.quarto else ""
+            writer.writerow([emb.id_esp, quarto_nome])
+            yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+            
+    return StreamingResponse(
+        iter_csv(), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=embarcados_export.csv"}
+    )
 # ===================================================================
 # SEÇÃO 6: STARTUP, SHUTDOWN E TAREFAS EM BACKGROUND
 # ===================================================================

@@ -10,11 +10,6 @@
             <span class="nav-text">Histórico</span>
         </a>
 
-        <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
-            <i data-feather="home"></i>
-            <span class="nav-text">Quartos</span>
-        </a>
-
         <a href="{{ url_for('list_embarcados') }}" class="nav-item {% if 'embarcados' in request.url.path %}active{% endif %}" title="Embarcados">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/emb.svg') }})"></span>
             <span class="nav-text">Embarcados</span>
@@ -23,6 +18,11 @@
         <a href="{{ url_for('list_badges') }}" class="nav-item {% if 'badges' in request.url.path %}active{% endif %}" title="Crachás">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/cracha.svg') }})"></span>
             <span class="nav-text">Crachás</span>
+        </a>
+
+        <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
+            <span class="nav-text">Quartos</span>
         </a>
     </nav>
     <div class="sidebar-footer">
