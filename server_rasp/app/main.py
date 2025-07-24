@@ -22,10 +22,10 @@ from sqlalchemy import event, or_
 
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
-    engine, SessionLocal, Badge, Embarcado, Quarto,
+    engine, SessionLocal, Asset, Embarcado, Quarto,
     ReceivedEvent, GlobalSetting, init_db
 )
-from .services import trigger_mqtt_update_on_badge_change, synchronize_and_reset_esp
+from .services import trigger_mqtt_update_on_asset_change, synchronize_and_reset_esp
 from . import mqtt_client
 from .aggregator import main_aggregator_loop, enqueue_event
 from .config import settings
@@ -82,11 +82,11 @@ def get_db():
         db.close()
 
 # --- Listener de Eventos do Banco ---
-@event.listens_for(Badge, 'after_insert')
-@event.listens_for(Badge, 'after_delete')
-@event.listens_for(Badge, 'after_update')
-def structural_badge_change_listener(mapper, connection, target):
-    trigger_mqtt_update_on_badge_change()
+@event.listens_for(Asset, 'after_insert')
+@event.listens_for(Asset, 'after_delete')
+@event.listens_for(Asset, 'after_update')
+def structural_asset_change_listener(mapper, connection, target):
+    trigger_mqtt_update_on_asset_change()
 
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
@@ -124,12 +124,12 @@ def update_settings(request: Request, db: Session = Depends(get_db), rssi_thresh
 @app.post("/event", status_code=status.HTTP_202_ACCEPTED)
 async def receive_event(event_data: Dict, db: Session = Depends(get_db)):
     print(f"[main] Evento HTTP recebido: {event_data}")
-    required_keys = ["esp_id", "cracha", "status", "data_on"]
+    required_keys = ["esp_id", "ativo", "status", "data_on"]
     if not all(key in event_data for key in required_keys):
         raise HTTPException(status_code=400, detail="Payload do evento incompleto.")
     try:
         db_event = ReceivedEvent(
-            esp_id=event_data.get("esp_id"), cracha=event_data.get("cracha"), action=event_data.get("status"),
+            esp_id=event_data.get("esp_id"), ativo=event_data.get("ativo"), action=event_data.get("status"),
             status="Enfileirado", status_detail="Aguardando processamento pelo agregador",
             rssi=event_data.get("RSSI"), wifi=event_data.get("wifi"),
             data_on=datetime.fromisoformat(event_data.get("data_on").replace("Z", "+00:00")),
@@ -170,8 +170,8 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     if embarcado:
         # --- LÓGICA MULTI-CRACHÁ IMPLEMENTADA ---
         # Busca TODOS os crachás que estão no mesmo quarto que o embarcado.
-        badges_no_quarto = db.query(Badge).filter(Badge.quarto_id == embarcado.quarto_id).all()
-        macs_no_quarto = [b.mac_beacon for b in badges_no_quarto]
+        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
+        macs_no_quarto = [b.mac_beacon for b in assets_no_quarto]
         print(f"INFO: Para ESP '{esp_id}', encontrados {len(macs_no_quarto)} crachás no quarto ID {embarcado.quarto_id}: {macs_no_quarto}")
     else:
         print(f"AVISO: ESP com ID '{esp_id}' não cadastrado no sistema.")
@@ -191,34 +191,34 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
     """
     Exibe o dashboard de status dos quartos, com os crachás ordenados por hora de entrada.
     """
-    quartos_com_badges = db.query(Quarto).options(joinedload(Quarto.badges)).order_by(Quarto.id).all()
+    quartos_com_assets = db.query(Quarto).options(joinedload(Quarto.assets)).order_by(Quarto.id).all()
 
     # --- LÓGICA DE BUSCA E ORDENAÇÃO ---
-    for quarto in quartos_com_badges:
-        for badge in quarto.badges:
+    for quarto in quartos_com_assets:
+        for asset in quarto.assets:
             # 1. Busca o evento 'GET' mais recente para este crachá
             ultimo_evento_entrada = db.query(ReceivedEvent).filter(
-                ReceivedEvent.cracha == badge.mac_beacon,
+                ReceivedEvent.ativo == asset.mac_beacon,
                 ReceivedEvent.action == 'GET',
                 ReceivedEvent.status == 'OK'
             ).order_by(ReceivedEvent.data_on.desc()).first()
 
             if ultimo_evento_entrada:
                 # 2. Armazena a data como um objeto e como texto formatado
-                badge.data_entrada_obj = ultimo_evento_entrada.data_on
-                badge.data_entrada_str = ultimo_evento_entrada.data_on.strftime("%d/%m/%Y às %H:%M:%S")
+                asset.data_entrada_obj = ultimo_evento_entrada.data_on
+                asset.data_entrada_str = ultimo_evento_entrada.data_on.strftime("%d/%m/%Y às %H:%M:%S")
             else:
                 # Usa uma data muito antiga para garantir que fiquem no início
-                badge.data_entrada_obj = datetime.min.replace(tzinfo=timezone.utc)
-                badge.data_entrada_str = "Horário de entrada não registrado"
+                asset.data_entrada_obj = datetime.min.replace(tzinfo=timezone.utc)
+                asset.data_entrada_str = "Horário de entrada não registrado"
         
         # 3. --- CORREÇÃO ADICIONADA AQUI ---
         # Ordena a lista de crachás do quarto com base na data de entrada que acabamos de encontrar.
-        quarto.badges.sort(key=lambda b: b.data_entrada_obj)
+        quarto.assets.sort(key=lambda b: b.data_entrada_obj)
 
     return templates.TemplateResponse("quartos_list.html", {
         "request": request,
-        "quartos": quartos_com_badges
+        "quartos": quartos_com_assets
     })
 
 
@@ -318,75 +318,75 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
 # ===================================================================
 # SEÇÃO 4: CRUD PARA CRACHÁS
 # ===================================================================
-@app.get("/badges", name="list_badges")
-def list_badges(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    query = db.query(Badge).options(joinedload(Badge.quarto))
+@app.get("/assets", name="list_assets")
+def list_assets(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    query = db.query(Asset).options(joinedload(Asset.quarto))
     if search:
         query = query.filter(or_(
-            Badge.nome_cracha.ilike(f"%{search}%"),
-            Badge.mac_beacon.ilike(f"%{search}%"),
-            Badge.quarto.has(Quarto.nome.ilike(f"%{search}%"))
+            Asset.nome_ativo.ilike(f"%{search}%"),
+            Asset.mac_beacon.ilike(f"%{search}%"),
+            Asset.quarto.has(Quarto.nome.ilike(f"%{search}%"))
         ))
-    return templates.TemplateResponse("badges_list.html", {
-        "request": request, "badges": query.order_by(Badge.nome_cracha).all(),
-        "form_action": request.url_for("create_badge"), "badge": None, "search": search
+    return templates.TemplateResponse("assets_list.html", {
+        "request": request, "assets": query.order_by(Asset.nome_ativo).all(),
+        "form_action": request.url_for("create_asset"), "asset": None, "search": search
     })
 
-@app.post("/badges", name="create_badge")
-def create_badge(request: Request, nome_cracha: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
-    badge = Badge(nome_cracha=nome_cracha, mac_beacon=mac_beacon.lower())
+@app.post("/assets", name="create_asset")
+def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+    asset = Asset(nome_ativo=nome_ativo, mac_beacon=mac_beacon.lower())
     try:
-        db.add(badge)
+        db.add(asset)
         db.commit()
         # --- CORREÇÃO ADICIONADA ---
         # Notifica o sistema que a lista de crachás mudou.
-        trigger_mqtt_update_on_badge_change()
+        trigger_mqtt_update_on_asset_change()
     except IntegrityError:
         db.rollback()
-        print(f"[main-db] ERRO: Tentativa de criar crachá com nome ou MAC duplicado: {nome_cracha} / {mac_beacon.lower()}")
+        print(f"[main-db] ERRO: Tentativa de criar crachá com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
     except Exception as e:
         db.rollback()
         print(f"[main-db] ERRO ao criar crachá: {e}")
-    return RedirectResponse(request.url_for("list_badges"), status_code=303)
+    return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
-@app.get("/badges/{badge_id}/edit", name="edit_badge")
-def edit_badge(request: Request, badge_id: int, db: Session = Depends(get_db)):
+@app.get("/assets/{asset_id}/edit", name="edit_asset")
+def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     # Esta rota não precisa de mudanças, ela apenas exibe o formulário.
-    return templates.TemplateResponse("badges_list.html", {
-        "request": request, "badges": db.query(Badge).order_by(Badge.nome_cracha).all(),
-        "form_action": request.url_for("update_badge", badge_id=badge_id),
-        "badge": db.query(Badge).get(badge_id), "search": None
+    return templates.TemplateResponse("assets_list.html", {
+        "request": request, "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
+        "form_action": request.url_for("update_asset", asset_id=asset_id),
+        "asset": db.query(Asset).get(asset_id), "search": None
     })
 
-@app.post("/badges/{badge_id}/edit", name="update_badge")
-def update_badge(request: Request, badge_id: int, nome_cracha: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
-    badge = db.query(Badge).get(badge_id)
-    if badge:
+@app.post("/assets/{asset_id}/edit", name="update_asset")
+def update_asset(request: Request, asset_id: int, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+    asset = db.query(Asset).get(asset_id)
+    if asset:
         # --- LÓGICA DE VERIFICAÇÃO ADICIONADA ---
         # Verifica se o MAC mudou ANTES de salvar.
-        mac_mudou = badge.mac_beacon != mac_beacon.lower()
+        mac_mudou = asset.mac_beacon != mac_beacon.lower()
 
-        badge.nome_cracha = nome_cracha
-        badge.mac_beacon = mac_beacon.lower()
+        asset.nome_ativo = nome_ativo
+        asset.mac_beacon = mac_beacon.lower()
         db.commit()
 
         # --- CORREÇÃO ADICIONADA ---
         # Só dispara a atualização se o MAC realmente mudou.
         if mac_mudou:
-            trigger_mqtt_update_on_badge_change()
+            trigger_mqtt_update_on_asset_change()
             
-    return RedirectResponse(request.url_for("list_badges"), status_code=303)
+    return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
-@app.get("/badges/{badge_id}/delete", name="delete_badge")
-def delete_badge(request: Request, badge_id: int, db: Session = Depends(get_db)):
-    badge = db.query(Badge).get(badge_id)
-    if badge:
-        db.delete(badge)
+@app.get("/assets/{asset_id}/delete", name="delete_asset")
+def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
+    asset = db.query(Asset).get(asset_id)
+    if asset:
+        db.delete(asset)
         db.commit()
         # --- CORREÇÃO ADICIONADA ---
         # Notifica o sistema que um crachá foi removido.
-        trigger_mqtt_update_on_badge_change()
-    return RedirectResponse(request.url_for("list_badges"), status_code=303)
+        trigger_mqtt_update_on_asset_change()
+    return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 
 # ===================================================================
@@ -395,15 +395,15 @@ def delete_badge(request: Request, badge_id: int, db: Session = Depends(get_db))
 @app.get("/events", name="list_events")
 def list_events(
     request: Request, page: int = Query(1, ge=1),
-    filter_cracha: Optional[str] = Query(None), filter_quarto: Optional[str] = Query(None),
+    filter_ativo: Optional[str] = Query(None), filter_quarto: Optional[str] = Query(None),
     filter_action: Optional[str] = Query(None), filter_status: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None), db: Session = Depends(get_db)
 ):
     embarcados_map = {emb.id_esp: emb.quarto.nome for emb in db.query(Embarcado).options(joinedload(Embarcado.quarto)).all() if emb.quarto}
-    beacon_map = {b.mac_beacon: b.nome_cracha for b in db.query(Badge).filter(Badge.mac_beacon.isnot(None)).all()}
+    beacon_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
 
     query = db.query(ReceivedEvent)
-    if filter_cracha: query = query.filter(ReceivedEvent.cracha == filter_cracha)
+    if filter_ativo: query = query.filter(ReceivedEvent.ativo == filter_ativo)
     if filter_quarto:
         esps_ids = [id for id, nome in embarcados_map.items() if nome == filter_quarto]
         query = query.filter(ReceivedEvent.esp_id.in_(esps_ids)) if esps_ids else query.filter(False)
@@ -421,34 +421,34 @@ def list_events(
     for e in events:
         e.data_str = e.data_on.strftime("%d/%m/%Y"); e.hora_str = e.data_on.strftime("%H:%M:%S")
         e.quarto = embarcados_map.get(e.esp_id, "Desconhecido")
-        e.nome_cracha = beacon_map.get(e.cracha, e.cracha)
+        e.nome_ativo = beacon_map.get(e.ativo, e.ativo)
 
     return templates.TemplateResponse("events_list.html", {
         "request": request, "events": events, "page": page, "has_next": total > page * EVENT_PAGE_SIZE,
-        "all_badges": db.query(Badge.nome_cracha, Badge.mac_beacon).distinct().order_by(Badge.nome_cracha).all(),
+        "all_assets": db.query(Asset.nome_ativo, Asset.mac_beacon).distinct().order_by(Asset.nome_ativo).all(),
         "all_action_options": [("GET", "Conectar"), ("OUT", "Desconectar")],
         "all_status_options": ["OK", "Erro", "Enfileirado", "Ignorado", "Confirmado"],
         "all_quartos": sorted([q.nome for q in db.query(Quarto).order_by(Quarto.nome).all()]),
-        "current_filters": {"cracha": filter_cracha, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
+        "current_filters": {"ativo": filter_ativo, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
     })
 
 @app.get("/events/download", name="download_events_csv")
 def download_events_csv(
     db: Session = Depends(get_db),
     # Parâmetros de filtro, agora incluindo a AÇÃO
-    filter_cracha: Optional[str] = Query(None),
+    filter_ativo: Optional[str] = Query(None),
     filter_quarto: Optional[str] = Query(None),
     filter_status: Optional[str] = Query(None),
     filter_action: Optional[str] = Query(None), # <-- PARÂMETRO ADICIONADO
     time_filter: Optional[str] = Query(None)
 ):
     embarcados_map = {emb.id_esp: emb.quarto.nome for emb in db.query(Embarcado).options(joinedload(Embarcado.quarto)).all() if emb.quarto}
-    beacon_to_badge_name_map = {b.mac_beacon: b.nome_cracha for b in db.query(Badge).filter(Badge.mac_beacon.isnot(None)).all()}
+    beacon_to_asset_name_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
 
     query = db.query(ReceivedEvent)
 
     # Aplica todos os mesmos filtros da página de eventos
-    if filter_cracha: query = query.filter(ReceivedEvent.cracha == filter_cracha)
+    if filter_ativo: query = query.filter(ReceivedEvent.ativo == filter_ativo)
     if time_filter:
         now = datetime.now(timezone.utc)
         if time_filter == 'daily': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
@@ -475,11 +475,11 @@ def download_events_csv(
 
         for e in events:
             quarto = embarcados_map.get(e.esp_id, "Desconhecido")
-            nome_cracha = beacon_to_badge_name_map.get(e.cracha, e.cracha)
+            nome_ativo = beacon_to_asset_name_map.get(e.ativo, e.ativo)
             acao_traduzida = action_map.get(e.action, e.action)
             writer.writerow([
                 e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
-                nome_cracha, quarto, e.status, acao_traduzida, e.rssi
+                nome_ativo, quarto, e.status, acao_traduzida, e.rssi
             ])
             yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
@@ -488,25 +488,25 @@ def download_events_csv(
         headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
     )
 
-@app.get("/badges/download", name="download_badges_csv")
-def download_badges_csv(db: Session = Depends(get_db)):
+@app.get("/assets/download", name="download_assets_csv")
+def download_assets_csv(db: Session = Depends(get_db)):
     # --- CORREÇÃO AQUI: Usa 'joinedload' para carregar o quarto junto ---
-    badges = db.query(Badge).options(joinedload(Badge.quarto)).order_by(Badge.nome_cracha).all()
+    assets = db.query(Asset).options(joinedload(Asset.quarto)).order_by(Asset.nome_ativo).all()
     
     def iter_csv():
         buf = StringIO()
         writer = csv.writer(buf)
         writer.writerow(["NOME DO CRACHÁ", "MAC BEACON", "QUARTO ATUAL"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
-        for badge in badges:
+        for asset in assets:
             # --- CORREÇÃO AQUI: Acessa o nome do quarto de forma segura ---
-            quarto_nome = badge.quarto.nome if badge.quarto else ""
-            writer.writerow([badge.nome_cracha, badge.mac_beacon, quarto_nome])
+            quarto_nome = asset.quarto.nome if asset.quarto else ""
+            writer.writerow([asset.nome_ativo, asset.mac_beacon, quarto_nome])
             yield buf.getvalue(); buf.seek(0); buf.truncate(0)
             
     return StreamingResponse(
         iter_csv(), media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=crachas_export.csv"}
+        headers={"Content-Disposition": "attachment; filename=ativos_export.csv"}
     )
 
 @app.get("/embarcados/download", name="download_embarcados_csv")

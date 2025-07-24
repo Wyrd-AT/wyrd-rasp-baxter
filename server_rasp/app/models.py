@@ -20,24 +20,24 @@ class Quarto(Base):
     
     # Relações inversas para fácil acesso a partir de um objeto Quarto
     embarcados = relationship("Embarcado", back_populates="quarto")
-    badges     = relationship("Badge", back_populates="quarto")
+    assets     = relationship("Asset", back_populates="quarto")
 
 class GlobalSetting(Base):
     __tablename__ = "global_settings"
     key = Column(String, primary_key=True, index=True)
     value = Column(String, nullable=True)
 
-class Badge(Base):
-    __tablename__ = "badges"
+class Asset(Base):
+    __tablename__ = "assets"
     id          = Column(Integer, primary_key=True, index=True)
-    nome_cracha = Column(String, nullable=False, unique=True)
+    nome_ativo = Column(String, nullable=False, unique=True)
     mac_beacon  = Column(String, unique=True, nullable=False, index=True)
     
     # --- ALTERAÇÃO AQUI ---
     # 2. Substituímos o campo de texto 'quarto' por uma chave estrangeira.
     #    Um crachá pertence a um quarto (ou a nenhum, por isso 'nullable=True').
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
-    quarto = relationship("Quarto", back_populates="badges")
+    quarto = relationship("Quarto", back_populates="assets")
 
 
 class Embarcado(Base):
@@ -56,7 +56,7 @@ class ReceivedEvent(Base):
     __tablename__ = "received_events"
     id            = Column(Integer, primary_key=True, index=True)
     esp_id        = Column(String, nullable=False, index=True)
-    cracha        = Column(String, nullable=False, index=True)
+    ativo        = Column(String, nullable=False, index=True)
     action        = Column(String, nullable=False, index=True)    
     status        = Column(String, nullable=True, index=True)
     status_detail = Column(String, nullable=True)   

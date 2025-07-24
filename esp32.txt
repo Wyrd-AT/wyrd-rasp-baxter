@@ -15,7 +15,7 @@
 const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
 
 // --- Tópicos MQTT ---
-const char* MQTT_BADGE_LIST_TOPIC = "wyrd/eritel/badges/available";
+const char* MQTT_ASSET_LIST_TOPIC = "wyrd/eritel/assets/available";
 const char* MQTT_COMMAND_TOPIC = "wyrd/eritel/esp/all/command";
 String MQTT_VERDICT_TOPIC = "";
 String MQTT_INDIVIDUAL_COMMAND_TOPIC = "";
@@ -61,9 +61,9 @@ unsigned long emergencyCooldownStart = 0;
 bool inEmergencyCooldown = false;
 bool aguardandoVereditoGlobal = false; // <-- NOVO: Controla o estado de disputa
 
-#define MAX_LOCKED_BADGES 10
+#define MAX_LOCKED_ASSETS 10
 
-struct TargetBadge {
+struct TargetAsset {
     String mac = "";
     int rssiHistory[RSSI_HISTORY_SIZE];
     uint8_t index = 0;
@@ -72,20 +72,20 @@ struct TargetBadge {
     int mediaRSSI = -100;
 };
 
-struct LockedBadge {
+struct LockedAsset {
     String mac = "";
     bool confirmada = false;
     int rssiHistory[RSSI_HISTORY_SIZE];
     uint8_t index = 0;
     bool isFull = false;
     unsigned long inicioInerciaSaida = 0;
-} lockedBadge;
+} lockedAsset;
 
-LockedBadge lockedBadges[MAX_LOCKED_BADGES]; // <-- NOVO: Array para os crachás presentes
-int lockedBadgesCount = 0;    
+LockedAsset lockedAssets[MAX_LOCKED_ASSETS]; // <-- NOVO: Array para os crachás presentes
+int lockedAssetsCount = 0;    
 
-#define MAX_AVAILABLE_BADGES 50
-TargetBadge potentialTargets[MAX_AVAILABLE_BADGES];
+#define MAX_AVAILABLE_ASSETS 50
+TargetAsset potentialTargets[MAX_AVAILABLE_ASSETS];
 int potentialTargetsCount = 0;
 
 // ============ PROTÓTIPOS DE FUNÇÕES ============
@@ -96,7 +96,7 @@ void checkInitialState();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
 String obterDataAtualISO8601();
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi);
-void processarLogicaCracha();
+void processarLogicaAtivo();
 void configurarNTP();
 void reconnect_mqtt();
 
@@ -135,11 +135,11 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
         String foundMac = advertisedDevice.getAddress().toString().c_str();
 
         // --- MUDANÇA AQUI: Verifica a lista de crachás travados ---
-        for (int i = 0; i < lockedBadgesCount; i++) {
-            if (foundMac.equalsIgnoreCase(lockedBadges[i].mac)) {
-                lockedBadges[i].rssiHistory[lockedBadges[i].index] = advertisedDevice.getRSSI();
-                lockedBadges[i].index = (lockedBadges[i].index + 1) % RSSI_HISTORY_SIZE;
-                if (lockedBadges[i].index == 0) lockedBadges[i].isFull = true;
+        for (int i = 0; i < lockedAssetsCount; i++) {
+            if (foundMac.equalsIgnoreCase(lockedAssets[i].mac)) {
+                lockedAssets[i].rssiHistory[lockedAssets[i].index] = advertisedDevice.getRSSI();
+                lockedAssets[i].index = (lockedAssets[i].index + 1) % RSSI_HISTORY_SIZE;
+                if (lockedAssets[i].index == 0) lockedAssets[i].isFull = true;
                 return; // Encontrou o crachá, pode parar a busca
             }
         }
@@ -149,7 +149,7 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
 
         for (int i = 0; i < potentialTargetsCount; i++) {
             if (foundMac.equalsIgnoreCase(potentialTargets[i].mac)) {
-                TargetBadge &target = potentialTargets[i];
+                TargetAsset &target = potentialTargets[i];
                 target.rssiHistory[target.index] = advertisedDevice.getRSSI();
                 target.index = (target.index + 1) % RSSI_HISTORY_SIZE;
                 if (target.index == 0) target.isFull = true;
@@ -173,17 +173,17 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         // Usamos a flag global 'aguardandoVereditoGlobal'
         if (aguardandoVereditoGlobal && idTransacaoRecebida == idTransacaoAguardada) {
             const char* status = doc["status"];
-            String cracha_mac = doc["cracha"];
+            String ativo_mac = doc["ativo"];
             
-            if (strcmp(status, "WIN") == 0 && lockedBadgesCount < MAX_LOCKED_BADGES) {
-                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): VENCEU! Travando no crachá %s\n", idTransacaoRecebida, cracha_mac.c_str());
+            if (strcmp(status, "WIN") == 0 && lockedAssetsCount < MAX_LOCKED_ASSETS) {
+                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): VENCEU! Travando no crachá %s\n", idTransacaoRecebida, ativo_mac.c_str());
                 // Adiciona o novo crachá à lista de presentes
-                lockedBadges[lockedBadgesCount] = {}; // Reseta a struct para garantir que está limpa
-                lockedBadges[lockedBadgesCount].mac = cracha_mac;
-                lockedBadges[lockedBadgesCount].confirmada = true;
-                lockedBadgesCount++;
+                lockedAssets[lockedAssetsCount] = {}; // Reseta a struct para garantir que está limpa
+                lockedAssets[lockedAssetsCount].mac = ativo_mac;
+                lockedAssets[lockedAssetsCount].confirmada = true;
+                lockedAssetsCount++;
             } else {
-                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): PERDEU ou QUARTO CHEIO! Liberando o crachá %s\n", idTransacaoRecebida, cracha_mac.c_str());
+                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): PERDEU ou QUARTO CHEIO! Liberando o crachá %s\n", idTransacaoRecebida, ativo_mac.c_str());
             }
             // Reseta o estado de disputa
             aguardandoVereditoGlobal = false;
@@ -201,7 +201,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         if (doc.containsKey("type") && strcmp(doc["type"], "command") == 0 && doc.containsKey("data") && strcmp(doc["data"]["name"], "RESET_STATE") == 0) {
             Serial.println(">>> Comando 'RESET_STATE' recebido! Limpando estado.");
             // Limpa a lista de crachás e o estado de disputa
-            lockedBadgesCount = 0;
+            lockedAssetsCount = 0;
             aguardandoVereditoGlobal = false;
         }
         return;
@@ -219,7 +219,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     }
 
     // --- LÓGICA DA LISTA DE CRACHÁS DISPONÍVEIS (Mantida do seu código e adaptada) ---
-    if (topicStr == MQTT_BADGE_LIST_TOPIC) {
+    if (topicStr == MQTT_ASSET_LIST_TOPIC) {
         // Apenas adaptamos a condição de bloqueio para a nova flag global
         if (aguardandoVereditoGlobal) {
             return;
@@ -240,9 +240,9 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
             Serial.println(">>> Cooldown de emergência de 1 minuto iniciado.");
         } else {
             for (JsonVariant v : macArray) {
-                if (potentialTargetsCount < MAX_AVAILABLE_BADGES) {
+                if (potentialTargetsCount < MAX_AVAILABLE_ASSETS) {
                     String mac = v.as<String>();
-                    potentialTargets[potentialTargetsCount] = TargetBadge();
+                    potentialTargets[potentialTargetsCount] = TargetAsset();
                     potentialTargets[potentialTargetsCount].mac = mac;
                     // Serial.printf("  - Alvo %d: %s\n", potentialTargetsCount, mac.c_str()); // Descomente se precisar debugar
                     potentialTargetsCount++;
@@ -352,24 +352,24 @@ void loop() {
     }
     mqttClient.loop();
     BLEDevice::getScan()->start(BEACON_SCAN_TIME, false);
-    processarLogicaCracha();
+    processarLogicaAtivo();
     delay(500);
 }
 
 
 // Função auxiliar para remover um crachá da lista de travados
-void removerCrachaTravado(int index) {
-    if (index < 0 || index >= lockedBadgesCount) return;
+void removerAtivoTravado(int index) {
+    if (index < 0 || index >= lockedAssetsCount) return;
     
-    Serial.printf("Removendo crachá %s da lista de presentes.\n", lockedBadges[index].mac.c_str());
-    for (int i = index; i < lockedBadgesCount - 1; i++) {
-        lockedBadges[i] = lockedBadges[i + 1];
+    Serial.printf("Removendo crachá %s da lista de presentes.\n", lockedAssets[index].mac.c_str());
+    for (int i = index; i < lockedAssetsCount - 1; i++) {
+        lockedAssets[i] = lockedAssets[i + 1];
     }
-    lockedBadgesCount--;
+    lockedAssetsCount--;
 }
 
 // =================== LÓGICA DE DECISÃO PRINCIPAL ===================
-void processarLogicaCracha() {
+void processarLogicaAtivo() {
     unsigned long agora = millis();
 
     // 1. Lógica de Timeout do Veredito (agora global)
@@ -384,29 +384,29 @@ void processarLogicaCracha() {
     }
     
     // 2. Lógica de SAÍDA (itera sobre a lista de presentes)
-    for (int i = 0; i < lockedBadgesCount; i++) {
-        LockedBadge &badge = lockedBadges[i];
-        if (!badge.isFull) continue; // Só processa se tiver histórico de RSSI
+    for (int i = 0; i < lockedAssetsCount; i++) {
+        LockedAsset &asset = lockedAssets[i];
+        if (!asset.isFull) continue; // Só processa se tiver histórico de RSSI
 
         int soma = 0;
         for (int k = 0; k < RSSI_HISTORY_SIZE; k++) {
-            soma += badge.rssiHistory[k];
+            soma += asset.rssiHistory[k];
         }
         int mediaRSSI = soma / RSSI_HISTORY_SIZE;
-        Serial.printf("Monitorando crachá presente: %s | Média RSSI: %d\n", badge.mac.c_str(), mediaRSSI);
+        Serial.printf("Monitorando crachá presente: %s | Média RSSI: %d\n", asset.mac.c_str(), mediaRSSI);
 
         if (mediaRSSI < RSSI_THRESHOLD) {
-            if (badge.inicioInerciaSaida == 0) {
-                badge.inicioInerciaSaida = agora;
+            if (asset.inicioInerciaSaida == 0) {
+                asset.inicioInerciaSaida = agora;
             }
         } else {
-            badge.inicioInerciaSaida = 0; // Sinal forte, reseta a inércia
+            asset.inicioInerciaSaida = 0; // Sinal forte, reseta a inércia
         }
 
-        if (badge.inicioInerciaSaida > 0 && (agora - badge.inicioInerciaSaida > INERCIA_SAIDA)) {
-            Serial.printf(">>> Inércia de SAÍDA atingida para %s. Enviando evento OUT.\n", badge.mac.c_str());
-            if (enviarEventoHTTP(badge.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI())) {
-                removerCrachaTravado(i);
+        if (asset.inicioInerciaSaida > 0 && (agora - asset.inicioInerciaSaida > INERCIA_SAIDA)) {
+            Serial.printf(">>> Inércia de SAÍDA atingida para %s. Enviando evento OUT.\n", asset.mac.c_str());
+            if (enviarEventoHTTP(asset.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI())) {
+                removerAtivoTravado(i);
                 i--; // Decrementa o índice para compensar a remoção
             } else {
                 Serial.println("Falha ao reportar SAÍDA. Tentará novamente.");
@@ -416,7 +416,7 @@ void processarLogicaCracha() {
 
     // 3. Lógica de ENTRADA (busca por novos crachás)
     for (int i = 0; i < potentialTargetsCount; i++) {
-        TargetBadge &target = potentialTargets[i];
+        TargetAsset &target = potentialTargets[i];
         if (!target.isFull) continue;
         int soma = 0;
         for (int j = 0; j < RSSI_HISTORY_SIZE; j++) soma += target.rssiHistory[j];
@@ -433,7 +433,7 @@ void processarLogicaCracha() {
     int winnerIndex = -1;
     int bestRssiOfWinners = -1000;
     for (int i = 0; i < potentialTargetsCount; i++) {
-        TargetBadge &target = potentialTargets[i];
+        TargetAsset &target = potentialTargets[i];
         if (target.inicioInercia > 0 && (agora - target.inicioInercia > INERCIA_CHEGADA)) {
             if (target.mediaRSSI > bestRssiOfWinners) {
                 bestRssiOfWinners = target.mediaRSSI;
@@ -447,8 +447,8 @@ void processarLogicaCracha() {
 
         // --- VERIFICAÇÃO ADICIONAL CRÍTICA ---
         bool jaPresente = false;
-        for (int i = 0; i < lockedBadgesCount; i++) {
-            if (winnerMac.equalsIgnoreCase(lockedBadges[i].mac)) {
+        for (int i = 0; i < lockedAssetsCount; i++) {
+            if (winnerMac.equalsIgnoreCase(lockedAssets[i].mac)) {
                 jaPresente = true;
                 break;
             }
@@ -488,21 +488,21 @@ void checkInitialState() {
         // --- MUDANÇA AQUI: Processa a lista de MACs ---
         if (doc.containsKey("macs_beacons")) {
             JsonArray macArray = doc["macs_beacons"].as<JsonArray>();
-            lockedBadgesCount = 0; // Limpa a lista atual
+            lockedAssetsCount = 0; // Limpa a lista atual
             for (JsonVariant v : macArray) {
-                if (lockedBadgesCount < MAX_LOCKED_BADGES) {
+                if (lockedAssetsCount < MAX_LOCKED_ASSETS) {
                     String mac = v.as<String>();
-                    lockedBadges[lockedBadgesCount].mac = mac;
-                    lockedBadges[lockedBadgesCount].confirmada = true;
+                    lockedAssets[lockedAssetsCount].mac = mac;
+                    lockedAssets[lockedAssetsCount].confirmada = true;
                     // Reseta o histórico para começar a monitorar do zero
-                    memset(lockedBadges[lockedBadgesCount].rssiHistory, 0, sizeof(lockedBadges[lockedBadgesCount].rssiHistory));
-                    lockedBadges[lockedBadgesCount].index = 0;
-                    lockedBadges[lockedBadgesCount].isFull = false;
-                    lockedBadges[lockedBadgesCount].inicioInerciaSaida = 0;
-                    lockedBadgesCount++;
+                    memset(lockedAssets[lockedAssetsCount].rssiHistory, 0, sizeof(lockedAssets[lockedAssetsCount].rssiHistory));
+                    lockedAssets[lockedAssetsCount].index = 0;
+                    lockedAssets[lockedAssetsCount].isFull = false;
+                    lockedAssets[lockedAssetsCount].inicioInerciaSaida = 0;
+                    lockedAssetsCount++;
                 }
             }
-            Serial.printf("%d crachás pré-carregados no estado.\n", lockedBadgesCount);
+            Serial.printf("%d crachás pré-carregados no estado.\n", lockedAssetsCount);
         }
 
         if (doc.containsKey("rssi_threshold")) RSSI_THRESHOLD = doc["rssi_threshold"];
@@ -522,7 +522,7 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
     http.addHeader("Content-Type", "application/json");
     StaticJsonDocument<256> doc;
     doc["esp_id"] = idESP;
-    doc["cracha"] = mac;
+    doc["ativo"] = mac;
     doc["status"] = status;
     doc["RSSI"] = rssi;
     doc["wifi"] = wifi;
@@ -544,7 +544,7 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
 void reconnect_mqtt() {
     while (!mqttClient.connected()) {
         if (mqttClient.connect(idESP)) {
-            mqttClient.subscribe(MQTT_BADGE_LIST_TOPIC);
+            mqttClient.subscribe(MQTT_ASSET_LIST_TOPIC);
             mqttClient.subscribe(MQTT_COMMAND_TOPIC);
             mqttClient.subscribe(MQTT_VERDICT_TOPIC.c_str());
             mqttClient.subscribe(MQTT_INDIVIDUAL_COMMAND_TOPIC.c_str());

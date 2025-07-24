@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 
 # Importa as funções e modelos necessários
 from .dispatcher import dispatch_event_to_eritel
-from .models import SessionLocal, Badge, Embarcado, ReceivedEvent
-from .mqtt_client import publish_available_badges, publish_verdict # Importa a nova função de veredito
+from .models import SessionLocal, Asset, Embarcado, ReceivedEvent
+from .mqtt_client import publish_available_assets, publish_verdict # Importa a nova função de veredito
 
 # --- Configurações ---
 DISPUTE_WINDOW_SEC = 3  # Janela de 5 segundos para a disputa
@@ -66,18 +66,18 @@ async def _resolve_dispute(beacon_mac: str):
     # 3. Processa a lógica de associação para o vencedor
     db = SessionLocal()
     try:
-        badge = db.query(Badge).filter(Badge.mac_beacon == beacon_mac).first()
+        asset = db.query(Asset).filter(Asset.mac_beacon == beacon_mac).first()
         emb = db.query(Embarcado).filter(Embarcado.id_esp == winner_esp_id).first()
 
-        if badge and emb and badge.quarto != emb.quarto:
-            quarto_anterior = badge.quarto
-            badge.quarto = emb.quarto
+        if asset and emb and asset.quarto != emb.quarto:
+            quarto_anterior = asset.quarto
+            asset.quarto = emb.quarto
             db.commit()
-            publish_available_badges() # Atualiza a lista geral para todos
+            publish_available_assets() # Atualiza a lista geral para todos
             
             # Prepara e despacha o evento para a Eritel
             event_data = {
-                "cracha": badge.mac_beacon, "quarto": emb.quarto.nome,
+                "ativo": asset.mac_beacon, "quarto": emb.quarto.nome,
                 "data_evento": best_event.get("data_on"), "tipo_evento": "wyrd.ENTRADA"
             }
             success = await dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
@@ -88,11 +88,11 @@ async def _resolve_dispute(beacon_mac: str):
                 detail = f"Crachá associado ao quarto '{emb.quarto.nome}', mas a notificação para a Eritel falhou."
                 _update_event_status(best_event.get("event_id"), "Erro", detail)
 
-        elif badge and emb and badge.quarto == emb.quarto:
+        elif asset and emb and asset.quarto == emb.quarto:
              _update_event_status(best_event.get("event_id"), "Confirmado", f"Crachá já estava no quarto '{emb.quarto}'.")
         
-        else: # Caso badge ou embarcado não sejam encontrados
-            detail = f"Componente não cadastrado: {'Crachá' if not badge else 'ESP'}."
+        else: # Caso asset ou embarcado não sejam encontrados
+            detail = f"Componente não cadastrado: {'Crachá' if not asset else 'ESP'}."
             _update_event_status(best_event.get("event_id"), "Erro", detail)
 
     finally:
@@ -103,22 +103,22 @@ async def enqueue_event(evt: dict):
     """ Coloca um evento na fila de disputa ou o processa imediatamente se for 'OUT'. """
     print(f"[aggregator] Evento recebido: {evt}")
     event_id = evt.get("event_id")
-    beacon_mac = evt.get("cracha")
+    beacon_mac = evt.get("ativo")
 
     # --- Cenário de SAÍDA: Processamento imediato, tem prioridade sobre disputas "GET" ---
     if evt.get("status") == "OUT":
         db = SessionLocal()
         try:
-            badge = db.query(Badge).filter(Badge.mac_beacon == beacon_mac).first()
-            if badge and badge.quarto is not None:
-                quarto_anterior = badge.quarto
-                badge.quarto = None
+            asset = db.query(Asset).filter(Asset.mac_beacon == beacon_mac).first()
+            if asset and asset.quarto is not None:
+                quarto_anterior = asset.quarto
+                asset.quarto = None
                 db.commit()
-                publish_available_badges() # Notifica todos sobre a disponibilidade
+                publish_available_assets() # Notifica todos sobre a disponibilidade
                 
                 # Despacha o evento de SAÍDA
                 event_data = {
-                    "cracha": beacon_mac, "quarto": quarto_anterior.nome,
+                    "ativo": beacon_mac, "quarto": quarto_anterior.nome,
                     "data_evento": evt.get("data_on"), "tipo_evento": "wyrd.SAIDA"
                 }
                 success = await dispatch_event_to_eritel("wyrd.SAIDA", event_data)
@@ -127,7 +127,7 @@ async def enqueue_event(evt: dict):
                 else:
                     _update_event_status(event_id, "Erro", f"O crachá foi desassociado, mas a notificação para a Eritel falhou.")
                 
-            elif badge:
+            elif asset:
                  _update_event_status(event_id, "Confirmado", "Crachá já estava desassociado.")
             else:
                  _update_event_status(event_id, "Erro", f"Crachá com beacon '{beacon_mac}' não cadastrado.")

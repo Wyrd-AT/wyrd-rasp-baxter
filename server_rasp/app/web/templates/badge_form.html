@@ -1,14 +1,14 @@
 <div class="form-card">
-    <h3>{% if badge %}Editar Crachá{% else %}Cadastro de Crachá{% endif %}</h3>
+    <h3>{% if asset %}Editar Crachá{% else %}Cadastro de Crachá{% endif %}</h3>
     <form action="{{ form_action }}" method="post">
         <div class="form-group">
-            <label for="nome_cracha">Nome do Crachá</label>
-            <input type="text" id="nome_cracha" name="nome_cracha" value="{{ badge.nome_cracha if badge else '' }}" placeholder="Ex: Crachá Visitante 01" required>
+            <label for="nome_ativo">Nome do Crachá</label>
+            <input type="text" id="nome_ativo" name="nome_ativo" value="{{ asset.nome_ativo if asset else '' }}" placeholder="Ex: Crachá Visitante 01" required>
         </div>
         <div class="form-group">
             <label for="mac_beacon">MAC do Beacon</label>
-            <input type="text" id="mac_beacon" name="mac_beacon" value="{{ badge.mac_beacon if badge else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
+            <input type="text" id="mac_beacon" name="mac_beacon" value="{{ asset.mac_beacon if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
         </div>
-        <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if badge else 'Salvar' }}</button>
+        <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if asset else 'Salvar' }}</button>
     </form>
 </div>

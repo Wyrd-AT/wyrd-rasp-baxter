@@ -15,8 +15,8 @@
             <span class="nav-text">Embarcados</span>
         </a>
 
-        <a href="{{ url_for('list_badges') }}" class="nav-item {% if 'badges' in request.url.path %}active{% endif %}" title="Crachás">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/cracha.svg') }})"></span>
+        <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'assets' in request.url.path %}active{% endif %}" title="Crachás">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
             <span class="nav-text">Crachás</span>
         </a>
 

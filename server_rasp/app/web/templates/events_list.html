@@ -10,10 +10,10 @@
 
 <form class="filters-toolbar" method="get" action="{{ url_for('list_events') }}">
     <div class="filter-group-left">
-        <select name="filter_cracha" class="filter-dropdown-main" onchange="this.form.submit()">
+        <select name="filter_ativo" class="filter-dropdown-main" onchange="this.form.submit()">
             <option value="">Todos os Crachás</option>
-            {% for nome, mac in all_badges %}
-            <option value="{{ mac }}" {% if current_filters.cracha == mac %}selected{% endif %}>{{ nome }}</option>
+            {% for nome, mac in all_assets %}
+            <option value="{{ mac }}" {% if current_filters.ativo == mac %}selected{% endif %}>{{ nome }}</option>
             {% endfor %}
         </select>
     </div>
@@ -71,7 +71,7 @@
             <tr>
                 <td>{{ event.data_str }}</td>
                 <td>{{ event.hora_str }}</td>
-                <td>{{ event.nome_cracha }}</td>
+                <td>{{ event.nome_ativo }}</td>
                 <td>{{ event.quarto }}</td>
                 <td>
                     {% if event.action == 'GET' %}

@@ -22,7 +22,7 @@ def load_configuration():
         config['MQTT'] = {
             'MQTT_BROKER_HOST': '127.0.0.1',
             'MQTT_BROKER_PORT': '1883',
-            'MQTT_BADGE_LIST_TOPIC': 'wyrd/eritel/badges/available',
+            'MQTT_ASSET_LIST_TOPIC': 'wyrd/eritel/assets/available',
             'MQTT_ESP_COMMAND_TOPIC': 'wyrd/eritel/esp/all/command'
         }
         # Adicione outras seções se precisar, como a da Eritel

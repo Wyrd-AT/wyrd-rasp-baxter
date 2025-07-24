@@ -1,7 +1,7 @@
 # mqtt_client.py (versão corrigida com a função que faltava)
 import paho.mqtt.client as mqtt
 import json
-from .models import SessionLocal, Badge
+from .models import SessionLocal, Asset
 from .config import settings
 
 # --- ESTRUTURA ADICIONADA ---
@@ -10,21 +10,21 @@ _publish_queue = []
 # --- Cliente MQTT (sem alteração) ---
 client = mqtt.Client()
 
-def get_available_badges_macs():
+def get_available_assets_macs():
     """Busca no banco de dados os MACs de BEACONS dos crachás disponíveis."""
     db = SessionLocal()
     try:
-        available_badges = db.query(Badge.mac_beacon).filter(Badge.quarto_id.is_(None)).all()
-        mac_list = [mac for mac, in available_badges if mac]
+        available_assets = db.query(Asset.mac_beacon).filter(Asset.quarto_id.is_(None)).all()
+        mac_list = [mac for mac, in available_assets if mac]
         return mac_list
     finally:
         db.close()
 
-def publish_available_badges():
+def publish_available_assets():
     """Publica a lista de crachás disponíveis. Se offline, enfileira a publicação."""
-    mac_list = get_available_badges_macs()
+    mac_list = get_available_assets_macs()
     payload = json.dumps(mac_list)
-    topic = settings.get('mqtt_badge_list_topic')
+    topic = settings.get('mqtt_asset_list_topic')
 
     if not client.is_connected():
         print(f"[MQTT] Cliente não conectado. Enfileirando publicação para o tópico '{topic}'.")
@@ -43,7 +43,7 @@ def publish_verdict(esp_id: str, status: str, beacon_mac: str, transacao_id: int
     verdict_topic = f"wyrd/eritel/esp/{esp_id}/verdict"
     payload = json.dumps({
         "status": status,
-        "cracha": beacon_mac,
+        "ativo": beacon_mac,
         "transacao_id": transacao_id
     })
     
@@ -69,7 +69,7 @@ def on_connect(client, userdata, flags, rc):
     """Callback executado quando a conexão com o broker é (re)estabelecida."""
     if rc == 0:
         print("[MQTT] Conectado com sucesso ao Broker MQTT!")
-        publish_available_badges()
+        publish_available_assets()
 
         if _publish_queue:
             print(f"[MQTT] Enviando {_publish_queue.__len__()} mensagens da fila de espera...")
