@@ -1,5 +1,5 @@
 // ===================================================================================
-// = ERITEL - FIRMWARE v0.2.3 - VERSÃO ROBUSTA E FINAL                               =
+// = RTLS - FIRMWARE v0.3.1 - VERSÃO ROBUSTA E FINAL                               =
 // = Integra Timeout de Veredito, ID de Transação e Re-sincronização de Emergência   =
 // ===================================================================================
 
@@ -26,9 +26,9 @@ const char* TRIGGER_HOTSPOT_PASSWORD = "eritelconfig";
 const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
 
 // --- Variáveis de configuração ---
-char SERVER_IP[16]          = "192.168.0.5";
+char SERVER_IP[16]          = "10.0.0.149";
 char SERVER_PORT_STR[6]     = "8000";
-char MQTT_BROKER_HOST[16]   = "192.168.0.5";
+char MQTT_BROKER_HOST[16]   = "10.0.0.149";
 char MQTT_BROKER_PORT_STR[6]= "1883";
 uint16_t SERVER_PORT        = 8000;
 uint16_t MQTT_BROKER_PORT   = 1883;
@@ -59,6 +59,9 @@ uint32_t idTransacaoAguardada = 0;
 unsigned long inicioAguardandoVeredito = 0;
 unsigned long emergencyCooldownStart = 0;
 bool inEmergencyCooldown = false;
+bool aguardandoVereditoGlobal = false; // <-- NOVO: Controla o estado de disputa
+
+#define MAX_LOCKED_BADGES 10
 
 struct TargetBadge {
     String mac = "";
@@ -72,12 +75,14 @@ struct TargetBadge {
 struct LockedBadge {
     String mac = "";
     bool confirmada = false;
-    bool aguardandoVeredito = false;
     int rssiHistory[RSSI_HISTORY_SIZE];
     uint8_t index = 0;
     bool isFull = false;
     unsigned long inicioInerciaSaida = 0;
 } lockedBadge;
+
+LockedBadge lockedBadges[MAX_LOCKED_BADGES]; // <-- NOVO: Array para os crachás presentes
+int lockedBadgesCount = 0;    
 
 #define MAX_AVAILABLE_BADGES 50
 TargetBadge potentialTargets[MAX_AVAILABLE_BADGES];
@@ -128,14 +133,20 @@ void saveConfigCallback () {
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) override {
         String foundMac = advertisedDevice.getAddress().toString().c_str();
-        if (lockedBadge.confirmada) {
-            if (foundMac.equalsIgnoreCase(lockedBadge.mac)) {
-                lockedBadge.rssiHistory[lockedBadge.index] = advertisedDevice.getRSSI();
-                lockedBadge.index = (lockedBadge.index + 1) % RSSI_HISTORY_SIZE;
-                if (lockedBadge.index == 0) lockedBadge.isFull = true;
+
+        // --- MUDANÇA AQUI: Verifica a lista de crachás travados ---
+        for (int i = 0; i < lockedBadgesCount; i++) {
+            if (foundMac.equalsIgnoreCase(lockedBadges[i].mac)) {
+                lockedBadges[i].rssiHistory[lockedBadges[i].index] = advertisedDevice.getRSSI();
+                lockedBadges[i].index = (lockedBadges[i].index + 1) % RSSI_HISTORY_SIZE;
+                if (lockedBadges[i].index == 0) lockedBadges[i].isFull = true;
+                return; // Encontrou o crachá, pode parar a busca
             }
-            return;
         }
+
+        // Se não for um crachá travado, verifica os alvos potenciais (lógica inalterada)
+        if (aguardandoVereditoGlobal) return; // Não busca novos alvos durante uma disputa
+
         for (int i = 0; i < potentialTargetsCount; i++) {
             if (foundMac.equalsIgnoreCase(potentialTargets[i].mac)) {
                 TargetBadge &target = potentialTargets[i];
@@ -153,22 +164,29 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     Serial.printf("Mensagem recebida no tópico: %s\n", topic);
     String topicStr = String(topic);
 
+    // --- LÓGICA DE VEREDITO (Atualizada para multi-crachá) ---
     if (topicStr == MQTT_VERDICT_TOPIC) {
         StaticJsonDocument<128> doc;
         deserializeJson(doc, payload, length);
         uint32_t idTransacaoRecebida = doc["transacao_id"];
 
-        if (lockedBadge.aguardandoVeredito && idTransacaoRecebida == idTransacaoAguardada) {
+        // Usamos a flag global 'aguardandoVereditoGlobal'
+        if (aguardandoVereditoGlobal && idTransacaoRecebida == idTransacaoAguardada) {
             const char* status = doc["status"];
-            String cracha = doc["cracha"];
-            if (strcmp(status, "WIN") == 0) {
-                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): VENCEU! Travando no crachá %s\n", idTransacaoRecebida, cracha.c_str());
-                lockedBadge.confirmada = true;
+            String cracha_mac = doc["cracha"];
+            
+            if (strcmp(status, "WIN") == 0 && lockedBadgesCount < MAX_LOCKED_BADGES) {
+                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): VENCEU! Travando no crachá %s\n", idTransacaoRecebida, cracha_mac.c_str());
+                // Adiciona o novo crachá à lista de presentes
+                lockedBadges[lockedBadgesCount] = {}; // Reseta a struct para garantir que está limpa
+                lockedBadges[lockedBadgesCount].mac = cracha_mac;
+                lockedBadges[lockedBadgesCount].confirmada = true;
+                lockedBadgesCount++;
             } else {
-                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): PERDEU! Liberando o crachá %s\n", idTransacaoRecebida, cracha.c_str());
-                lockedBadge = {};
+                Serial.printf(">>> VEREDITO VÁLIDO (ID %u): PERDEU ou QUARTO CHEIO! Liberando o crachá %s\n", idTransacaoRecebida, cracha_mac.c_str());
             }
-            lockedBadge.aguardandoVeredito = false;
+            // Reseta o estado de disputa
+            aguardandoVereditoGlobal = false;
             idTransacaoAguardada = 0;
         } else {
             Serial.printf(">>> VEREDITO IGNORADO! ID esperado: %u, ID recebido: %u.\n", idTransacaoAguardada, idTransacaoRecebida);
@@ -176,16 +194,20 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         return;
     }
 
+    // --- LÓGICA DE COMANDO DE RESET (Atualizada para multi-crachá) ---
     if (topicStr == MQTT_INDIVIDUAL_COMMAND_TOPIC) {
         StaticJsonDocument<128> doc;
         deserializeJson(doc, payload, length);
         if (doc.containsKey("type") && strcmp(doc["type"], "command") == 0 && doc.containsKey("data") && strcmp(doc["data"]["name"], "RESET_STATE") == 0) {
             Serial.println(">>> Comando 'RESET_STATE' recebido! Limpando estado.");
-            lockedBadge = {};
+            // Limpa a lista de crachás e o estado de disputa
+            lockedBadgesCount = 0;
+            aguardandoVereditoGlobal = false;
         }
         return;
     }
 
+    // --- LÓGICA DE COMANDO GLOBAL (Mantida do seu código) ---
     if (topicStr == MQTT_COMMAND_TOPIC) {
         StaticJsonDocument<128> doc;
         deserializeJson(doc, payload, length);
@@ -196,15 +218,19 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         return;
     }
 
+    // --- LÓGICA DA LISTA DE CRACHÁS DISPONÍVEIS (Mantida do seu código e adaptada) ---
     if (topicStr == MQTT_BADGE_LIST_TOPIC) {
-        if (lockedBadge.confirmada || lockedBadge.aguardandoVeredito) {
+        // Apenas adaptamos a condição de bloqueio para a nova flag global
+        if (aguardandoVereditoGlobal) {
             return;
         }
+        
         potentialTargetsCount = 0;
         StaticJsonDocument<2048> doc;
         deserializeJson(doc, payload, length);
         JsonArray macArray = doc.as<JsonArray>();
 
+        // A sua lógica de emergência é ótima e foi mantida 100%
         if (macArray.size() == 0 && !inEmergencyCooldown) {
             Serial.println("\n>>> ALERTA: Lista de alvos vazia recebida! Possível dessincronização.");
             Serial.println(">>> Disparando GET de emergência para re-sincronizar...");
@@ -218,7 +244,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
                     String mac = v.as<String>();
                     potentialTargets[potentialTargetsCount] = TargetBadge();
                     potentialTargets[potentialTargetsCount].mac = mac;
-                    Serial.printf("  - Alvo %d: %s\n", potentialTargetsCount, mac.c_str());
+                    // Serial.printf("  - Alvo %d: %s\n", potentialTargetsCount, mac.c_str()); // Descomente se precisar debugar
                     potentialTargetsCount++;
                 }
             }
@@ -330,58 +356,65 @@ void loop() {
     delay(500);
 }
 
+
+// Função auxiliar para remover um crachá da lista de travados
+void removerCrachaTravado(int index) {
+    if (index < 0 || index >= lockedBadgesCount) return;
+    
+    Serial.printf("Removendo crachá %s da lista de presentes.\n", lockedBadges[index].mac.c_str());
+    for (int i = index; i < lockedBadgesCount - 1; i++) {
+        lockedBadges[i] = lockedBadges[i + 1];
+    }
+    lockedBadgesCount--;
+}
+
 // =================== LÓGICA DE DECISÃO PRINCIPAL ===================
 void processarLogicaCracha() {
     unsigned long agora = millis();
 
-    if (lockedBadge.aguardandoVeredito && (agora - inicioAguardandoVeredito > VEREDICT_TIMEOUT_MS)) {
-        Serial.println(">>> ERRO: Timeout! Veredito não recebido em 30 segundos. Resetando estado.");
-        lockedBadge = {};
+    // 1. Lógica de Timeout do Veredito (agora global)
+    if (aguardandoVereditoGlobal && (agora - inicioAguardandoVeredito > VEREDICT_TIMEOUT_MS)) {
+        Serial.println(">>> ERRO: Timeout! Veredito não recebido em 30 segundos. Resetando estado de disputa.");
+        aguardandoVereditoGlobal = false;
         idTransacaoAguardada = 0;
         return;
     }
-
-    if (lockedBadge.aguardandoVeredito) {
-        return;
+    if (aguardandoVereditoGlobal) {
+        return; // Se está esperando um veredito, não faz mais nada
     }
     
-    if (lockedBadge.confirmada) {
-        if (!lockedBadge.isFull) {
-            return;
-        }
+    // 2. Lógica de SAÍDA (itera sobre a lista de presentes)
+    for (int i = 0; i < lockedBadgesCount; i++) {
+        LockedBadge &badge = lockedBadges[i];
+        if (!badge.isFull) continue; // Só processa se tiver histórico de RSSI
 
         int soma = 0;
-        for (int i = 0; i < RSSI_HISTORY_SIZE; i++) {
-            soma += lockedBadge.rssiHistory[i];
+        for (int k = 0; k < RSSI_HISTORY_SIZE; k++) {
+            soma += badge.rssiHistory[k];
         }
         int mediaRSSI = soma / RSSI_HISTORY_SIZE;
-        Serial.printf("Monitorando cracha travado: %s | Média RSSI: %d\n", lockedBadge.mac.c_str(), mediaRSSI);
+        Serial.printf("Monitorando crachá presente: %s | Média RSSI: %d\n", badge.mac.c_str(), mediaRSSI);
 
         if (mediaRSSI < RSSI_THRESHOLD) {
-            if (lockedBadge.inicioInerciaSaida == 0) {
-                Serial.printf("Sinal fraco detectado. Iniciando contagem de inércia de SAÍDA (X ms).\n");
-                lockedBadge.inicioInerciaSaida = agora;
+            if (badge.inicioInerciaSaida == 0) {
+                badge.inicioInerciaSaida = agora;
             }
         } else {
-            if (lockedBadge.inicioInerciaSaida > 0) {
-                Serial.println("Sinal forte restaurado. Cancelando contagem de inércia de SAÍDA.");
-                lockedBadge.inicioInerciaSaida = 0;
-            }
+            badge.inicioInerciaSaida = 0; // Sinal forte, reseta a inércia
         }
 
-        if (lockedBadge.inicioInerciaSaida > 0 && (agora - lockedBadge.inicioInerciaSaida > INERCIA_SAIDA)) {
-            Serial.printf(">>> Inércia de SAÍDA atingida. Tratando como SAÍDA.\n");
-            bool sucesso = enviarEventoHTTP(lockedBadge.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI());
-            if (sucesso) {
-                Serial.println("SAÍDA reportada com sucesso. Liberando trava.");
-                lockedBadge = {}; // Reseta a struct
+        if (badge.inicioInerciaSaida > 0 && (agora - badge.inicioInerciaSaida > INERCIA_SAIDA)) {
+            Serial.printf(">>> Inércia de SAÍDA atingida para %s. Enviando evento OUT.\n", badge.mac.c_str());
+            if (enviarEventoHTTP(badge.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI())) {
+                removerCrachaTravado(i);
+                i--; // Decrementa o índice para compensar a remoção
             } else {
-                Serial.println("Falha ao reportar SAÍDA. Manterá a trava e tentará novamente.");
+                Serial.println("Falha ao reportar SAÍDA. Tentará novamente.");
             }
         }
-        return;
     }
 
+    // 3. Lógica de ENTRADA (busca por novos crachás)
     for (int i = 0; i < potentialTargetsCount; i++) {
         TargetBadge &target = potentialTargets[i];
         if (!target.isFull) continue;
@@ -410,11 +443,26 @@ void processarLogicaCracha() {
     }
 
     if (winnerIndex != -1) {
-        if (enviarEventoHTTP(potentialTargets[winnerIndex].mac.c_str(), "GET", potentialTargets[winnerIndex].mediaRSSI, WiFi.RSSI())) {
-            lockedBadge.mac = potentialTargets[winnerIndex].mac;
-            lockedBadge.aguardandoVeredito = true;
-            inicioAguardandoVeredito = millis(); // Inicia o timer para o timeout
-            potentialTargetsCount = 0;
+        String winnerMac = potentialTargets[winnerIndex].mac;
+
+        // --- VERIFICAÇÃO ADICIONAL CRÍTICA ---
+        bool jaPresente = false;
+        for (int i = 0; i < lockedBadgesCount; i++) {
+            if (winnerMac.equalsIgnoreCase(lockedBadges[i].mac)) {
+                jaPresente = true;
+                break;
+            }
+        }
+
+        if (!jaPresente) {
+            Serial.printf(">>> Vencedor detectado: %s. Enviando evento GET.\n", winnerMac.c_str());
+            if (enviarEventoHTTP(winnerMac.c_str(), "GET", potentialTargets[winnerIndex].mediaRSSI, WiFi.RSSI())) {
+                aguardandoVereditoGlobal = true;
+                inicioAguardandoVeredito = millis();
+                potentialTargetsCount = 0; // Limpa os alvos após iniciar a disputa
+            }
+        } else {
+            Serial.printf("Vencedor (%s) já está na lista de presentes. Ignorando.\n", winnerMac.c_str());
         }
     }
 }
@@ -423,20 +471,45 @@ void processarLogicaCracha() {
 void checkInitialState() {
     HTTPClient http;
     String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/esp/" + String(idESP) + "/config";
-    if (!http.begin(serverUrl)) return;
+    Serial.printf("Buscando configuração inicial em: %s\n", serverUrl.c_str());
+
+    if (!http.begin(serverUrl)) {
+        Serial.println("Falha ao iniciar HTTP para config.");
+        return;
+    }
+
     int httpResponseCode = http.GET();
     if (httpResponseCode == 200) {
         String payload = http.getString();
-        StaticJsonDocument<256> doc;
+        Serial.printf("Configuração recebida: %s\n", payload.c_str());
+        StaticJsonDocument<1024> doc; // Aumentar o tamanho para a lista
         deserializeJson(doc, payload);
-        const char* assignedMac = doc["mac_beacon"];
-        if (assignedMac != NULL) {
-            lockedBadge.mac = String(assignedMac);
-            lockedBadge.confirmada = true;
+
+        // --- MUDANÇA AQUI: Processa a lista de MACs ---
+        if (doc.containsKey("macs_beacons")) {
+            JsonArray macArray = doc["macs_beacons"].as<JsonArray>();
+            lockedBadgesCount = 0; // Limpa a lista atual
+            for (JsonVariant v : macArray) {
+                if (lockedBadgesCount < MAX_LOCKED_BADGES) {
+                    String mac = v.as<String>();
+                    lockedBadges[lockedBadgesCount].mac = mac;
+                    lockedBadges[lockedBadgesCount].confirmada = true;
+                    // Reseta o histórico para começar a monitorar do zero
+                    memset(lockedBadges[lockedBadgesCount].rssiHistory, 0, sizeof(lockedBadges[lockedBadgesCount].rssiHistory));
+                    lockedBadges[lockedBadgesCount].index = 0;
+                    lockedBadges[lockedBadgesCount].isFull = false;
+                    lockedBadges[lockedBadgesCount].inicioInerciaSaida = 0;
+                    lockedBadgesCount++;
+                }
+            }
+            Serial.printf("%d crachás pré-carregados no estado.\n", lockedBadgesCount);
         }
+
         if (doc.containsKey("rssi_threshold")) RSSI_THRESHOLD = doc["rssi_threshold"];
         if (doc.containsKey("inercia_chegada")) INERCIA_CHEGADA = doc["inercia_chegada"];
         if (doc.containsKey("inercia_saida")) INERCIA_SAIDA = doc["inercia_saida"];
+    } else {
+        Serial.printf("Erro na busca de config: %d\n", httpResponseCode);
     }
     http.end();
 }
