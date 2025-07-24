@@ -35,7 +35,7 @@ class Asset(Base):
     
     # --- ALTERAÇÃO AQUI ---
     # 2. Substituímos o campo de texto 'quarto' por uma chave estrangeira.
-    #    Um crachá pertence a um quarto (ou a nenhum, por isso 'nullable=True').
+    #    Um ativo pertence a um quarto (ou a nenhum, por isso 'nullable=True').
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
     quarto = relationship("Quarto", back_populates="assets")
 

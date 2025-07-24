@@ -1,4 +1,4 @@
-# main.py (Versão Final, Completa e Consolidada para Multi-Crachá)
+# main.py (Versão Final, Completa e Consolidada para Multi-Ativo)
 
 import asyncio
 import threading
@@ -31,7 +31,7 @@ from .aggregator import main_aggregator_loop, enqueue_event
 from .config import settings
 from .auth import authenticate_admin
 
-print("[main] Módulo carregado para a versão MULTI-CRACHÁ.")
+print("[main] Módulo carregado para a versão MULTI-ATIVO.")
 
 # --- Constantes e Configuração Inicial ---
 HISTORY_RETENTION_DAYS = 7
@@ -155,7 +155,7 @@ def get_global_settings(db: Session) -> dict:
 def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     """
     Retorna a configuração inicial para uma ESP específica.
-    - Lista de MACs de crachás que já estão no seu quarto.
+    - Lista de MACs de ativos que já estão no seu quarto.
     - Configurações globais de sensibilidade.
     """
     print(f"INFO: ESP '{esp_id}' solicitou sua configuração inicial.")
@@ -168,11 +168,11 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     
     macs_no_quarto = []
     if embarcado:
-        # --- LÓGICA MULTI-CRACHÁ IMPLEMENTADA ---
-        # Busca TODOS os crachás que estão no mesmo quarto que o embarcado.
+        # --- LÓGICA MULTI-ATIVO IMPLEMENTADA ---
+        # Busca TODOS os ativos que estão no mesmo quarto que o embarcado.
         assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
         macs_no_quarto = [b.mac_beacon for b in assets_no_quarto]
-        print(f"INFO: Para ESP '{esp_id}', encontrados {len(macs_no_quarto)} crachás no quarto ID {embarcado.quarto_id}: {macs_no_quarto}")
+        print(f"INFO: Para ESP '{esp_id}', encontrados {len(macs_no_quarto)} ativos no quarto ID {embarcado.quarto_id}: {macs_no_quarto}")
     else:
         print(f"AVISO: ESP com ID '{esp_id}' não cadastrado no sistema.")
 
@@ -189,14 +189,14 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
 @app.get("/quartos", name="list_quartos")
 def list_quartos(request: Request, db: Session = Depends(get_db)):
     """
-    Exibe o dashboard de status dos quartos, com os crachás ordenados por hora de entrada.
+    Exibe o dashboard de status dos quartos, com os ativos ordenados por hora de entrada.
     """
     quartos_com_assets = db.query(Quarto).options(joinedload(Quarto.assets)).order_by(Quarto.id).all()
 
     # --- LÓGICA DE BUSCA E ORDENAÇÃO ---
     for quarto in quartos_com_assets:
         for asset in quarto.assets:
-            # 1. Busca o evento 'GET' mais recente para este crachá
+            # 1. Busca o evento 'GET' mais recente para este ativo
             ultimo_evento_entrada = db.query(ReceivedEvent).filter(
                 ReceivedEvent.ativo == asset.mac_beacon,
                 ReceivedEvent.action == 'GET',
@@ -213,7 +213,7 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
                 asset.data_entrada_str = "Horário de entrada não registrado"
         
         # 3. --- CORREÇÃO ADICIONADA AQUI ---
-        # Ordena a lista de crachás do quarto com base na data de entrada que acabamos de encontrar.
+        # Ordena a lista de ativos do quarto com base na data de entrada que acabamos de encontrar.
         quarto.assets.sort(key=lambda b: b.data_entrada_obj)
 
     return templates.TemplateResponse("quartos_list.html", {
@@ -316,7 +316,7 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
 
 
 # ===================================================================
-# SEÇÃO 4: CRUD PARA CRACHÁS
+# SEÇÃO 4: CRUD PARA ATIVOS
 # ===================================================================
 @app.get("/assets", name="list_assets")
 def list_assets(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
@@ -339,14 +339,14 @@ def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str 
         db.add(asset)
         db.commit()
         # --- CORREÇÃO ADICIONADA ---
-        # Notifica o sistema que a lista de crachás mudou.
+        # Notifica o sistema que a lista de ativos mudou.
         trigger_mqtt_update_on_asset_change()
     except IntegrityError:
         db.rollback()
-        print(f"[main-db] ERRO: Tentativa de criar crachá com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
+        print(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
     except Exception as e:
         db.rollback()
-        print(f"[main-db] ERRO ao criar crachá: {e}")
+        print(f"[main-db] ERRO ao criar ativo: {e}")
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 @app.get("/assets/{asset_id}/edit", name="edit_asset")
@@ -384,7 +384,7 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
         db.delete(asset)
         db.commit()
         # --- CORREÇÃO ADICIONADA ---
-        # Notifica o sistema que um crachá foi removido.
+        # Notifica o sistema que um ativo foi removido.
         trigger_mqtt_update_on_asset_change()
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
@@ -468,7 +468,7 @@ def download_events_csv(
     def iter_csv():
         buf = StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["Data/Hora", "Nome do Crachá", "Quarto", "Status", "Ação", "RSSI"])
+        writer.writerow(["Data/Hora", "Nome do Ativo", "Quarto", "Status", "Ação", "RSSI"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
         action_map = {"GET": "Conectar", "OUT": "Desconectar"}
@@ -496,7 +496,7 @@ def download_assets_csv(db: Session = Depends(get_db)):
     def iter_csv():
         buf = StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["NOME DO CRACHÁ", "MAC BEACON", "QUARTO ATUAL"])
+        writer.writerow(["NOME DO ATIVO", "MAC BEACON", "QUARTO ATUAL"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
         for asset in assets:
             # --- CORREÇÃO AQUI: Acessa o nome do quarto de forma segura ---

@@ -11,7 +11,7 @@
 <form class="filters-toolbar" method="get" action="{{ url_for('list_events') }}">
     <div class="filter-group-left">
         <select name="filter_ativo" class="filter-dropdown-main" onchange="this.form.submit()">
-            <option value="">Todos os Crachás</option>
+            <option value="">Todos os Ativos</option>
             {% for nome, mac in all_assets %}
             <option value="{{ mac }}" {% if current_filters.ativo == mac %}selected{% endif %}>{{ nome }}</option>
             {% endfor %}
@@ -59,7 +59,7 @@
             <tr>
                 <th>DATA</th>
                 <th>HORA</th>
-                <th>CRACHÁ</th>
+                <th>ATIVO</th>
                 <th>QUARTO</th>
                 <th>AÇÃO</th>
                 <th>SINAL</th>

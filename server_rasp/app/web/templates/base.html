@@ -39,7 +39,7 @@
             overlay.addEventListener('click', toggleSidebar);
         }
 
-        // 3. Lógica de Interatividade da Tabela (para Crachás e Embarcados).
+        // 3. Lógica de Interatividade da Tabela (para Ativos e Embarcados).
         const table = document.querySelector('.data-table');
         // Só continua se a página atual TIVER uma tabela com a classe '.data-table'.
         if (table) {
@@ -68,7 +68,7 @@
                     const pageTitle = document.querySelector('h1').textContent.toLowerCase();
                     let editUrl = '';
 
-                    if (pageTitle.includes('crachás')) {
+                    if (pageTitle.includes('ativos')) {
                         editUrl = `/assets/${itemId}/edit`;
                     } else if (pageTitle.includes('embarcados')) {
                         editUrl = `/embarcados/${itemId}/edit`;
@@ -91,7 +91,7 @@
                         const pageTitle = document.querySelector('h1').textContent.toLowerCase();
                         let deleteUrl = '';
 
-                        if (pageTitle.includes('crachás')) {
+                        if (pageTitle.includes('ativos')) {
                             deleteUrl = `/assets/${itemId}/delete`; 
                         } else if (pageTitle.includes('embarcados')) {
                             deleteUrl = `/embarcados/${itemId}/delete`;

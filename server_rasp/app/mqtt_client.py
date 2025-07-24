@@ -11,7 +11,7 @@ _publish_queue = []
 client = mqtt.Client()
 
 def get_available_assets_macs():
-    """Busca no banco de dados os MACs de BEACONS dos crachás disponíveis."""
+    """Busca no banco de dados os MACs de BEACONS dos ativos disponíveis."""
     db = SessionLocal()
     try:
         available_assets = db.query(Asset.mac_beacon).filter(Asset.quarto_id.is_(None)).all()
@@ -21,7 +21,7 @@ def get_available_assets_macs():
         db.close()
 
 def publish_available_assets():
-    """Publica a lista de crachás disponíveis. Se offline, enfileira a publicação."""
+    """Publica a lista de ativos disponíveis. Se offline, enfileira a publicação."""
     mac_list = get_available_assets_macs()
     payload = json.dumps(mac_list)
     topic = settings.get('mqtt_asset_list_topic')
@@ -31,7 +31,7 @@ def publish_available_assets():
         _publish_queue.append({'topic': topic, 'payload': payload, 'qos': 1, 'retain': True})
         return
 
-    print(f"[MQTT] Publicando lista de CRACHÁS disponíveis no tópico '{topic}': {payload}")
+    print(f"[MQTT] Publicando lista de ATIVOS disponíveis no tópico '{topic}': {payload}")
     client.publish(topic, payload, qos=1, retain=True)
 
 def publish_verdict(esp_id: str, status: str, beacon_mac: str, transacao_id: int):
@@ -40,7 +40,7 @@ def publish_verdict(esp_id: str, status: str, beacon_mac: str, transacao_id: int
         print(f"[MQTT] Cliente não conectado. Abortando envio de veredito para {esp_id}.")
         return
 
-    verdict_topic = f"wyrd/eritel/esp/{esp_id}/verdict"
+    verdict_topic = f"wyrd/rtls/esp/{esp_id}/verdict"
     payload = json.dumps({
         "status": status,
         "ativo": beacon_mac,
@@ -58,7 +58,7 @@ def publish_command_to_esp(esp_id: str, command: dict):
         return
 
     # Este tópico deve ser compatível com o que o ESP espera
-    command_topic = f"wyrd/eritel/esp/{esp_id}/command"
+    command_topic = f"wyrd/rtls/esp/{esp_id}/command"
     payload = json.dumps(command)
 
     print(f"[MQTT] Enviando comando {payload} para a ESP '{esp_id}' no tópico '{command_topic}'")

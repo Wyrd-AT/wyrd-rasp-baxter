@@ -22,13 +22,13 @@ def load_configuration():
         config['MQTT'] = {
             'MQTT_BROKER_HOST': '127.0.0.1',
             'MQTT_BROKER_PORT': '1883',
-            'MQTT_ASSET_LIST_TOPIC': 'wyrd/eritel/assets/available',
-            'MQTT_ESP_COMMAND_TOPIC': 'wyrd/eritel/esp/all/command'
+            'MQTT_ASSET_LIST_TOPIC': 'wyrd/rtls/assets/available',
+            'MQTT_ESP_COMMAND_TOPIC': 'wyrd/rtls/esp/all/command'
         }
-        # Adicione outras seções se precisar, como a da Eritel
-        config['Eritel'] = {
-            'ERITEL_WEBHOOK_URL': 'https://webhook.site/03b4cb78-a3e5-4044-82b2-c5be823599e2',
-            'ERITEL_API_KEY': '2Jpjc2gJEe9U9fk5GnzrEUlnmBvxWBO6c5gA+O1JYXE='
+        # Adicione outras seções se precisar, como a da Rtls
+        config['Rtls'] = {
+            'RTLS_WEBHOOK_URL': 'https://webhook.site/03b4cb78-a3e5-4044-82b2-c5be823599e2',
+            'RTLS_API_KEY': '2Jpjc2gJEe9U9fk5GnzrEUlnmBvxWBO6c5gA+O1JYXE='
         }
         with open(CONFIG_FILE, 'w') as configfile:
             config.write(configfile)

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Gestão de Crachás{% endblock %}
+{% block title %}Gestão de Ativos{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Crachás</h1>
+    <h1>Ativos</h1>
     <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
 </div>
 
@@ -23,7 +23,7 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>NOME DO CRACHÁ</th>
+                    <th>NOME DO ATIVO</th>
                     <th>MAC BEACON</th>
                     <th>QUARTO ATUAL</th>
                 </tr>

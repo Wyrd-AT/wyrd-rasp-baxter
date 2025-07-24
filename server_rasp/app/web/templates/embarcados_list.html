@@ -35,7 +35,7 @@
                     <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
                     <td style="text-align: center;">
-                        <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP? Isso forçará a desassociação de qualquer crachá no quarto e reiniciará a ESP.');">
+                        <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP? Isso forçará a desassociação de qualquer ativo no quarto e reiniciará a ESP.');">
                             <button type="submit" class="btn-cancel" title="Forçar Reset de Estado">
                                 Resetar
                             </button>

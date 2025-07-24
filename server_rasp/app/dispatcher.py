@@ -9,17 +9,17 @@ def _exponential_backoff(attempt: int) -> int:
     return min(2 ** attempt, 60)
 
 # --- ALTERAÇÃO AQUI: A função agora é 'async def' ---
-async def dispatch_event_to_eritel(tipo_evento: str, event_data: dict) -> bool:
+async def dispatch_event_to_rtls(tipo_evento: str, event_data: dict) -> bool:
     """
-    Envia um evento formatado para a Eritel de forma assíncrona.
+    Envia um evento formatado para a Rtls de forma assíncrona.
     Retorna True em caso de sucesso (status 202) e False em caso de falha final.
     """
     headers = {
         "Content-Type": "application/json",
-        "X-API-Key": settings.get("eritel_api_key")
+        "X-API-Key": settings.get("rtls_api_key")
     }
     payload = { "tipoEvento": tipo_evento, "eventData": event_data }
-    print(f"[DISPATCHER] Preparando para enviar para Eritel: {payload}")
+    print(f"[DISPATCHER] Preparando para enviar para Rtls: {payload}")
 
     max_attempts = 5
     for attempt in range(1, max_attempts + 1):
@@ -29,13 +29,13 @@ async def dispatch_event_to_eritel(tipo_evento: str, event_data: dict) -> bool:
             # Mas para não adicionar novas dependências, a chamada síncrona aqui é rápida
             # e o principal ganho de performance vem do asyncio.sleep.
             response = requests.post(
-                settings.get("eritel_webhook_url"),
+                settings.get("rtls_webhook_url"),
                 headers=headers,
                 json=payload,
                 timeout=10
             )
             if response.status_code == 200:
-                print(f"[DISPATCHER] Sucesso! Evento '{tipo_evento}' aceito pela Eritel.")
+                print(f"[DISPATCHER] Sucesso! Evento '{tipo_evento}' aceito pela Rtls.")
                 return True
 
             if 400 <= response.status_code < 500:

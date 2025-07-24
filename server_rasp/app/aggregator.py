@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 
 # Importa as funções e modelos necessários
-from .dispatcher import dispatch_event_to_eritel
+from .dispatcher import dispatch_event_to_rtls
 from .models import SessionLocal, Asset, Embarcado, ReceivedEvent
 from .mqtt_client import publish_available_assets, publish_verdict # Importa a nova função de veredito
 
@@ -75,24 +75,24 @@ async def _resolve_dispute(beacon_mac: str):
             db.commit()
             publish_available_assets() # Atualiza a lista geral para todos
             
-            # Prepara e despacha o evento para a Eritel
+            # Prepara e despacha o evento para a Rtls
             event_data = {
                 "ativo": asset.mac_beacon, "quarto": emb.quarto.nome,
                 "data_evento": best_event.get("data_on"), "tipo_evento": "wyrd.ENTRADA"
             }
-            success = await dispatch_event_to_eritel("wyrd.ENTRADA", event_data)
+            success = await dispatch_event_to_rtls("wyrd.ENTRADA", event_data)
             if success:
-                detail = f"Crachá associado ao quarto '{emb.quarto.nome}' e evento de entrada enviado com sucesso."
+                detail = f"Ativo associado ao quarto '{emb.quarto.nome}' e evento de entrada enviado com sucesso."
                 _update_event_status(best_event.get("event_id"), "OK", detail)
             else:
-                detail = f"Crachá associado ao quarto '{emb.quarto.nome}', mas a notificação para a Eritel falhou."
+                detail = f"Ativo associado ao quarto '{emb.quarto.nome}', mas a notificação para a Rtls falhou."
                 _update_event_status(best_event.get("event_id"), "Erro", detail)
 
         elif asset and emb and asset.quarto == emb.quarto:
-             _update_event_status(best_event.get("event_id"), "Confirmado", f"Crachá já estava no quarto '{emb.quarto}'.")
+             _update_event_status(best_event.get("event_id"), "Confirmado", f"Ativo já estava no quarto '{emb.quarto}'.")
         
         else: # Caso asset ou embarcado não sejam encontrados
-            detail = f"Componente não cadastrado: {'Crachá' if not asset else 'ESP'}."
+            detail = f"Componente não cadastrado: {'Ativo' if not asset else 'ESP'}."
             _update_event_status(best_event.get("event_id"), "Erro", detail)
 
     finally:
@@ -121,16 +121,16 @@ async def enqueue_event(evt: dict):
                     "ativo": beacon_mac, "quarto": quarto_anterior.nome,
                     "data_evento": evt.get("data_on"), "tipo_evento": "wyrd.SAIDA"
                 }
-                success = await dispatch_event_to_eritel("wyrd.SAIDA", event_data)
+                success = await dispatch_event_to_rtls("wyrd.SAIDA", event_data)
                 if success:
-                    _update_event_status(event_id, "OK", f"Crachá desassociado e evento de saída enviado com sucesso para o quarto '{quarto_anterior}'.")
+                    _update_event_status(event_id, "OK", f"Ativo desassociado e evento de saída enviado com sucesso para o quarto '{quarto_anterior}'.")
                 else:
-                    _update_event_status(event_id, "Erro", f"O crachá foi desassociado, mas a notificação para a Eritel falhou.")
+                    _update_event_status(event_id, "Erro", f"O ativo foi desassociado, mas a notificação para a Rtls falhou.")
                 
             elif asset:
-                 _update_event_status(event_id, "Confirmado", "Crachá já estava desassociado.")
+                 _update_event_status(event_id, "Confirmado", "Ativo já estava desassociado.")
             else:
-                 _update_event_status(event_id, "Erro", f"Crachá com beacon '{beacon_mac}' não cadastrado.")
+                 _update_event_status(event_id, "Erro", f"Ativo com beacon '{beacon_mac}' não cadastrado.")
         finally:
             db.close()
         return # Encerra a função
@@ -139,8 +139,8 @@ async def enqueue_event(evt: dict):
     if evt.get("status") == "GET":
         async with _lock:
             if beacon_mac not in _dispute_windows:
-                # Primeiro evento para este crachá: abre a janela
-                print(f"[aggregator] Nova janela de disputa de {DISPUTE_WINDOW_SEC}s para o crachá '{beacon_mac}'.")
+                # Primeiro evento para este ativo: abre a janela
+                print(f"[aggregator] Nova janela de disputa de {DISPUTE_WINDOW_SEC}s para o ativo '{beacon_mac}'.")
                 _dispute_windows[beacon_mac] = []
                 # Agenda a resolução da disputa para daqui a X segundos
                 loop = asyncio.get_running_loop()

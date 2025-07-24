@@ -1,17 +1,17 @@
-# services.py (Versão final para multi-crachá)
+# services.py (Versão final para multi-ativo)
 from sqlalchemy.orm import Session, joinedload
 from .models import Asset, Embarcado, Quarto
 from . import mqtt_client
 
 def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | None):
     """
-    Função central para associar um CRACHÁ a um novo QUARTO (ou a nenhum).
+    Função central para associar um ATIVO a um novo QUARTO (ou a nenhum).
     Também notifica a ESP do quarto que está sendo desocupado.
     """
     try:
         asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
         if not asset:
-            print(f"[SERVICE] Crachá com ID {asset_id} não encontrado.")
+            print(f"[SERVICE] Ativo com ID {asset_id} não encontrado.")
             return
 
         quarto_anterior = asset.quarto
@@ -24,7 +24,7 @@ def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | Non
             asset.quarto_id = new_quarto_id
             db.commit()
 
-            print(f"[SERVICE] Crachá '{asset.nome_ativo}' movido do quarto '{quarto_anterior.nome if quarto_anterior else 'Nenhum'}' para o quarto ID '{new_quarto_id}'.")
+            print(f"[SERVICE] Ativo '{asset.nome_ativo}' movido do quarto '{quarto_anterior.nome if quarto_anterior else 'Nenhum'}' para o quarto ID '{new_quarto_id}'.")
 
             # Se um quarto ficou vago, precisamos notificar a ESP daquele quarto.
             if new_quarto_id is None and quarto_anterior is not None:
@@ -40,18 +40,18 @@ def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | Non
                 else:
                     print(f"[SERVICE] Nenhuma ESP encontrada no quarto '{quarto_anterior.nome}'. Nenhum reset enviado.")
 
-            # Sempre que uma associação muda, a lista de crachás disponíveis é atualizada
+            # Sempre que uma associação muda, a lista de ativos disponíveis é atualizada
             trigger_mqtt_update_on_asset_change()
 
     except Exception as e:
         db.rollback()
-        print(f"[SERVICE] ERRO ao atualizar crachá: {e}")
+        print(f"[SERVICE] ERRO ao atualizar ativo: {e}")
 
 
 def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     """
     Serviço completo para forçar um ESP e seu quarto a um estado limpo.
-    1. Desassocia TODOS os crachás que o servidor pensa estarem no quarto da ESP.
+    1. Desassocia TODOS os ativos que o servidor pensa estarem no quarto da ESP.
     2. Envia um comando RESET_STATE para a ESP.
     """
     try:
@@ -71,13 +71,13 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
         )
 
         # --- MUDANÇA PRINCIPAL AQUI ---
-        # 1. Encontra e desassocia TODOS os crachás no quarto.
+        # 1. Encontra e desassocia TODOS os ativos no quarto.
         assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
         
         if assets_no_quarto:
-            print(f"[SERVICE] Encontrados {len(assets_no_quarto)} crachás no quarto. Desassociando todos...")
+            print(f"[SERVICE] Encontrados {len(assets_no_quarto)} ativos no quarto. Desassociando todos...")
             for asset in assets_no_quarto:
-                print(f"[SERVICE] Desassociando crachá '{asset.nome_ativo}'...")
+                print(f"[SERVICE] Desassociando ativo '{asset.nome_ativo}'...")
                 # Usamos a função central, que já cuida da notificação MQTT
                 update_asset_assignment(db=db, asset_id=asset.id, new_quarto_id=None)
         else:
@@ -88,6 +88,6 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
 
 
 def trigger_mqtt_update_on_asset_change():
-    """Dispara a publicação da lista de crachás quando um é criado/deletado/alterado."""
-    print("[SERVICE] Estrutura de crachás alterada. Disparando atualização MQTT da lista.")
+    """Dispara a publicação da lista de ativos quando um é criado/deletado/alterado."""
+    print("[SERVICE] Estrutura de ativos alterada. Disparando atualização MQTT da lista.")
     mqtt_client.publish_available_assets()
