@@ -18,7 +18,14 @@ class Quarto(Base):
     id   = Column(Integer, primary_key=True, index=True)
     nome = Column(String, unique=True, nullable=False)
     
-    # Relações inversas para fácil acesso a partir de um objeto Quarto
+    # --- COLUNAS ADICIONADAS AQUI ---
+    # Adicionamos as colunas para armazenar a posição do quarto na planta.
+    # Usamos um 'default' para que os quartos existentes não fiquem com valor nulo.
+    pos_x = Column(Integer, default=10)
+    pos_y = Column(Integer, default=10)
+    # --- FIM DA ADIÇÃO ---
+    
+    # Relações inversas
     embarcados = relationship("Embarcado", back_populates="quarto")
     assets     = relationship("Asset", back_populates="quarto")
 

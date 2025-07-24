@@ -13,7 +13,8 @@ from typing import Optional, Dict, List
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware # IMPORTAR
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
@@ -73,6 +74,19 @@ seed_database()
 
 app = FastAPI(title="Wyrd-Baxter Connect")
 
+origins = [
+    "http://localhost:5173", # Endereço padrão do Vite
+    "http://localhost:3000", # Endereço padrão do Create React App
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # --- Dependência do Banco de Dados ---
 def get_db():
     db = SessionLocal()
@@ -91,6 +105,41 @@ def structural_asset_change_listener(mapper, connection, target):
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
 
+# app.mount(
+#     "/assets",
+#     StaticFiles(directory="../frontend/dist/assets"),
+#     name="react-assets"
+# )
+
+# ===================================================================
+# SEÇÃO DA API PARA O FRONTEND
+# ===================================================================
+@app.get("/api/v1/planta/dados", name="get_planta_data")
+def get_planta_data(db: Session = Depends(get_db)):
+    """
+    Este novo endpoint retorna os dados dos quartos em JSON para o React consumir.
+    """
+    quartos = db.query(Quarto).options(joinedload(Quarto.assets)).all()
+    # Pydantic faria a serialização de forma mais elegante, mas para um teste
+    # rápido, podemos construir o dicionário manualmente.
+    quartos_data = [
+        {
+            "id": q.id,
+            "nome": q.nome,
+            "pos_x": q.pos_x,
+            "pos_y": q.pos_y,
+            "assets_count": len(q.assets)
+        } for q in quartos
+    ]
+    return quartos_data
+
+@app.get("/planta", name="view_planta")
+def view_planta():
+    """
+    Esta rota agora serve como o ponto de entrada para a sua Single Page Application (SPA) React.
+    Ela simplesmente retorna o index.html gerado pelo build do Vite.
+    """
+    return FileResponse("../frontend/dist/index.html")
 
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
