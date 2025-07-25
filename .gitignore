@@ -49,3 +49,14 @@ lib64/
 
 # Logs
 *.log
+
+# Frontend dependencies
+frontend/node_modules/
+
+# Frontend build output
+frontend/dist/
+frontend/build/
+
+# Logs
+frontend/logs/
+frontend/*.log

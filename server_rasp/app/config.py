@@ -27,7 +27,7 @@ def load_configuration():
         }
         # Adicione outras seções se precisar, como a da Rtls
         config['Rtls'] = {
-            'RTLS_WEBHOOK_URL': 'https://webhook.site/03b4cb78-a3e5-4044-82b2-c5be823599e2',
+            'RTLS_WEBHOOK_URL': 'http://192.168.137.1:9000/api/events',
             'RTLS_API_KEY': '2Jpjc2gJEe9U9fk5GnzrEUlnmBvxWBO6c5gA+O1JYXE='
         }
         with open(CONFIG_FILE, 'w') as configfile:

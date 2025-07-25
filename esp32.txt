@@ -1,6 +1,6 @@
 // ===================================================================================
-// = RTLS - FIRMWARE v0.3.1 - VERSÃO ROBUSTA E FINAL                               =
-// = Integra Timeout de Veredito, ID de Transação e Re-sincronização de Emergência   =
+// = RTLS - FIRMWARE v0.3.2                               =
+// = NTP substituído pelo GET de Hora Local =
 // ===================================================================================
 
 #include <WiFi.h>
@@ -43,11 +43,6 @@ unsigned long INERCIA_SAIDA   = 15000;
 // --- Constantes de Resiliência ---
 const unsigned long VEREDICT_TIMEOUT_MS = 30000;
 const unsigned long EMERGENCY_COOLDOWN_MS = 60000;
-
-// --- Configurações NTP ---
-const char* NTP_SERVER        = "pool.ntp.org";
-const long  GMT_OFFSET_SEC    = -3 * 3600;
-const int   DAYLIGHT_OFFSET_SEC = 0;
 
 // ============ OBJETOS GLOBAIS E ESTRUTURAS DE DADOS ============
 WiFiClient wifiClient;
@@ -97,7 +92,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length);
 String obterDataAtualISO8601();
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi);
 void processarLogicaAtivo();
-void configurarNTP();
+void syncTimeFromServer();
 void reconnect_mqtt();
 
 // =================== LÓGICA DE CONFIGURAÇÃO ===================
@@ -263,7 +258,7 @@ void setup() {
     TRIGGER_HOTSPOT_SSID = "RTLS_" + String(idESP);
 
     Serial.println("\n==============================");
-    Serial.println("= EMBARCADO RTLS v0.2.3    =");
+    Serial.println("= EMBARCADO RTLS v0.3.2    =");
     Serial.println("==============================");
 
     WiFi.mode(WIFI_STA);
@@ -330,7 +325,7 @@ void setup() {
         }
         Serial.println("Wi-Fi conectado!");
 
-        configurarNTP();
+        syncTimeFromServer();
         BLEDevice::init("");
         BLEScan* pBLEScan = BLEDevice::getScan();
         pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
@@ -554,14 +549,52 @@ void reconnect_mqtt() {
     }
 }
 
-void configurarNTP() {
-    configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+// --- NOVA FUNÇÃO ---
+void syncTimeFromServer() {
+    Serial.println("Tentando sincronizar o tempo com o servidor local...");
+    HTTPClient http;
+    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/api/time";
+
+    if (http.begin(serverUrl)) {
+        int httpCode = http.GET();
+        if (httpCode == 200) {
+            String payload = http.getString();
+            StaticJsonDocument<64> doc;
+            deserializeJson(doc, payload);
+            long unix_time = doc["unix_time"];
+
+            if (unix_time > 0) {
+                // --- ALTERAÇÃO PARA FUSO HORÁRIO DO BRASIL ---
+                const long gmtOffset_sec = -3 * 3600; // -3 horas para o fuso de Brasília
+                const int daylightOffset_sec = 0;     // 0 pois o Brasil não adota mais horário de verão
+
+                configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org");
+                
+                timeval tv = { unix_time, 0 };
+                settimeofday(&tv, NULL);
+                // --- FIM DA ALTERAÇÃO ---
+
+                Serial.printf("Tempo sincronizado com sucesso! Timestamp UTC: %ld\n", unix_time);
+
+                struct tm timeinfo;
+                getLocalTime(&timeinfo);
+                Serial.printf("Verificação da hora local (Brasília): %02d:%02d:%02d\n", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+            }
+        } else {
+            Serial.printf("Falha ao buscar tempo do servidor. Código HTTP: %d\n", httpCode);
+        }
+        http.end();
+    } else {
+        Serial.println("Falha ao iniciar conexão HTTP para sincronização de tempo.");
+    }
 }
 
 String obterDataAtualISO8601() {
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) return "1970-01-01T00:00:00.000Z";
-    char buffer[30];
-    strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S.000Z", &timeinfo);
+    if (!getLocalTime(&timeinfo)) return "1970-01-01T00:00:00-03:00"; // Default com fuso
+    
+    char buffer[35]; // Aumentar um pouco o buffer para o fuso
+    strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S-03:00", &timeinfo);
+    
     return String(buffer);
 }

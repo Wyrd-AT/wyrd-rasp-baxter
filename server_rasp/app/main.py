@@ -20,6 +20,10 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import event, or_
 
+from sqladmin import Admin, ModelView
+from sqladmin.authentication import AuthenticationBackend
+from starlette.requests import Request as StarletteRequest
+
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
@@ -49,6 +53,25 @@ static_path = os.path.join(base_path, "web/static")
 
 init_db()
 
+class AdminAuth(AuthenticationBackend):
+    async def login(self, request: StarletteRequest) -> bool:
+        form = await request.form()
+        username, password = form["username"], form["password"]
+
+        # Credenciais definidas diretamente no código, como solicitado
+        if username == "admin" and password == "wyrd":
+            request.session.update({"token": "admin_logged_in"})
+            return True
+        return False
+
+    async def logout(self, request: StarletteRequest) -> bool:
+        request.session.clear()
+        return True
+
+    async def authenticate(self, request: StarletteRequest) -> bool:
+        return "token" in request.session
+
+authentication_backend = AdminAuth(secret_key="W753y@r159d")
 
 def seed_database():
     db = SessionLocal()
@@ -73,6 +96,48 @@ seed_database()
 
 app = FastAPI(title="Wyrd-Baxter Connect")
 
+admin = Admin(app, engine, authentication_backend=authentication_backend)
+
+# Define como cada tabela será exibida no admin
+class AssetAdmin(ModelView, model=Asset):
+    column_list = [Asset.id, Asset.nome_ativo, Asset.mac_beacon, Asset.quarto]
+    column_searchable_list = [Asset.nome_ativo, Asset.mac_beacon]
+    name = "Ativo"
+    name_plural = "Ativos"
+    icon = "fa-solid fa-tag"
+
+class EmbarcadoAdmin(ModelView, model=Embarcado):
+    column_list = [Embarcado.id, Embarcado.id_esp, Embarcado.quarto]
+    column_searchable_list = [Embarcado.id_esp]
+    name = "Embarcado"
+    name_plural = "Embarcados"
+    icon = "fa-solid fa-microchip"
+
+class QuartoAdmin(ModelView, model=Quarto):
+    column_list = [Quarto.id, Quarto.nome]
+    name = "Quarto"
+    name_plural = "Quartos"
+    icon = "fa-solid fa-door-closed"
+
+class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
+    can_create = False
+    can_edit = False
+    column_list = [
+        ReceivedEvent.id, ReceivedEvent.data_on, ReceivedEvent.ativo,
+        ReceivedEvent.action, ReceivedEvent.status, ReceivedEvent.rssi
+    ]
+    column_searchable_list = [ReceivedEvent.ativo, ReceivedEvent.esp_id]
+    column_sortable_list = [ReceivedEvent.id, ReceivedEvent.data_on]
+    name = "Evento Recebido"
+    name_plural = "Eventos Recebidos"
+    icon = "fa-solid fa-list-ul"
+
+# Adiciona as views ao painel de admin
+admin.add_view(AssetAdmin)
+admin.add_view(EmbarcadoAdmin)
+admin.add_view(QuartoAdmin)
+admin.add_view(ReceivedEventAdmin)
+
 # --- Dependência do Banco de Dados ---
 def get_db():
     db = SessionLocal()
@@ -95,6 +160,14 @@ templates = Jinja2Templates(directory=templates_path)
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
+
+@app.get("/api/time", name="get_server_time")
+def get_server_time():
+    """
+    Endpoint para que os ESPs possam sincronizar seu relógio.
+    Retorna o tempo atual do servidor como um timestamp Unix (segundos desde 1970).
+    """
+    return {"unix_time": int(time.time())}
 
 @app.get("/", name="main")
 def main_page(request: Request):
