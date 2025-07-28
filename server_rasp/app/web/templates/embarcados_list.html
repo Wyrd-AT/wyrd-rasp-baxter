@@ -13,11 +13,17 @@
         <div class="table-toolbar">
             <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
                 <input type="text" name="search" placeholder="Buscar por ID ou Quarto..." value="{{ search or '' }}">
-                <button type="submit" class="icon-btn" title="Pesquisar"><i data-feather="search"></i></button>
+                <button type="submit" class="icon-btn" title="Pesquisar">
+                    <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
+                </button>            
             </form>
             <div class="toolbar-actions">
-                <button type="button" class="icon-btn" title="Editar"><i data-feather="edit-2"></i></button>
-                <button type="button" class="icon-btn" title="Apagar"><i data-feather="trash-2"></i></button>
+                <button type="submit" class="icon-btn" title="Editar">
+                                    <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span>
+                                </button>
+                <button type="submit" class="icon-btn" title="Apagar">
+                    <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lixeira.svg') }})"></span>
+                </button> 
             </div>
         </div>
 

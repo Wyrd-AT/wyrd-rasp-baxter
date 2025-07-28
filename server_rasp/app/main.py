@@ -542,7 +542,7 @@ def edit_embarcado(request: Request, id_esp: str, db: Session = Depends(get_db))
 @app.post("/embarcados/{id_esp}/edit", name="update_embarcado")
 def update_embarcado_html(request: Request, id_esp: str, quarto: str = Form(...), db: Session = Depends(get_db)):
     emb = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
-    emb.quarto = quarto,
+    emb.quarto = quarto
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
