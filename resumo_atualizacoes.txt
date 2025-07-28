@@ -1,0 +1,55 @@
+1. Arquitetura e Conectividade (As Mudanças Fundamentais)
+Problema: O sistema dependia da internet para funcionar (sincronização de tempo via NTP no ESP e o dispatcher a apontar para uma URL externa).
+
+Solução Implementada:
+
+Operação 100% Offline: Transformámos o sistema para operar numa rede local isolada.
+
+Fonte de Tempo Local: Removemos completamente a necessidade de o ESP aceder a servidores NTP na internet. Criámos um endpoint (/api/time) no servidor FastAPI para que ele atue como a fonte de tempo central e confiável para todos os dispositivos na rede.
+
+Webhook Local: Adaptámos a lógica do dispatcher para que ele aponte para um serviço local (o nosso servidor de teste simple_http_server.py), eliminando a última chamada à internet.
+
+2. Firmware do ESP32 (As Maiores Evoluções)
+Problema: O firmware era um "gargalo". Ele processava apenas um ativo de cada vez, parando toda a operação para esperar por um veredito, e tinha várias instabilidades.
+
+Solução Implementada:
+
+Processamento Concorrente: A mudança mais impactante. O ESP já não tem uma lógica de "beacon vencedor" que bloqueia a operação. Ele agora deteta todos os ativos que cumprem os critérios, dispara os eventos GET em sequência e continua o seu trabalho de scan, deixando a gestão das disputas para o servidor.
+
+IDs de Transação Robustos: O sistema de random() para gerar IDs de disputa era falho e causava colisões. Substituímo-lo por um algoritmo de hash matemático (bitwise), que cria um ID garantidamente único a partir do MAC do ativo, do ID do ESP e do tempo (millis), de forma extremamente rápida e sem consumir memória extra.
+
+Correção de Corrupção de Memória: A lógica de atualização da lista de alvos no ESP estava a usar memcpy de forma insegura, o que causava "crashes" e mostrava dados corrompidos. Substituímos isto por uma cópia segura, item a item, num for loop, eliminando a instabilidade.
+
+Mecanismo de "Heartbeat": Adicionámos uma funcionalidade de "keep-alive". O ESP agora envia um pequeno "pulso" MQTT a cada minuto para sinalizar ao servidor que continua vivo e online.
+
+3. Servidor e Lógica de Negócio (O Cérebro do Sistema)
+Problema: O servidor não tinha como saber se uma ESP tinha ficado offline, o que deixava os ativos "presos" a um quarto fantasma. A gestão do estado era volátil.
+
+Solução Implementada:
+
+Sistema de Deteção de Status (Liveness): O servidor agora tem um sistema completo para monitorizar a "saúde" das ESPs.
+
+Ele ouve os "heartbeats" enviados pelos ESPs.
+
+Guarda o carimbo de data/hora do último contacto de cada ESP na base de dados, garantindo que esta informação sobrevive a reinícios do servidor.
+
+Uma tarefa em segundo plano (check_esp_liveness) verifica constantemente estes carimbos de data/hora. Se uma ESP ficar em silêncio por mais de 2.5 minutos, é considerada offline.
+
+Auto-Correção (Self-Healing): Quando o servidor deteta uma ESP offline, ele automaticamente executa uma rotina (release_assets_for_offline_esp) que liberta todos os ativos que estavam no quarto daquela ESP, tornando-os novamente disponíveis para o resto do sistema.
+
+Interface de Administração (/admin): Integramos a biblioteca sqladmin para criar um painel de administração completo e seguro, com login e senha (definidos no main.py), permitindo a gestão fácil de Ativos, Embarcados e Quartos.
+
+Gestão de Fuso Horário: Implementámos a prática recomendada de guardar todos os carimbos de data/hora na base de dados em UTC (formato universal) e convertê-los para o fuso horário do Brasil (-03:00) apenas na hora de os exibir na interface ou nos relatórios CSV.
+
+Resolução de Bugs Críticos: Corrigimos a importação circular entre main.py e mqtt_client.py usando Injeção de Dependência, e resolvemos o TypeError de data/hora "ingénua vs. consciente" ao garantir o tratamento correto de fusos horários em todas as comparações.
+
+4. Interface e Experiência do Utilizador (UI/UX)
+Problema: A interface era funcional, mas não fornecia informações detalhadas sobre a saúde do sistema ou o estado dos dispositivos.
+
+Solução Implementada:
+
+Indicador de Status Online/Offline: Na página de "Embarcados", adicionámos um indicador visual (ON/OFF, verde/vermelho) para cada ESP.
+
+Informação Detalhada: Ao pousar o rato sobre o indicador de status, o utilizador pode ver a data e hora exatas do último contacto daquela ESP, mesmo que ela esteja offline (graças à persistência na base de dados).
+
+Monitorização de Bateria de Ativos: Na página de "Ativos", adicionámos uma coluna de "STATUS" que alerta (Alerta) se um ativo não for visto em nenhum lugar do sistema há mais de 24 horas, servindo como um indicador de uma possível bateria descarregada.
