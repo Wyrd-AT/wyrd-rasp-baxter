@@ -86,6 +86,41 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     except Exception as e:
         print(f"[SERVICE] ERRO durante a sincronização e reset da ESP ID '{embarcado_id}': {e}")
 
+def release_assets_for_offline_esp(db: Session, esp_id: str):
+    """
+    Liberta todos os ativos associados a uma ESP que ficou offline.
+    """
+    try:
+        # Encontra o embarcado e o seu quarto
+        embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
+        if not embarcado or not embarcado.quarto_id:
+            print(f"[SERVICE-LIVENESS] ESP {esp_id} offline, mas não foi encontrado ou não tinha quarto associado.")
+            return
+
+        quarto_id = embarcado.quarto_id
+        quarto_nome = embarcado.quarto.nome
+        print(f"[SERVICE-LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Libertando seus ativos...")
+
+        # Encontra todos os ativos naquele quarto e os desassocia
+        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id).all()
+        
+        if not assets_no_quarto:
+            print(f"[SERVICE-LIVENESS] Quarto {quarto_nome} já estava vazio. Nenhuma ação necessária.")
+            return
+
+        for asset in assets_no_quarto:
+            print(f"[SERVICE-LIVENESS] Libertando ativo '{asset.nome_ativo}'...")
+            asset.quarto_id = None
+        
+        db.commit()
+        print(f"[SERVICE-LIVENESS] {len(assets_no_quarto)} ativos do quarto {quarto_nome} foram libertados.")
+        
+        # Dispara a atualização MQTT para que outras ESPs saibam dos novos ativos disponíveis
+        trigger_mqtt_update_on_asset_change()
+
+    except Exception as e:
+        db.rollback()
+        print(f"[SERVICE-LIVENESS] ERRO ao libertar ativos da ESP {esp_id}: {e}")
 
 def trigger_mqtt_update_on_asset_change():
     """Dispara a publicação da lista de ativos quando um é criado/deletado/alterado."""

@@ -307,3 +307,23 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
     color: var(--primary-color);
     margin-right: 0.75rem;
 }
+
+/* style.css */
+
+/* --- Estilos para o Indicador de Status Online/Offline --- */
+.status-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.status-indicator.online {
+    background-color: #28a745; /* Verde */
+}
+
+.status-indicator.offline {
+    background-color: #dc3545; /* Vermelho */
+}

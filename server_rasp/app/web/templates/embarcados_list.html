@@ -26,7 +26,7 @@
                 <tr>
                     <th>ID do Embarcado</th>
                     <th>QUARTO</th>
-                    <th style="text-align: center;">AÇÕES</th>
+                    <th>STATUS</th> <th style="text-align: center;">AÇÕES</th>
                 </tr>
             </thead>
             <tbody>
@@ -34,8 +34,16 @@
                 <tr class="selectable-row" data-id="{{ emb.id }}">
                     <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
+                    
+                    <td>
+                        {% if emb.status == 'Online' %}
+                            <span class="status-indicator online" title="Último contato {{ emb.last_seen }}"></span> ON
+                        {% else %}
+                            <span class="status-indicator offline" title="Último contato: {{ emb.last_seen }}"></span> OFF
+                        {% endif %}
+                    </td>
                     <td style="text-align: center;">
-                        <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP? Isso forçará a desassociação de qualquer ativo no quarto e reiniciará a ESP.');">
+                        <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP?');">
                             <button type="submit" class="btn-cancel" title="Forçar Reset de Estado">
                                 Resetar
                             </button>

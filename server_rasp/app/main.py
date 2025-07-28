@@ -29,7 +29,7 @@ from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
     ReceivedEvent, GlobalSetting, init_db
 )
-from .services import trigger_mqtt_update_on_asset_change, synchronize_and_reset_esp
+from .services import trigger_mqtt_update_on_asset_change, synchronize_and_reset_esp, release_assets_for_offline_esp
 from . import mqtt_client
 from .aggregator import main_aggregator_loop, enqueue_event
 from .config import settings
@@ -218,6 +218,35 @@ async def receive_event(event_data: Dict, db: Session = Depends(get_db)):
         print(f"[main-db] ERRO CRÍTICO ao salvar evento recebido: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao processar e salvar o evento: {e}")
 
+LIVENESS_CHECK_INTERVAL_SEC = 30
+ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
+
+async def check_esp_liveness():
+    """
+    Tarefa de background que verifica periodicamente o último heartbeat de cada ESP.
+    """
+    await asyncio.sleep(10) # Espera inicial para as coisas estabilizarem
+    while True:
+        await asyncio.sleep(LIVENESS_CHECK_INTERVAL_SEC)
+        
+        now = datetime.now().timestamp()
+        esps_offline = [
+            esp_id for esp_id, last_beat in list(mqtt_client.esp_heartbeats.items())
+            if now - last_beat > ESP_TIMEOUT_SEC
+        ]
+
+        if esps_offline:
+            print(f"[LIVENESS] ESPs considerados offline por timeout: {esps_offline}")
+            db = SessionLocal()
+            try:
+                for esp_id in esps_offline:
+                    release_assets_for_offline_esp(db, esp_id)
+                    # Remove o ESP da lista para não processar de novo até que um novo heartbeat chegue
+                    if esp_id in mqtt_client.esp_heartbeats:
+                        del mqtt_client.esp_heartbeats[esp_id]
+            finally:
+                db.close()
+
 def get_global_settings(db: Session) -> dict:
     settings_from_db = db.query(GlobalSetting).all()
     defaults = {"rssi_threshold": "-60", "inercia_chegada": "500", "inercia_saida": "15000"}
@@ -319,17 +348,38 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
             Embarcado.quarto.has(Quarto.nome.ilike(f"%{search}%"))
         ))
     
-    # --- LÓGICA DE FILTRO DE QUARTOS DISPONÍVEIS ---
-    # 1. Pega os IDs de todos os quartos que já foram atribuídos.
+    embarcados = query.order_by(Embarcado.id_esp).all()
+    now = datetime.now().timestamp()
+    fuso_local = timezone(timedelta(hours=-3))
+
+    # --- LÓGICA DE STATUS E ÚLTIMO HORÁRIO MELHORADA ---
+    for emb in embarcados:
+        last_beat_timestamp = mqtt_client.esp_heartbeats.get(emb.id_esp)
+        
+        if last_beat_timestamp:
+            # Se já vimos a ESP alguma vez, calcula a data/hora do último pulso
+            last_seen_dt = datetime.fromtimestamp(last_beat_timestamp).astimezone(fuso_local)
+            emb.last_seen = last_seen_dt.strftime("às %H:%M:%S de %d/%m")
+
+            # Agora, determina o status atual (Online ou Offline)
+            if (now - last_beat_timestamp) < ESP_TIMEOUT_SEC:
+                emb.status = "Online"
+            else:
+                emb.status = "Offline"
+        else:
+            # Se nunca vimos a ESP, o status é Offline e não há data
+            emb.status = "Offline"
+            emb.last_seen = "Nunca visto"
+    # --- FIM DA LÓGICA ---
+
     assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
     
-    # 2. Busca apenas os quartos cujos IDs NÃO estão na lista de atribuídos.
     available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
-        "embarcados": query.order_by(Embarcado.id_esp).all(),
-        "available_quartos": available_quartos, # <-- Passa a lista filtrada para o template
+        "embarcados": embarcados,
+        "available_quartos": available_quartos,
         "form_action": request.url_for("create_embarcado"),
         "embarcado": None, "search": search,
         "global_settings": get_global_settings(db)
@@ -631,6 +681,7 @@ def start_cleanup_scheduler():
 async def on_startup():
     print("[main] Startup: Iniciando serviços em background.")
     asyncio.create_task(main_aggregator_loop())
+    asyncio.create_task(check_esp_liveness())
     mqtt_client.connect_mqtt()
     start_cleanup_scheduler()
 

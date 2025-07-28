@@ -1,11 +1,13 @@
 # mqtt_client.py (versão corrigida com a função que faltava)
 import paho.mqtt.client as mqtt
 import json
+from datetime import datetime
 from .models import SessionLocal, Asset
 from .config import settings
 
 # --- ESTRUTURA ADICIONADA ---
 _publish_queue = []
+esp_heartbeats = {}
 
 # --- Cliente MQTT (sem alteração) ---
 client = mqtt.Client()
@@ -65,10 +67,25 @@ def publish_command_to_esp(esp_id: str, command: dict):
     client.publish(command_topic, payload, qos=2)
 # --- FIM DA FUNÇÃO QUE ESTAVA FALTANDO ---
 
+def on_message(client, userdata, msg):
+    """Callback para processar mensagens de tópicos gerais."""
+    topic_parts = msg.topic.split('/')
+    
+    # Processa mensagens de heartbeat
+    if len(topic_parts) == 5 and topic_parts[3] == "heartbeat":
+        esp_id = topic_parts[4]
+        print(f"[MQTT-HEARTBEAT] Pulso recebido de {esp_id}") # Descomente para depurar
+        esp_heartbeats[esp_id] = datetime.now().timestamp()
+        return
+
 def on_connect(client, userdata, flags, rc):
     """Callback executado quando a conexão com o broker é (re)estabelecida."""
     if rc == 0:
         print("[MQTT] Conectado com sucesso ao Broker MQTT!")
+
+        client.subscribe("wyrd/rtls/esp/heartbeat/+")
+        print("[MQTT] Subscrito ao tópico de heartbeats 'wyrd/rtls/esp/heartbeat/+'")
+
         publish_available_assets()
 
         if _publish_queue:
@@ -88,6 +105,7 @@ def on_connect(client, userdata, flags, rc):
 def connect_mqtt():
     """Inicia a conexão com o broker MQTT."""
     client.on_connect = on_connect
+    client.on_message = on_message
     try:
         broker_port = int(settings.get("mqtt_broker_port"))
         client.connect(settings.get("mqtt_broker_host"), broker_port, 60)
