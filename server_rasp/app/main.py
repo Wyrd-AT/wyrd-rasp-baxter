@@ -43,6 +43,8 @@ EVENT_PAGE_SIZE = 25
 CLEANUP_INTERVAL_SEC = 3600
 NUM_FIXED_ROOMS = 3
 
+_esps_em_quarentena = set()
+
 try:
     base_path = sys._MEIPASS
 except Exception:
@@ -219,33 +221,44 @@ async def receive_event(event_data: Dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Erro ao processar e salvar o evento: {e}")
 
 LIVENESS_CHECK_INTERVAL_SEC = 30
+FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
 
 async def check_esp_liveness():
     """
-    Tarefa de background que verifica periodicamente o último heartbeat de cada ESP.
+    Tarefa de background que verifica na base de dados por ESPs offline.
     """
-    await asyncio.sleep(10) # Espera inicial para as coisas estabilizarem
     while True:
         await asyncio.sleep(LIVENESS_CHECK_INTERVAL_SEC)
         
-        now = datetime.now().timestamp()
-        esps_offline = [
-            esp_id for esp_id, last_beat in list(mqtt_client.esp_heartbeats.items())
-            if now - last_beat > ESP_TIMEOUT_SEC
-        ]
+        db = SessionLocal()
+        try:
+            now_utc = datetime.now(timezone.utc)
+            cutoff_time = now_utc - timedelta(seconds=ESP_TIMEOUT_SEC)
+            
+            # Busca todos os ESPs que já foram vistos alguma vez
+            esps_vistos = db.query(Embarcado).filter(Embarcado.last_seen != None).all()
 
-        if esps_offline:
-            print(f"[LIVENESS] ESPs considerados offline por timeout: {esps_offline}")
-            db = SessionLocal()
-            try:
-                for esp_id in esps_offline:
-                    release_assets_for_offline_esp(db, esp_id)
-                    # Remove o ESP da lista para não processar de novo até que um novo heartbeat chegue
-                    if esp_id in mqtt_client.esp_heartbeats:
-                        del mqtt_client.esp_heartbeats[esp_id]
-            finally:
-                db.close()
+            esps_offline = []
+            for emb in esps_vistos:
+                # Ignora ESPs que já estão em quarentena
+                if emb.id_esp in _esps_em_quarentena:
+                    continue
+
+                last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
+                if last_seen_utc < cutoff_time:
+                    esps_offline.append(emb)
+            
+            if esps_offline:
+                print(f"[LIVENESS] ESPs considerados offline: {[e.id_esp for e in esps_offline]}")
+                for emb in esps_offline:
+                    release_assets_for_offline_esp(db, emb.id_esp)
+                    # --- A MUDANÇA CRÍTICA ---
+                    # Não apaga o last_seen, apenas adiciona à quarentena
+                    _esps_em_quarentena.add(emb.id_esp)
+                # O db.commit() não é mais necessário aqui, pois não alteramos o DB
+        finally:
+            db.close()
 
 def get_global_settings(db: Session) -> dict:
     settings_from_db = db.query(GlobalSetting).all()
@@ -349,28 +362,26 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         ))
     
     embarcados = query.order_by(Embarcado.id_esp).all()
-    now = datetime.now().timestamp()
+    now_utc = datetime.now(timezone.utc)
     fuso_local = timezone(timedelta(hours=-3))
 
-    # --- LÓGICA DE STATUS E ÚLTIMO HORÁRIO MELHORADA ---
     for emb in embarcados:
-        last_beat_timestamp = mqtt_client.esp_heartbeats.get(emb.id_esp)
-        
-        if last_beat_timestamp:
-            # Se já vimos a ESP alguma vez, calcula a data/hora do último pulso
-            last_seen_dt = datetime.fromtimestamp(last_beat_timestamp).astimezone(fuso_local)
-            emb.last_seen = last_seen_dt.strftime("às %H:%M:%S de %d/%m")
+        if emb.last_seen:
+            # --- CORREÇÃO AQUI ---
+            # Anexa a informação de fuso UTC ao datetime que veio do DB
+            last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
+            # --- FIM DA CORREÇÃO ---
 
-            # Agora, determina o status atual (Online ou Offline)
-            if (now - last_beat_timestamp) < ESP_TIMEOUT_SEC:
+            data_local = last_seen_utc.astimezone(fuso_local)
+            emb.last_seen_str = data_local.strftime("às %H:%M:%S de %d/%m")
+
+            if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
                 emb.status = "Online"
             else:
                 emb.status = "Offline"
         else:
-            # Se nunca vimos a ESP, o status é Offline e não há data
             emb.status = "Offline"
-            emb.last_seen = "Nunca visto"
-    # --- FIM DA LÓGICA ---
+            emb.last_seen_str = "Nunca visto"
 
     assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
     
@@ -682,7 +693,7 @@ async def on_startup():
     print("[main] Startup: Iniciando serviços em background.")
     asyncio.create_task(main_aggregator_loop())
     asyncio.create_task(check_esp_liveness())
-    mqtt_client.connect_mqtt()
+    mqtt_client.init_mqtt_client(_esps_em_quarentena)
     start_cleanup_scheduler()
 
 if __name__ == "__main__":

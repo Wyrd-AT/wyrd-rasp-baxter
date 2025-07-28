@@ -37,9 +37,9 @@
                     
                     <td>
                         {% if emb.status == 'Online' %}
-                            <span class="status-indicator online" title="Último contato {{ emb.last_seen }}"></span> ON
+                            <span class="status-indicator online" title="Último contato {{ emb.last_seen_str }}"></span> ON
                         {% else %}
-                            <span class="status-indicator offline" title="Último contato: {{ emb.last_seen }}"></span> OFF
+                            <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
                         {% endif %}
                     </td>
                     <td style="text-align: center;">

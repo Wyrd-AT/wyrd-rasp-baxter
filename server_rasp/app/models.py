@@ -32,10 +32,6 @@ class Asset(Base):
     id          = Column(Integer, primary_key=True, index=True)
     nome_ativo = Column(String, nullable=False, unique=True)
     mac_beacon  = Column(String, unique=True, nullable=False, index=True)
-    
-    # --- ALTERAÇÃO AQUI ---
-    # 2. Substituímos o campo de texto 'quarto' por uma chave estrangeira.
-    #    Um ativo pertence a um quarto (ou a nenhum, por isso 'nullable=True').
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
     quarto = relationship("Quarto", back_populates="assets")
 
@@ -44,10 +40,7 @@ class Embarcado(Base):
     __tablename__ = "embarcados"
     id     = Column(Integer, primary_key=True, index=True)
     id_esp = Column(String, unique=True, nullable=False, index=True)
-    
-    # --- ALTERAÇÃO AQUI ---
-    # 3. O ESP também agora se relaciona diretamente com a tabela 'quartos'.
-    #    Um embarcado DEVE pertencer a um quarto (nullable=False).
+    last_seen = Column(DateTime(timezone=True), nullable=True)
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
     quarto = relationship("Quarto", back_populates="embarcados")
 

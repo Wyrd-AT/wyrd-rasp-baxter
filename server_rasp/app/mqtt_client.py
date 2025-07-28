@@ -1,9 +1,11 @@
 # mqtt_client.py (versão corrigida com a função que faltava)
 import paho.mqtt.client as mqtt
 import json
-from datetime import datetime
-from .models import SessionLocal, Asset
+from datetime import datetime, timezone, timedelta
+from .models import SessionLocal, Asset, Embarcado
 from .config import settings
+
+_esps_em_quarentena = None
 
 # --- ESTRUTURA ADICIONADA ---
 _publish_queue = []
@@ -68,14 +70,25 @@ def publish_command_to_esp(esp_id: str, command: dict):
 # --- FIM DA FUNÇÃO QUE ESTAVA FALTANDO ---
 
 def on_message(client, userdata, msg):
-    """Callback para processar mensagens de tópicos gerais."""
+    """Callback para processar mensagens de heartbeat."""
     topic_parts = msg.topic.split('/')
     
-    # Processa mensagens de heartbeat
     if len(topic_parts) == 5 and topic_parts[3] == "heartbeat":
         esp_id = topic_parts[4]
-        print(f"[MQTT-HEARTBEAT] Pulso recebido de {esp_id}") # Descomente para depurar
-        esp_heartbeats[esp_id] = datetime.now().timestamp()
+        
+        # A lista de quarentena agora é usada aqui
+        if _esps_em_quarentena is not None and esp_id in _esps_em_quarentena:
+            _esps_em_quarentena.remove(esp_id)
+            print(f"[LIVENESS] ESP {esp_id} voltou a ficar online.")
+
+        db = SessionLocal()
+        try:
+            embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+            if embarcado:
+                embarcado.last_seen = datetime.now(timezone.utc)
+                db.commit()
+        finally:
+            db.close()
         return
 
 def on_connect(client, userdata, flags, rc):
@@ -112,3 +125,11 @@ def connect_mqtt():
         client.loop_start()
     except Exception as e:
         print(f"[MQTT] Não foi possível conectar ao broker: {e}")
+
+def init_mqtt_client(quarantine_set: set):
+    """
+    Inicializa o cliente MQTT, recebendo as dependências de que precisa.
+    """
+    global _esps_em_quarentena
+    _esps_em_quarentena = quarantine_set
+    connect_mqtt()
