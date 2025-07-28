@@ -11,7 +11,7 @@ from .config import settings
 # Esta lista em memória irá armazenar as mensagens que não puderam ser
 # enviadas porque o broker estava offline.
 _publish_queue = []
-
+_esps_em_quarentena = None
 
 # Tópicos (sem alteração)
 COMMAND_TOPIC = 'wyrd/baxter/esp/all/command'
@@ -100,21 +100,21 @@ def on_message(client, userdata, msg):
     """
     topic_parts = msg.topic.split('/')
     
-    # Exemplo do tópico: wyrd/baxter/esp/heartbeat/WRD00000001
     if len(topic_parts) == 5 and topic_parts[3] == "heartbeat":
         esp_id = topic_parts[4]
         
-        # Atualiza o timestamp no banco de dados
+        # +++ ADIÇÃO 2: Lógica para remover da quarentena +++
+        if _esps_em_quarentena is not None and esp_id in _esps_em_quarentena:
+            _esps_em_quarentena.remove(esp_id)
+            print(f"[LIVENESS] ESP {esp_id} voltou a ficar online e foi removida da quarentena.")
+
+        # O resto da função on_message continua igual, atualizando o last_seen...
         db = SessionLocal()
         try:
             embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
             if embarcado:
                 embarcado.last_seen = datetime.now(timezone.utc)
                 db.commit()
-                # print(f"[MQTT-Heartbeat] Liveness recebido da ESP {esp_id}.")
-        except Exception as e:
-            print(f"[MQTT-Heartbeat] Erro ao processar heartbeat da ESP {esp_id}: {e}")
-            db.rollback()
         finally:
             db.close()
         return
@@ -154,3 +154,12 @@ def connect_mqtt():
         client.loop_start()
     except Exception as e:
         print(f"[MQTT] Não foi possível conectar ao broker: {e}")
+
+
+def init_mqtt_client(quarantine_set: set):
+    """
+    Inicializa o cliente MQTT, recebendo a referência para a lista de quarentena.
+    """
+    global _esps_em_quarentena
+    _esps_em_quarentena = quarantine_set
+    connect_mqtt()

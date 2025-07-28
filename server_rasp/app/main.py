@@ -90,6 +90,8 @@ def get_global_settings(db: Session) -> dict:
 
 print("[main] Módulo carregado")
 
+_esps_em_quarentena = set()
+
 # Inicializa o banco (cria tabelas se não existirem) e a aplicação FastAPI.
 init_db()
 app = FastAPI()
@@ -105,7 +107,7 @@ async def on_startup():
     restart_pending_tasks()
     asyncio.create_task(main_aggregator_loop()) # Inicia o cérebro do sistema.
     asyncio.create_task(check_esp_liveness())
-    mqtt_client.connect_mqtt() # Conecta ao broker MQTT.
+    mqtt_client.init_mqtt_client(_esps_em_quarentena)
     start_cleanup_scheduler() # Inicia a limpeza periódica de eventos antigos.
 
 # Função que remove eventos antigos do banco de dados.
@@ -125,25 +127,28 @@ async def check_esp_liveness():
     print(f"[LIVENESS] Verificador de ESPs ativas iniciado. Timeout: {ESP_TIMEOUT_SEC}s.")
     while True:
         await asyncio.sleep(60) # Roda a verificação a cada minuto
-        
+
         db = SessionLocal()
         try:
             now_utc = datetime.now(timezone.utc)
             cutoff_time = now_utc - timedelta(seconds=ESP_TIMEOUT_SEC)
-            
-            # Busca todos os ESPs que já foram vistos alguma vez
+
             esps_vistos = db.query(Embarcado).filter(Embarcado.last_seen != None).all()
 
             for emb in esps_vistos:
+                # +++ ALTERAÇÃO 1: Ignora ESPs que já estão em quarentena +++
+                if emb.id_esp in _esps_em_quarentena:
+                    continue
+
                 last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
                 if last_seen_utc < cutoff_time:
-                    # O ESP está offline, chama o serviço para limpar seu estado
                     release_bed_for_offline_esp(db, emb.id_esp)
-                    # Apaga o last_seen para que ele não seja verificado novamente até
-                    # que envie um novo heartbeat.
-                    emb.last_seen = None
-            
-            db.commit()
+
+                    # +++ ALTERAÇÃO 2: Em vez de apagar, coloca em quarentena +++
+                    print(f"[LIVENESS] ESP {emb.id_esp} colocada em quarentena.")
+                    _esps_em_quarentena.add(emb.id_esp)
+
+            # O commit já não é necessário aqui, pois não alteramos o DB diretamente
         except Exception as e:
             print(f"[LIVENESS] Erro durante a verificação de ESPs: {e}")
             db.rollback()
