@@ -3,7 +3,8 @@
 
 import paho.mqtt.client as mqtt
 import json
-from .models import SessionLocal, Bed
+from datetime import datetime, timezone # +++ ADIÇÃO +++
+from .models import SessionLocal, Bed, Embarcado
 from .config import settings
 
 # --- MUDANÇA 1: Adicionar a Fila de Publicação ---
@@ -93,6 +94,31 @@ def publish_command_to_all(command: dict):
 
 # --- MUDANÇA 3: Processar a Fila ao Reconectar ---
 # Alteramos a função on_connect para esvaziar a fila.
+def on_message(client, userdata, msg):
+    """
+    Callback para processar mensagens de heartbeat.
+    """
+    topic_parts = msg.topic.split('/')
+    
+    # Exemplo do tópico: wyrd/baxter/esp/heartbeat/WRD00000001
+    if len(topic_parts) == 5 and topic_parts[3] == "heartbeat":
+        esp_id = topic_parts[4]
+        
+        # Atualiza o timestamp no banco de dados
+        db = SessionLocal()
+        try:
+            embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+            if embarcado:
+                embarcado.last_seen = datetime.now(timezone.utc)
+                db.commit()
+                # print(f"[MQTT-Heartbeat] Liveness recebido da ESP {esp_id}.")
+        except Exception as e:
+            print(f"[MQTT-Heartbeat] Erro ao processar heartbeat da ESP {esp_id}: {e}")
+            db.rollback()
+        finally:
+            db.close()
+        return
+
 def on_connect(client, userdata, flags, rc):
     """
     Callback executado quando a conexão com o broker é (re)estabelecida.
@@ -100,6 +126,7 @@ def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("[MQTT] Conectado com sucesso ao Broker MQTT!")
         # Imediatamente após conectar, publica a lista atual de camas.
+        client.subscribe("wyrd/baxter/esp/heartbeat/+")
         publish_available_beds()
 
         # --- LÓGICA DE PROCESSAMENTO DA FILA ---
@@ -118,6 +145,7 @@ def on_connect(client, userdata, flags, rc):
 
 def connect_mqtt():
     # A função de conexão não precisa de alterações.
+    client.on_message = on_message
     client.on_connect = on_connect
     try:
         broker_host = settings.get("broker_host")

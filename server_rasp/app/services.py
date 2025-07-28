@@ -14,6 +14,7 @@ Funções Chave no Fluxo:
 """
 
 from .models import SessionLocal, Bed, Embarcado
+from sqlalchemy.orm import Session, joinedload
 from . import mqtt_client
 
 # --- Seção: Serviço de Associação de Cama ---
@@ -110,6 +111,39 @@ def synchronize_and_reset_esp(esp_id: str):
     
     finally:
         db.close()
+
+def release_bed_for_offline_esp(db: Session, esp_id: str):
+    """
+    Liberta a cama associada a uma ESP que ficou offline.
+    """
+    try:
+        # Encontra o embarcado e o seu quarto
+        embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+        if not embarcado or not embarcado.quarto:
+            return
+
+        quarto_nome = embarcado.quarto
+        print(f"[SERVICE-LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Verificando se há cama para libertar...")
+
+        # Encontra a cama que está naquele quarto
+        bed_in_room = db.query(Bed).filter(Bed.quarto == quarto_nome).first()
+        
+        if not bed_in_room:
+            print(f"[SERVICE-LIVENESS] Quarto {quarto_nome} já estava vazio. Nenhuma ação necessária.")
+            return
+
+        print(f"[SERVICE-LIVENESS] Libertando cama '{bed_in_room.nome_cama}' do quarto {quarto_nome}...")
+        
+        # Reutiliza a função de serviço principal para garantir consistência
+        # ao desassociar a cama e notificar todos via MQTT.
+        update_bed_assignment(bed_id=bed_in_room.id, new_room=None)
+        
+        db.commit()
+        print(f"[SERVICE-LIVENESS] Cama '{bed_in_room.nome_cama}' libertada com sucesso.")
+        
+    except Exception as e:
+        db.rollback()
+        print(f"[SERVICE-LIVENESS] ERRO ao libertar cama da ESP {esp_id}: {e}")
 
 # --- Seção: Gatilho de Atualização MQTT ---
 # 'trigger_mqtt_update_on_bed_change' é uma função de conveniência.

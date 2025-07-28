@@ -66,10 +66,10 @@ def get_db():
 from .presence import check_presence
 from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task, retry_presence_task
 from . import mqtt_client, services
-from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change
+from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change, synchronize_and_reset_esp, release_bed_for_offline_esp
 from sqlalchemy import event, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from .mqtt_client import publish_available_beds
 from .auth import authenticate_admin
 from .config import settings
@@ -104,6 +104,7 @@ async def on_startup():
     print("[main] Startup: Iniciando processos em segundo plano.")
     restart_pending_tasks()
     asyncio.create_task(main_aggregator_loop()) # Inicia o cérebro do sistema.
+    asyncio.create_task(check_esp_liveness())
     mqtt_client.connect_mqtt() # Conecta ao broker MQTT.
     start_cleanup_scheduler() # Inicia a limpeza periódica de eventos antigos.
 
@@ -114,6 +115,40 @@ def purge_old_events():
     deleted = db.query(ReceivedEvent).filter(ReceivedEvent.data_on < cutoff).delete()
     db.commit()
     print(f"[main] purge_old_events: removidos {deleted} eventos antes de {cutoff.isoformat()}")
+
+ESP_TIMEOUT_SEC = 150 # 2.5 minutos. Se uma ESP não der sinal de vida neste tempo, é considerada offline.
+
+async def check_esp_liveness():
+    """
+    Tarefa de background que verifica na base de dados por ESPs offline.
+    """
+    print(f"[LIVENESS] Verificador de ESPs ativas iniciado. Timeout: {ESP_TIMEOUT_SEC}s.")
+    while True:
+        await asyncio.sleep(60) # Roda a verificação a cada minuto
+        
+        db = SessionLocal()
+        try:
+            now_utc = datetime.now(timezone.utc)
+            cutoff_time = now_utc - timedelta(seconds=ESP_TIMEOUT_SEC)
+            
+            # Busca todos os ESPs que já foram vistos alguma vez
+            esps_vistos = db.query(Embarcado).filter(Embarcado.last_seen != None).all()
+
+            for emb in esps_vistos:
+                last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
+                if last_seen_utc < cutoff_time:
+                    # O ESP está offline, chama o serviço para limpar seu estado
+                    release_bed_for_offline_esp(db, emb.id_esp)
+                    # Apaga o last_seen para que ele não seja verificado novamente até
+                    # que envie um novo heartbeat.
+                    emb.last_seen = None
+            
+            db.commit()
+        except Exception as e:
+            print(f"[LIVENESS] Erro durante a verificação de ESPs: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
 # Inicia uma thread que chama a função de limpeza em intervalos regulares.
 def start_cleanup_scheduler():
@@ -300,10 +335,10 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
 def list_events(
     request: Request, page: int = 1, filter_cama: Optional[str] = Query(None),
     filter_quarto: Optional[str] = Query(None), filter_action: Optional[str] = Query(None),
-    filter_status: Optional[str] = Query(None), filter_andar: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None), db: Session = Depends(get_db)
 ):
-    embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
+    embarcados_map = {emb.id_esp: {"quarto": emb.quarto} for emb in db.query(Embarcado).all()}
     beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
     pending_query = db.query(ReceivedEvent).filter(ReceivedEvent.status == 'Pendente')
     pending_events = pending_query.order_by(ReceivedEvent.data_on.desc()).all()
@@ -317,31 +352,27 @@ def list_events(
         history_query = history_query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else history_query.filter(False)
     if filter_action: history_query = history_query.filter(ReceivedEvent.action == filter_action)
     if filter_status and filter_status.lower() != 'pendente': history_query = history_query.filter(ReceivedEvent.status == filter_status)
-    if filter_andar:
-        esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
-        history_query = history_query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else history_query.filter(False)
     total = history_query.count()
     history_events = history_query.order_by(ReceivedEvent.data_on.desc()).offset((page - 1) * int(settings.get("event_page_size"))).limit(settings.get("event_page_size")).all()
     has_next = total > page * int(settings.get("event_page_size"))
     all_beds = db.query(Bed.nome_cama, Bed.mac_beacon).filter(Bed.mac_beacon.isnot(None)).distinct().order_by(Bed.nome_cama).all()
     all_action_options = [("GET", "Conectar"), ("OUT", "Desconectar"), ("WARNING", "Alerta")]
     all_status_options = ["OK", "Resolvido", "Confirmado", "Enfileirado", "Ignorado", "Cancelado", "Vencido", "Erro"]
-    all_andares = sorted([str(a[0]) for a in db.query(Embarcado.andar).distinct().filter(Embarcado.andar.isnot(None)).all()])
     all_quartos = sorted([str(q[0]) for q in db.query(Embarcado.quarto).distinct().filter(Embarcado.quarto.isnot(None)).all()])
     def enrich_event_data(event_list):
         for e in event_list:
             e.data_str = e.data_on.strftime("%Y/%m/%d") if e.data_on else "N/A"
             e.hora_str = e.data_on.strftime("%H:%M:%S") if e.data_on else "N/A"
             emb_data = embarcados_map.get(e.esp_id)
-            e.quarto, e.andar = (emb_data.get("quarto", "---"), emb_data.get("andar", "---")) if emb_data else ("---", "---")
+            e.quarto = emb_data.get("quarto", "---") if emb_data else "---"
             e.nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
     enrich_event_data(pending_events)
     enrich_event_data(history_events)
     return templates.TemplateResponse("events_list.html", {
         "request": request, "pending_events": pending_events, "events": history_events, "page": page, "has_next": has_next,
         "all_beds": all_beds, "all_action_options": all_action_options, "all_status_options": all_status_options,
-        "all_andares": all_andares, "all_quartos": all_quartos,
-        "current_filters": {"cama": filter_cama, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "andar": filter_andar, "time_filter": time_filter}
+        "all_quartos": all_quartos,
+        "current_filters": {"cama": filter_cama, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
     })
 
 @app.post("/event/{event_id}/cancel", name="cancel_pending_event")
@@ -467,11 +498,31 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         query = query.filter(or_(Embarcado.id_esp.ilike(search_term), Embarcado.quarto.ilike(search_term)))
     embarcados = query.order_by(Embarcado.quarto).all()
     global_settings = get_global_settings(db)
-    return templates.TemplateResponse("embarcados_list.html", {"request": request, "embarcados": embarcados, "form_action": request.url_for("create_embarcado_html"), "embarcado": None, "search": search, "global_settings": global_settings})
+
+    # +++ INÍCIO DAS ADIÇÕES: Lógica de Status Online/Offline para a UI +++
+    now_utc = datetime.now(timezone.utc)
+    fuso_local = timezone(timedelta(hours=-3))
+
+    for emb in embarcados:
+        if emb.last_seen:
+            last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
+            data_local = last_seen_utc.astimezone(fuso_local)
+            emb.last_seen_str = data_local.strftime("às %H:%M:%S de %d/%m")
+
+            if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
+                emb.status = "Online"
+            else:
+                emb.status = "Offline"
+        else:
+            emb.status = "Nunca Visto"
+            emb.last_seen_str = "N/A"
+
+    return templates.TemplateResponse("embarcados_list.html", {
+        "request": request, "embarcados": embarcados, "form_action": request.url_for("create_embarcado_html"), "embarcado": None, "search": search, "global_settings": global_settings})
 
 @app.post("/embarcados", name="create_embarcado_html")
-def create_embarcado_html(request: Request, id_esp: str = Form(...), quarto: str = Form(...), andar: Optional[str] = Form(None), db: Session = Depends(get_db)):
-    emb = Embarcado(id_esp=id_esp, quarto=quarto, andar=andar)
+def create_embarcado_html(request: Request, id_esp: str = Form(...), quarto: str = Form(...), db: Session = Depends(get_db)):
+    emb = Embarcado(id_esp=id_esp, quarto=quarto)
     db.add(emb)
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
@@ -484,9 +535,9 @@ def edit_embarcado(request: Request, id_esp: str, db: Session = Depends(get_db))
     return templates.TemplateResponse("embarcados_list.html", {"request": request, "embarcados": embarcados, "form_action": request.url_for("update_embarcado", id_esp=id_esp), "embarcado": emb, "search": None, "global_settings": global_settings})
 
 @app.post("/embarcados/{id_esp}/edit", name="update_embarcado")
-def update_embarcado_html(request: Request, id_esp: str, quarto: str = Form(...), andar: Optional[str] = Form(None), db: Session = Depends(get_db)):
+def update_embarcado_html(request: Request, id_esp: str, quarto: str = Form(...), db: Session = Depends(get_db)):
     emb = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
-    emb.quarto, emb.andar = quarto, andar
+    emb.quarto = quarto,
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
@@ -530,6 +581,10 @@ def update_settings(request: Request, db: Session = Depends(get_db), rssi_thresh
     mqtt_client.publish_command_to_all({"command": "fetch_config"})
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
+@app.get("/api/time", name="get_server_time")
+def get_server_time():
+    """Endpoint para que os ESPs possam sincronizar seu relógio."""
+    return {"unix_time": int(time.time())}
 
 # --- Seção: Rotas de Download de CSVs ---
 # Endpoints que geram e servem arquivos CSV para exportação de dados.
@@ -560,12 +615,11 @@ def download_events_csv(
     filter_cama: Optional[str] = Query(None),
     filter_quarto: Optional[str] = Query(None),
     filter_status: Optional[str] = Query(None),
-    filter_andar: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None)
 ):
     try:
         # 2. A lógica de mapeamento para enriquecer os dados continua a mesma
-        embarcados_map = {emb.id_esp: {"quarto": emb.quarto, "andar": emb.andar} for emb in db.query(Embarcado).all()}
+        embarcados_map = {emb.id_esp: {"quarto": emb.quarto} for emb in db.query(Embarcado).all()}
         beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
 
         # 3. CORREÇÃO: Aplicamos a mesma lógica de filtragem de `list_events`
@@ -595,10 +649,6 @@ def download_events_csv(
         if filter_status:
             query = query.filter(ReceivedEvent.status == filter_status)
 
-        if filter_andar:
-            esps_no_andar = [id_esp for id_esp, data in embarcados_map.items() if data["andar"] == filter_andar]
-            query = query.filter(ReceivedEvent.esp_id.in_(esps_no_andar)) if esps_no_andar else query.filter(False)
-
         # A busca no banco agora é feita na query JÁ FILTRADA
         events = query.order_by(ReceivedEvent.data_on).all()
 
@@ -607,20 +657,18 @@ def download_events_csv(
             buf = StringIO()
             writer = csv.writer(buf)
 
-            writer.writerow(["Data/Hora", "Nome da Cama", "Andar", "Quarto", "Status", "RSSI", "Wi-Fi"])
+            writer.writerow(["Data/Hora", "Nome da Cama", "Quarto", "Status", "RSSI", "Wi-Fi"])
             yield buf.getvalue()
             buf.seek(0); buf.truncate(0)
 
             for e in events:
                 emb_data = embarcados_map.get(e.esp_id, {})
                 quarto = emb_data.get("quarto", "")
-                andar = emb_data.get("andar", "")
                 nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
 
                 writer.writerow([
                     e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
                     nome_cama,
-                    andar,
                     quarto,
                     e.status,
                     e.rssi,
@@ -636,7 +684,6 @@ def download_events_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
     )
-
 
 # --- Seção: Bloco de Execução Principal ---
 # Permite rodar o servidor diretamente com `python -m app.main` para desenvolvimento.

@@ -25,13 +25,6 @@
             <option value="weekly" {% if current_filters.time_filter == 'weekly' %}selected{% endif %}>Últimos 7 dias</option>
             <option value="monthly" {% if current_filters.time_filter == 'monthly' %}selected{% endif %}>Últimos 30 dias</option>
         </select>
-        
-        <select name="filter_andar" class="filter-btn" onchange="this.form.submit()">
-            <option value="">Andar</option>
-            {% for andar in all_andares %}
-            <option value="{{ andar }}" {% if current_filters.andar == andar %}selected{% endif %}>{{ andar }}º</option>
-            {% endfor %}
-        </select>
 
         <select name="filter_quarto" class="filter-btn" onchange="this.form.submit()">
             <option value="">Quarto</option>

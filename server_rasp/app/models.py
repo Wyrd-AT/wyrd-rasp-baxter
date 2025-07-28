@@ -53,13 +53,14 @@ class Bed(Base):
     quarto      = Column(String, nullable=True)
 
 # Tabela 'embarcados': Cadastra cada dispositivo ESP32, associando seu ID
-# único (id_esp) ao quarto e andar onde está instalado.
+# único (id_esp) ao quarto onde está instalado.
 class Embarcado(Base):
     __tablename__ = "embarcados"
     id     = Column(Integer, primary_key=True, index=True)
     id_esp = Column(String, unique=True, nullable=False, index=True)
     quarto = Column(String, nullable=False)
-    andar  = Column(String, nullable=True)
+    last_seen = Column(DateTime(timezone=True), nullable=True)
+
 
 # Tabela 'received_events': Funciona como um log completo, armazenando cada
 # evento enviado por um ESP. Contém informações sobre qual ESP, qual cama, a ação (GET/OUT),

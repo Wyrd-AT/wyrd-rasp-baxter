@@ -9,7 +9,6 @@
 </div>
 
 <div class="page-with-form">
-    
     <div class="list-column">
         <div class="table-toolbar">
             <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
@@ -27,16 +26,25 @@
                 <tr>
                     <th>ID da ESP</th>
                     <th>QUARTO</th>
-                    <th>ANDAR</th>
-                    <th>AÇÕES</th> </tr>
+                    <th>STATUS</th>
+                    <th style="text-align: center;">AÇÕES</th>
+                </tr>
             </thead>
             <tbody>
                 {% for emb in embarcados %}
                 <tr class="selectable-row" data-id="{{ emb.id_esp }}">
                     <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto }}</td>
-                    <td>{{ emb.andar or '---' }}</td>
                     <td>
+                        {% if emb.status == 'Online' %}
+                            <span class="status-indicator online" title="Último contato: {{ emb.last_seen_str }}"></span> ON
+                        {% elif emb.status == 'Offline' %}
+                            <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
+                        {% else %}
+                            <span class="status-indicator offline" title="{{ emb.last_seen_str }}"></span> N/A
+                        {% endif %}
+                    </td>
+                    <td style="text-align: center;">
                         <form action="{{ url_for('reset_esp_state', esp_id=emb.id_esp) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP? Isso fará com que ela esqueça qualquer cama que esteja monitorando.');">
                             <button type="submit" class="btn-cancel" title="Forçar Reset de Estado">
                                 Resetar
@@ -51,25 +59,6 @@
 
     <div class="form-column">
         {% include 'embarcado_form.html' %}
-
-        <form action="{{ url_for('update_settings') }}" method="post" class="settings-form">
-            <h2>Configurações de Conectividade</h2>
-            <div class="form-row">
-                <div class="form-group">
-                    <label for="rssi_threshold">RSSI Threshold</label>
-                    <input type="number" id="rssi_threshold" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inercia_chegada">Inércia de Chegada (ms)</label>
-                    <input type="number" id="inercia_chegada" name="inercia_chegada" value="{{ global_settings.inercia_chegada }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inercia_saida">Inércia de Saída (ms)</label>
-                    <input type="number" id="inercia_saida" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
-                </div>
-            </div>
-            <button type="submit" class="btn-primary">Salvar Configurações</button>
-        </form>
-    </div>
+        </div>
 </div>
 {% endblock %}
