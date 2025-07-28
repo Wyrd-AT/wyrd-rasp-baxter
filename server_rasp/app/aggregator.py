@@ -35,7 +35,7 @@ from .mqtt_client import publish_available_beds, publish_to_esp_channel
 from .services import synchronize_and_reset_esp, update_bed_assignment
 
 # --- Seção: Configurações e Estruturas de Dados em Memória ---
-RETRY_PRESENCE_FREQUENCY_SEC = 30 # A cada quantos segundos tentar verificar a presença de um Wi-Fi ausente.
+RETRY_PRESENCE_FREQUENCY_SEC = 20 # A cada quantos segundos tentar verificar a presença de um Wi-Fi ausente.
 AGGREGATOR_LOOP_INTERVAL_SEC = 2  # Frequência do loop principal do agregador.
 
 _buffer = [] # Fila para novos eventos.
@@ -93,7 +93,7 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
         
         # Tenta verificar a presença do Wi-Fi na rede.
         loop = asyncio.get_running_loop()
-        is_present = await loop.run_in_executor(None, check_presence, wifi_mac)
+        is_present = await check_presence(wifi_mac)
 
         if is_present:
             # SUCESSO: O Wi-Fi foi encontrado.
@@ -225,22 +225,44 @@ async def _process_events_batch(events: list):
             _update_event_status(event_id, "Erro", "Componente (cama ou ESP) não cadastrado.")
             return
         
+        print(f"[aggregator] Novo GET recebido para '{beacon_mac}'. Cancelando tarefas pendentes anteriores...")
+        cancel_pending_task(wifi_mac=bed.mac_address)
+        
         # ETAPA B: Validar o estado da cama ANTES de enviar qualquer veredito
         if bed.quarto is not None:
+            # Cenário 1: A cama já está no quarto correto. É apenas uma confirmação de sinal.
             if bed.quarto == emb.quarto:
-                # O vencedor já está no quarto correto. É apenas uma confirmação.
                 _update_event_status(event_id, "Confirmado", f"Cama '{bed.nome_cama}' já estava no quarto '{emb.quarto}'.")
-                return
-            
-            if bed.mac_address in _pending_mac_checks:
-                # A cama está em outro quarto E está pendente. Bloqueia a tentativa de roubo.
-                print(f"[aggregator] Cama {beacon_mac} já está em processo pendente. Ignorando GET da ESP {best_event['esp_id']}.")
-                _update_event_status(event_id, "Ignorado", "A cama já está em um processo de associação pendente.")
+                # Enviamos um WIN de confirmação para que a ESP não fique presa esperando um veredito.
                 publish_to_esp_channel(
                     esp_id=best_event['esp_id'], message_type="verdict",
-                    data={"cama": beacon_mac, "status": "LOSE", "transacao_id": best_event.get("transacao_id")}
+                    data={"cama": beacon_mac, "status": "WIN", "transacao_id": best_event.get("transacao_id")}
                 )
                 return
+
+            # Cenário 2: A cama está associada a OUTRO quarto.
+            else:
+                # Cenário 2a: A associação ao outro quarto ainda está PENDENTE.
+                if bed.mac_address in _pending_mac_checks:
+                    print(f"[aggregator] BLOQUEIO (PENDENTE): Cama {beacon_mac} já está em processo pendente. Ignorando GET da ESP {best_event['esp_id']}.")
+                    _update_event_status(event_id, "Ignorado", "A cama já está em um processo de associação pendente.")
+                    publish_to_esp_channel(
+                        esp_id=best_event['esp_id'], message_type="verdict",
+                        data={"cama": beacon_mac, "status": "LOSE", "transacao_id": best_event.get("transacao_id")}
+                    )
+                    publish_available_beds()
+                    return
+
+                # Cenário 2b: A associação ao outro quarto já está CONFIRMADA. (ESTA É A CORREÇÃO PRINCIPAL)
+                else:
+                    print(f"[aggregator] BLOQUEIO (CONFIRMADO): Tentativa da ESP {best_event['esp_id']} de 'roubar' a cama '{beacon_mac}', que já pertence ao quarto '{bed.quarto}'.")
+                    _update_event_status(event_id, "Ignorado", f"A cama já está confirmada no quarto {bed.quarto}.")
+                    publish_to_esp_channel(
+                        esp_id=best_event['esp_id'], message_type="verdict",
+                        data={"cama": beacon_mac, "status": "LOSE", "transacao_id": best_event.get("transacao_id")}
+                    )
+                    publish_available_beds()
+                    return
 
         # ETAPA C: Enviar os Vereditos (APÓS a validação)
         # Se chegamos aqui, a associação é legítima. Agora sim podemos enviar os vereditos.
@@ -262,7 +284,7 @@ async def _process_events_batch(events: list):
         bed.quarto = emb.quarto
         db.commit()
         
-        is_present = await loop.run_in_executor(None, check_presence, bed.mac_address)
+        is_present = await check_presence(bed.mac_address)
         publish_available_beds()
         if is_present:
             br_timezone = timezone(timedelta(hours=-3))

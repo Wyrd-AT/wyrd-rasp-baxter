@@ -1,39 +1,49 @@
 # ==============================================================================
-# ARQUIVO: presence.py
+# ARQUIVO: presence.py (Versão Assíncrona)
 # ==============================================================================
-"""
-Propósito do Arquivo:
-Simplifica a verificação de presença de um MAC na rede.
+import time
+# Importa as novas funções assíncronas do módulo de scan
+from .nmap_scan import get_mac_to_ip_map_async, is_host_online_async
 
-Funções Chave no Fluxo:
-- `check_presence(mac)`: Recebe um MAC e retorna `True` ou `False`,
-  indicando se o dispositivo está online. É usado pelo `aggregator`.
-"""
+# Estrutura de Cache para o Mapa
+_mac_ip_map_cache = {}
+_cache_last_updated = 0
+CACHE_TTL_SECONDS = 15 # Define a validade do cache (em segundos)
 
-# Importa a função principal do módulo de scan.
-from .nmap_scan import get_connected_macs
-from .config import settings
-
-def check_presence(mac: str):
+async def check_presence(mac: str) -> bool:
     """
-    Verifica se o MAC está presente na rede, chamando a função de scan.
-    
-    Este é um "wrapper" ou "fachada". Ele esconde os detalhes de como a verificação 
-    é feita (neste caso, usando 'arp -a' via get_connected_macs) e apenas
-    retorna um resultado simples.
+    Versão ASSÍNCRONA que verifica a presença de um MAC com uma lógica de
+    cache-miss para máxima fiabilidade e performance, sem bloquear o servidor.
     """
-    print(f"[presence] Verificando presença do MAC: {mac}")
+    global _mac_ip_map_cache, _cache_last_updated
     
-    # --- Seção: Execução e Comparação ---
-    # 1. Chama a função 'get_connected_macs()' para obter a lista atualizada
-    #    de todos os MACs ativos na rede.
-    connected_macs = get_connected_macs()
+    print(f"[presence_async] Verificando presença do MAC: {mac}")
+    target_mac = mac.lower()
+    now = time.time()
+    
+    # 1. Verifica se o cache expirou
+    if not _mac_ip_map_cache or (now - _cache_last_updated > CACHE_TTL_SECONDS):
+        print("[presence_async] Cache do mapa MAC->IP expirado. Atualizando...")
+        _mac_ip_map_cache = await get_mac_to_ip_map_async()
+        _cache_last_updated = now
+        
+    # 2. Tenta encontrar o IP no cache atual
+    target_ip = _mac_ip_map_cache.get(target_mac)
+    
+    # 3. Lógica de Cache-Miss: Se não encontrou, o cache pode estar desatualizado.
+    #    Força uma nova leitura da rede para garantir.
+    if not target_ip:
+        print(f"[presence_async] MAC {target_mac} não encontrado no cache. Forçando atualização da rede...")
+        _mac_ip_map_cache = await get_mac_to_ip_map_async()
+        _cache_last_updated = now
+        
+        # Tenta encontrar o IP novamente no mapa recém-criado
+        target_ip = _mac_ip_map_cache.get(target_mac)
 
-    # 2. Verifica se o MAC fornecido (convertido para minúsculas para consistência)
-    #    existe dentro da lista de MACs encontrados.
-    presente = mac.lower() in connected_macs
+    # 4. Se encontrou um IP (seja no cache ou após a atualização), faz a verificação ativa
+    if target_ip:
+        return await is_host_online_async(target_ip)
     
-    print(f"[presence] MAC {mac} {'está' if presente else 'não está'} conectado.")
-    
-    # 3. Retorna o resultado booleano.
-    return presente
+    # 5. Se mesmo após forçar a atualização o MAC não foi encontrado, ele está offline
+    print(f"[presence_async] MAC {target_mac} não foi encontrado no mapa da rede. Considerado offline.")
+    return False

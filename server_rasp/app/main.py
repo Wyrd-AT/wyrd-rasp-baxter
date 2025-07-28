@@ -74,7 +74,7 @@ from .mqtt_client import publish_available_beds
 from .auth import authenticate_admin
 from .config import settings
 from sqladmin import Admin, ModelView
-from .nmap_scan import get_connected_macs
+from .nmap_scan import get_mac_to_ip_map_async
 
 # Função utilitária para buscar as configurações globais do banco (RSSI, etc.).
 # Inclui valores padrão para o caso de o banco ainda não ter sido configurado.
@@ -273,7 +273,7 @@ def main_page(request: Request):
 @app.get("/test-nmap", name="test_nmap")
 def test_nmap_route():
     try:
-        macs_encontrados = get_connected_macs()
+        macs_encontrados = get_mac_to_ip_map_async()
         if macs_encontrados is None:
             return {"status": "erro", "detalhe": "A função get_connected_macs retornou None. Verifique os logs."}
         return {"status": "sucesso", "dispositivos_encontrados": len(macs_encontrados), "macs": macs_encontrados}

@@ -1,125 +1,87 @@
-# nmap_scan.py
-
-import subprocess
+# ==============================================================================
+# ARQUIVO: nmap_scan.py (Versão Final, Corrigida e Compatível com Windows)
+# ==============================================================================
+import asyncio
 import re
-import platform
-import ipaddress
-import threading
+import subprocess
 from .config import settings
 
-# --- INÍCIO DA CORREÇÃO ---
+# --- Funções "Trabalhadoras" (Síncronas) ---
 
-def clear_arp_cache():
-    """
-    Força a limpeza do cache ARP do sistema operacional.
-    Isso garante que apenas os dispositivos atualmente ativos sejam encontrados.
-    """
-    #print("[arp_scan] Limpando o cache ARP para garantir uma leitura nova...")
-    system = platform.system().lower()
-    
+def _worker_get_mac_to_ip_map() -> dict:
+    """Função trabalhadora que executa o 'arp -a' e processa o resultado."""
     try:
-        if system == "windows":
-            # Comando para limpar o cache ARP no Windows
-            subprocess.run(
-                "arp -d *", 
-                shell=True, 
-                capture_output=True, 
-                check=False
-            )
-        elif system == "linux":
-            # Comando para limpar o cache ARP no Linux (requer privilégios de root)
-            # O ideal é executar o servidor com sudo ou configurar permissões.
-            subprocess.run(
-                "sudo ip -s -s neigh flush all", 
-                shell=True, 
-                capture_output=True, 
-                check=False
-            )
-        # macOS também usa um comando similar ao Linux, mas pode variar.
-        # Por enquanto, focamos nos dois principais.
-        #print("[arp_scan] Cache ARP limpo.")
-    except Exception as e:
-        print(f"[arp_scan] AVISO: Falha ao tentar limpar o cache ARP: {e}")
-        print("[arp_scan] A verificação de presença pode incluir dispositivos recém-desconectados.")
-
-# --- FIM DA CORREÇÃO ---
-
-
-def ping_ip(ip):
-    """Função para pingar um único IP. Executada em uma thread."""
-    try:
-        subprocess.run(
-            ["ping", "-n", "1", "-w", "200", str(ip)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False
-        )
-    except Exception:
-        pass
-
-def update_arp_table():
-    """
-    Força a atualização da tabela ARP pingando todos os IPs na rede local.
-    """
-    network_range_str = settings.get('network_range_scan')
-    if not network_range_str:
-        print("[arp_scan] ERRO: 'network_range_scan' não definido no config.ini.")
-        return
-
-    #print(f"[arp_scan] Forçando atualização da tabela ARP para a rede {network_range_str}...")
-    
-    try:
-        network = ipaddress.ip_network(network_range_str, strict=False)
-        threads = []
-        for ip in network.hosts():
-            thread = threading.Thread(target=ping_ip, args=(ip,))
-            threads.append(thread)
-            thread.start()
-        
-        for thread in threads:
-            thread.join()
-
-        print("[arp_scan] Tabela ARP atualizada com sucesso.")
-
-    except Exception as e:
-        print(f"[arp_scan] ERRO ao tentar pingar a rede: {e}")
-
-
-def get_connected_macs():
-    """
-    Retorna uma lista atualizada de MACs na rede. Primeiro, LIMPA o cache ARP,
-    depois força a atualização com pings, e finalmente lê a tabela.
-    """
-    # --- MUDANÇA NO FLUXO ---
-    # 1. Limpa o cache para remover entradas antigas.
-    clear_arp_cache()
-
-    # 2. Força a atualização da tabela ARP com pings.
-    update_arp_table()
-    # --- FIM DA MUDANÇA ---
-
-    # 3. Lê a tabela ARP agora atualizada
-    #print("[arp_scan] Lendo a tabela ARP atualizada com o comando 'arp -a'...")
-    try:
+        # Usamos uma codificação compatível com o CMD do Windows em português
         result = subprocess.run(
-            "arp -a", 
+            "arp -a",
             shell=True,
-            capture_output=True, 
+            capture_output=True,
             text=True,
-            timeout=60
+            timeout=60,
+            encoding='cp850'
         )
-
         if result.returncode != 0:
-            print(f"[arp_scan] ERRO: O comando 'arp -a' falhou. Stderr: {result.stderr}")
-            return []
+            print(f"[nmap_scan_worker] ERRO: Comando 'arp -a' falhou. Stderr: {result.stderr}")
+            return {}
 
         output = result.stdout
-        mac_addresses = re.findall(r"([0-9a-fA-F]{2}(?:[-:][0-9a-fA-F]{2}){5})", output)
-        mac_addresses_standardized = [mac.lower().replace('-', ':') for mac in mac_addresses]
+        pattern = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+([0-9a-fA-F]{2}(?:[-:][0-9a-fA-F]{2}){5})")
+        matches = pattern.findall(output)
+        mac_ip_map = {mac.lower().replace('-', ':'): ip for ip, mac in matches}
         
-        #print(f"[arp_scan] MACs encontrados (via ARP): {mac_addresses_standardized}")
-        return mac_addresses_standardized
-
+        print(f"[nmap_scan_worker] Mapa MAC->IP atualizado. {len(mac_ip_map)} dispositivos encontrados.")
+        return mac_ip_map
     except Exception as e:
-        #print(f"[arp_scan] ERRO CRÍTICO ao executar o scan com ARP: {e}")
-        return []
+        print(f"[nmap_scan_worker] ERRO CRÍTICO ao criar mapa MAC->IP: {e}")
+        return {}
+
+def _worker_is_host_online(ip_address: str) -> bool:
+    """Função trabalhadora que executa o 'nmap' e procura pela resposta correta."""
+    if not ip_address:
+        return False
+        
+    try:
+        command = ["nmap", "-sn", "-PE", "-PR", "-T4", ip_address]
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        
+        # --- CORREÇÃO PRINCIPAL AQUI ---
+        # Procuramos por "Host is up" em vez de "Status: Up"
+        if "Host is up" in result.stdout:
+            return True
+        else:
+            return False
+        # --- FIM DA CORREÇÃO ---
+            
+    except FileNotFoundError:
+        print("\n\n[NMAP] ERRO CRÍTICO: O comando 'nmap' não foi encontrado. Instale o Nmap no seu sistema.\n\n")
+        return False
+    except Exception as e:
+        print(f"[nmap_scan_worker] Erro ao executar Nmap para o IP {ip_address}: {e}")
+        return False
+
+# --- Funções de Interface (Assíncronas) ---
+
+async def get_mac_to_ip_map_async() -> dict:
+    """Interface assíncrona que chama a função trabalhadora numa thread separada."""
+    print("[nmap_scan_async] Agendando atualização de mapa MAC->IP...")
+    loop = asyncio.get_running_loop()
+    mac_ip_map = await loop.run_in_executor(None, _worker_get_mac_to_ip_map)
+    return mac_ip_map
+
+async def is_host_online_async(ip_address: str) -> bool:
+    """Interface assíncrona que chama a verificação ativa do Nmap numa thread separada."""
+    print(f"[nmap_scan_async] Agendando verificação ativa do IP: {ip_address} com Nmap...")
+    loop = asyncio.get_running_loop()
+    is_online = await loop.run_in_executor(None, _worker_is_host_online, ip_address)
+    
+    if is_online:
+        print(f"[nmap_scan_async] SUCESSO: Host {ip_address} está online.")
+    else:
+        print(f"[nmap_scan_async] FALHA: Host {ip_address} parece estar offline.")
+        
+    return is_online
