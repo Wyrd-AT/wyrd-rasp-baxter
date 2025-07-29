@@ -57,6 +57,9 @@ def load_configuration():
             'Event_Page_Size': '20',
             'Cleanup_Interval_Sec': '3600',
             'Warning_Delay_Minutes': '5',
+            'Monitor_Interval_Sec': '150',
+            "Max_Pending_Minutes": '15',
+            "Delay_Wifi_to_Server": '5',
         }
 
         with open(CONFIG_FILE, 'w') as configfile:

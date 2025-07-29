@@ -38,6 +38,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from typing import Optional, Dict
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 import csv
 from io import StringIO
 import json
@@ -64,7 +65,7 @@ def get_db():
 
 # Importa os outros módulos da aplicação que contêm a lógica de negócio.
 from .presence import check_presence
-from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task, retry_presence_task
+from .aggregator import main_aggregator_loop, enqueue_event, cancel_pending_task, retry_presence_task, get_pending_macs
 from . import mqtt_client, services
 from .services import update_bed_assignment, trigger_mqtt_update_on_bed_change, synchronize_and_reset_esp, release_bed_for_offline_esp
 from sqlalchemy import event, or_
@@ -107,6 +108,7 @@ async def on_startup():
     restart_pending_tasks()
     asyncio.create_task(main_aggregator_loop()) # Inicia o cérebro do sistema.
     asyncio.create_task(check_esp_liveness())
+    asyncio.create_task(monitor_connected_beds())
     mqtt_client.init_mqtt_client(_esps_em_quarentena)
     start_cleanup_scheduler() # Inicia a limpeza periódica de eventos antigos.
 
@@ -117,6 +119,66 @@ def purge_old_events():
     deleted = db.query(ReceivedEvent).filter(ReceivedEvent.data_on < cutoff).delete()
     db.commit()
     print(f"[main] purge_old_events: removidos {deleted} eventos antes de {cutoff.isoformat()}")
+
+MONITOR_INTERVAL_SEC = int(settings.get("monitor_interval_sec"))
+_monitor_failure_counts = defaultdict(int)
+
+async def monitor_connected_beds():
+    """
+    Tarefa de background que verifica a liveness das camas, IGNORANDO as que
+    já estão em estado pendente e agindo apenas após múltiplas falhas.
+    """
+    print(f"[MONITOR] Guardião de camas ativas iniciado. Verificando a cada {MONITOR_INTERVAL_SEC}s.")
+    while True:
+        await asyncio.sleep(MONITOR_INTERVAL_SEC)
+
+        db = SessionLocal()
+        try:
+            active_beds = db.query(Bed).filter(Bed.quarto.isnot(None)).all()
+            if not active_beds:
+                continue
+
+            print(f"[MONITOR] Verificando a liveness de {len(active_beds)} cama(s) ativa(s)...")
+
+            # --- LÓGICA DE SINCRONIZAÇÃO (A CORREÇÃO) ---
+            # 1. Pergunta ao aggregator quais camas ele já está a tratar
+            pending_macs = get_pending_macs()
+            if pending_macs:
+                print(f"[MONITOR] Ignorando verificação para {len(pending_macs)} cama(s) que já estão em estado pendente: {pending_macs}")
+
+            for bed in active_beds:
+                # 2. Se a cama já está na lista de pendentes, o Guardião não interfere.
+                if bed.mac_address in pending_macs:
+                    print(f"[MONITOR] Cama '{bed.nome_cama}' está PENDENTE. Monitor não irá agir.")
+                    continue # Pula para a próxima cama
+
+                is_still_present = await check_presence(bed.mac_address)
+
+                # --- LÓGICA DE PACIÊNCIA ADICIONADA ---
+                if not is_still_present:
+                    _monitor_failure_counts[bed.mac_address] += 1
+                    print(f"[MONITOR] AVISO: Cama '{bed.nome_cama}' falhou na verificação. Contagem de falhas: {_monitor_failure_counts[bed.mac_address]}")
+
+                    # Só toma uma atitude após 3 falhas seguidas
+                    if _monitor_failure_counts[bed.mac_address] >= 3:
+                        print(f"[MONITOR] ALERTA: A cama '{bed.nome_cama}' está offline de forma consistente. Forçando reset.")
+                        embarcado = db.query(Embarcado).filter(Embarcado.quarto == bed.quarto).first()
+                        if embarcado:
+                            synchronize_and_reset_esp(esp_id=embarcado.id_esp)
+                        else:
+                            update_bed_assignment(bed_id=bed.id, new_room=None)
+                        # Zera a contagem após tomar a atitude
+                        del _monitor_failure_counts[bed.mac_address]
+                else:
+                    # Se a cama responder, zera a sua contagem de falhas
+                    if bed.mac_address in _monitor_failure_counts:
+                        print(f"[MONITOR] Cama '{bed.nome_cama}' voltou a ficar online. Resetando contador de falhas.")
+                        del _monitor_failure_counts[bed.mac_address]
+
+        except Exception as e:
+            print(f"[MONITOR] Erro durante a verificação de camas ativas: {e}")
+        finally:
+            db.close()
 
 ESP_TIMEOUT_SEC = 150 # 2.5 minutos. Se uma ESP não der sinal de vida neste tempo, é considerada offline.
 

@@ -17,13 +17,13 @@ async def check_presence(mac: str) -> bool:
     """
     global _mac_ip_map_cache, _cache_last_updated
     
-    print(f"[presence_async] Verificando presença do MAC: {mac}")
+    #print(f"[presence_async] Verificando presença do MAC: {mac}")
     target_mac = mac.lower()
     now = time.time()
     
     # 1. Verifica se o cache expirou
     if not _mac_ip_map_cache or (now - _cache_last_updated > CACHE_TTL_SECONDS):
-        print("[presence_async] Cache do mapa MAC->IP expirado. Atualizando...")
+        #print("[presence_async] Cache do mapa MAC->IP expirado. Atualizando...")
         _mac_ip_map_cache = await get_mac_to_ip_map_async()
         _cache_last_updated = now
         
@@ -33,7 +33,7 @@ async def check_presence(mac: str) -> bool:
     # 3. Lógica de Cache-Miss: Se não encontrou, o cache pode estar desatualizado.
     #    Força uma nova leitura da rede para garantir.
     if not target_ip:
-        print(f"[presence_async] MAC {target_mac} não encontrado no cache. Forçando atualização da rede...")
+        #print(f"[presence_async] MAC {target_mac} não encontrado no cache. Forçando atualização da rede...")
         _mac_ip_map_cache = await get_mac_to_ip_map_async()
         _cache_last_updated = now
         

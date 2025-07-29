@@ -1,5 +1,5 @@
 // ===================================================================================
-// = BAXTER - FIRMWARE FINAL COM ARQUITETURA DE TÓPICOS UNIFICADA                      =
+// = BAXTER - v0.1.3                    =
 // ===================================================================================
 //
 // Este firmware é projetado para um dispositivo ESP32 que atua como um sensor de
@@ -48,12 +48,16 @@ const char* TRIGGER_HOTSPOT_PASSWORD = "baxterconfig";
 const unsigned long TRIGGER_SCAN_TIMEOUT = 5000; // Tempo em ms que a ESP procura pelo hotspot.
 
 // --- Variáveis de configuração (carregadas da memória NVS ou portal) ---
-char SERVER_IP[16]            = "10.0.0.149";
+char SERVER_IP[16]            = "172.28.74.51";
 char SERVER_PORT_STR[6]       = "8000";
-char MQTT_BROKER_HOST[16]     = "10.0.0.149";
-char MQTT_BROKER_PORT_STR[6]  = "1883";
+char MQTT_BROKER_HOST[16]     = "172.28.74.51";
+char MQTT_BROKER_PORT_STR[6]  = "51883";
 uint16_t SERVER_PORT          = 8000;
-uint16_t MQTT_BROKER_PORT     = 1883;
+uint16_t MQTT_BROKER_PORT     = 51883;
+
+#define HEARTBEAT_INTERVAL_MS 60000 // A cada 60 segundos
+String MQTT_HEARTBEAT_TOPIC = "";
+unsigned long lastHeartbeatMillis = 0;
 
 // --- Parâmetros de Lógica de Detecção ---
 int RSSI_THRESHOLD            = -60;   // Limite de força do sinal BLE para considerar uma "entrada".
@@ -63,12 +67,6 @@ const unsigned long VEREDICT_TIMEOUT_MS = 30000; // 30 segundos
 unsigned long inicioAguardandoVeredito = 0;
 #define RSSI_HISTORY_SIZE       3      // Número de leituras de RSSI para calcular a média e suavizar o sinal.
 #define BEACON_SCAN_TIME        1      // Duração em segundos de cada ciclo de scan BLE.
-
-
-// --- Configurações de Tempo (NTP) ---
-const char* NTP_SERVER          = "pool.ntp.org";
-const long  GMT_OFFSET_SEC      = -3 * 3600; // Offset para o fuso horário de Brasília (UTC-3).
-const int   DAYLIGHT_OFFSET_SEC = 0;
 
 // ============ OBJETOS GLOBAIS E ESTRUTURAS DE DADOS ============
 WiFiClient wifiClient;
@@ -110,7 +108,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length);
 String obterDataAtualISO8601();
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi);
 void processarLogicaCama();
-void configurarNTP();
+void syncTimeFromServer();
 void reconnect_mqtt();
 
 // =================================================================
@@ -221,9 +219,19 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
                     if (strcmp(status, "WIN") == 0) {
                         Serial.printf(">>> VEREDITO VÁLIDO (ID: %u): VENCEU! Travando na cama %s\n", idTransacaoRecebida, cama.c_str());
                         lockedBed.confirmada = true;
+                        potentialTargetsCount = 0; 
                     } else { // "LOSE"
                         Serial.printf(">>> VEREDITO VÁLIDO (ID: %u): PERDEU! Liberando a cama %s\n", idTransacaoRecebida, cama.c_str());
                         lockedBed = {};
+                        Serial.println(">>> Resetando dados de sinal de todos os alvos para reavaliar o ambiente.");
+                        for (int i = 0; i < potentialTargetsCount; i++) {
+                            // Guarda o MAC para não o perder
+                            String currentMac = potentialTargets[i].mac;
+                            // Limpa completamente a struct (zera RSSI, inércia, etc.)
+                            potentialTargets[i] = TargetBed();
+                            // Restaura o MAC
+                            potentialTargets[i].mac = currentMac;
+                        }
                     }
                     lockedBed.aguardandoVeredito = false;
                     idTransacaoAguardada = 0; // Limpa o ID esperado.
@@ -304,6 +312,7 @@ void setup() {
     
     // Constrói dinamicamente os nomes dos tópicos específicos desta ESP.
     MQTT_INDIVIDUAL_TOPIC = "wyrd/baxter/esp/" + String(idESP) + "/command";
+    MQTT_HEARTBEAT_TOPIC = "wyrd/baxter/esp/heartbeat/" + String(idESP);
     TRIGGER_HOTSPOT_SSID = "BAXTER_" + String(idESP);
 
     Serial.println("\n\n==================");
@@ -391,7 +400,7 @@ void setup() {
         Serial.print("IP: ");
         Serial.println(WiFi.localIP());
 
-        configurarNTP();
+        syncTimeFromServer();
         
         BLEDevice::init("");
         BLEScan* pBLEScan = BLEDevice::getScan();
@@ -408,6 +417,18 @@ void setup() {
 
 // O loop principal da aplicação.
 void loop() {
+    unsigned long agora = millis(); // Usamos uma variável local
+
+    // +++ INÍCIO DA LÓGICA DE HEARTBEAT +++
+    if (agora - lastHeartbeatMillis > HEARTBEAT_INTERVAL_MS) {
+        if (mqttClient.connected()) {
+            // Apenas o tópico já informa que estamos vivos. A mensagem pode ser vazia.
+            mqttClient.publish(MQTT_HEARTBEAT_TOPIC.c_str(), ""); 
+            Serial.println(">>> Heartbeat enviado para o servidor.");
+        }
+        lastHeartbeatMillis = agora;
+    }
+
     if (inEmergencyCooldown && (millis() - emergencyCooldownStart > EMERGENCY_COOLDOWN_MS)) {
         Serial.println(">>> Cooldown de emergência finalizado. ESP pode pedir nova sincronização se necessário.");
         inEmergencyCooldown = false;
@@ -427,9 +448,48 @@ void loop() {
     delay(500); // Pequena pausa para não sobrecarregar o processador.
 }
 
+void syncTimeFromServer() {
+    Serial.println("Tentando sincronizar o tempo com o servidor local...");
+    HTTPClient http;
+    String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/api/time";
+
+    if (http.begin(serverUrl)) {
+        int httpCode = http.GET();
+        if (httpCode == 200) {
+            String payload = http.getString();
+            StaticJsonDocument<64> doc;
+            deserializeJson(doc, payload);
+            long unix_time = doc["unix_time"];
+
+            if (unix_time > 0) {
+                // Define o tempo do sistema a partir do timestamp recebido
+                timeval tv = { unix_time, 0 };
+                settimeofday(&tv, NULL);
+
+                // Apenas para configurar o fuso horário internamente para UTC-3
+                configTime(-3 * 3600, 0, "pool.ntp.org"); 
+
+                Serial.printf("Tempo sincronizado com sucesso via servidor local! Timestamp UTC: %ld\n", unix_time);
+                struct tm timeinfo;
+                getLocalTime(&timeinfo);
+                Serial.printf("Verificação da hora local (Brasília): %02d:%02d:%02d\n", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+            }
+        } else {
+            Serial.printf("Falha ao buscar tempo do servidor. Código HTTP: %d\n", httpCode);
+        }
+        http.end();
+    } else {
+        Serial.println("Falha ao iniciar conexão HTTP para sincronização de tempo.");
+    }
+}
+
 // =================== LÓGICA DE DECISÃO PRINCIPAL =================
 void processarLogicaCama() {
     unsigned long agora = millis();
+
+    if (lockedBed.aguardandoVeredito) {
+        return;
+    }
 
     if (lockedBed.aguardandoVeredito && (agora - inicioAguardandoVeredito > VEREDICT_TIMEOUT_MS)) {
         Serial.println(">>> ERRO: Timeout! Veredito não recebido em 30 segundos. Resetando estado.");
@@ -437,6 +497,7 @@ void processarLogicaCama() {
         idTransacaoAguardada = 0; // Limpa o ID da transação
         inicioAguardandoVeredito = 0;
         return;
+    }
 
     if (lockedBed.confirmada) {
         if (!lockedBed.isFull) { return; }
@@ -459,7 +520,7 @@ void processarLogicaCama() {
             }
         }
 
-         if (lockedBed.inicioInerciaSaida > 0 && (agora - lockedBed.inicioInerciaSaida > INERCIA_SAIDA)) {
+        if (lockedBed.inicioInerciaSaida > 0 && (agora - lockedBed.inicioInerciaSaida > INERCIA_SAIDA)) {
             Serial.printf(">>> Inércia de SAÍDA atingida. Tratando como SAÍDA.\n");
             bool sucesso = enviarEventoHTTP(lockedBed.mac.c_str(), "OUT", mediaRSSI, WiFi.RSSI());
             if (sucesso) {
@@ -515,7 +576,6 @@ void processarLogicaCama() {
             
             inicioAguardandoVeredito = millis();
 
-            potentialTargetsCount = 0;
             Serial.printf("Evento de ENTRADA enviado. Aguardando veredito para a cama %s.\n", lockedBed.mac.c_str());
         } else {
             Serial.println("Falha ao reportar ENTRADA. A ESP continuará no modo de busca.");
@@ -637,6 +697,9 @@ void reconnect_mqtt() {
             mqttClient.subscribe(MQTT_COMMAND_TOPIC); 
             mqttClient.subscribe(MQTT_INDIVIDUAL_TOPIC.c_str());
             Serial.println("Reconectado ao MQTT. Sincronizando estado com o servidor...");
+            if (mqttClient.connected()) {
+                mqttClient.publish(MQTT_HEARTBEAT_TOPIC.c_str(), "");
+            }
             checkInitialState();
         } else {
             Serial.print(" falhou, rc=");
@@ -645,10 +708,6 @@ void reconnect_mqtt() {
             delay(5000);
         }
     }
-}
-
-void configurarNTP() {
-    configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
 }
 
 String obterDataAtualISO8601() {

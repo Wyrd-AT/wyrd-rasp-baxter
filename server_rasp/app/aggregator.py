@@ -41,6 +41,10 @@ AGGREGATOR_LOOP_INTERVAL_SEC = 2  # Frequência do loop principal do agregador.
 _buffer = [] # Fila para novos eventos.
 _pending_mac_checks = {} # Dicionário de tarefas de verificação de presença em andamento.
 
+def get_pending_macs():
+    """Retorna uma lista dos MACs de Wi-Fi que estão em verificação pendente."""
+    return list(_pending_mac_checks.keys())
+
 def enqueue_event(evt: dict):
     """ Coloca um novo evento no buffer para ser processado pelo loop principal. """
     _buffer.append(evt)
@@ -71,7 +75,7 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
     start_time = datetime.now(timezone.utc)
     warning_created = False
     warning_delay_minutes = int(settings.get('warning_delay_minutes', 5))
-    max_pending_minutes = 15
+    max_pending_minutes = int(settings.get("max_pending_minutes", 15))
 
     while True:
         # Lógica de Timeout (Vencido): Se a verificação demorar mais que o tempo máximo...
@@ -103,6 +107,9 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
                 bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
                 if bed:
                     # O evento original agora é "Resolvido".
+                    print("[aggregator-retry] Wi-Fi confirmado. Aguardando 5s para estabilização do serviço...")
+                    delay_wifi_to_server = int(settings.get("delay_wifi_to_server", 5))
+                    await asyncio.sleep(delay_wifi_to_server)
                     _update_event_status(
                         original_event_id, 
                         status="Resolvido", 
@@ -286,7 +293,10 @@ async def _process_events_batch(events: list):
         
         is_present = await check_presence(bed.mac_address)
         publish_available_beds()
+        
         if is_present:
+            print("[aggregator] Wi-Fi confirmado. Aguardando 5s para estabilização do serviço na cama...")
+            await asyncio.sleep(5)
             br_timezone = timezone(timedelta(hours=-3))
             timestamp_agora_br = datetime.now(br_timezone)
             dispatch_payload = {"quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET", "dataOn": timestamp_agora_br.isoformat(), "wifi": best_event.get("wifi")}

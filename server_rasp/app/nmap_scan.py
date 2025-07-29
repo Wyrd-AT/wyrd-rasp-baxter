@@ -29,7 +29,7 @@ def _worker_get_mac_to_ip_map() -> dict:
         matches = pattern.findall(output)
         mac_ip_map = {mac.lower().replace('-', ':'): ip for ip, mac in matches}
         
-        print(f"[nmap_scan_worker] Mapa MAC->IP atualizado. {len(mac_ip_map)} dispositivos encontrados.")
+        #print(f"[nmap_scan_worker] Mapa MAC->IP atualizado. {len(mac_ip_map)} dispositivos encontrados.")
         return mac_ip_map
     except Exception as e:
         print(f"[nmap_scan_worker] ERRO CRÍTICO ao criar mapa MAC->IP: {e}")
@@ -68,14 +68,14 @@ def _worker_is_host_online(ip_address: str) -> bool:
 
 async def get_mac_to_ip_map_async() -> dict:
     """Interface assíncrona que chama a função trabalhadora numa thread separada."""
-    print("[nmap_scan_async] Agendando atualização de mapa MAC->IP...")
+    #print("[nmap_scan_async] Agendando atualização de mapa MAC->IP...")
     loop = asyncio.get_running_loop()
     mac_ip_map = await loop.run_in_executor(None, _worker_get_mac_to_ip_map)
     return mac_ip_map
 
 async def is_host_online_async(ip_address: str) -> bool:
     """Interface assíncrona que chama a verificação ativa do Nmap numa thread separada."""
-    print(f"[nmap_scan_async] Agendando verificação ativa do IP: {ip_address} com Nmap...")
+    #print(f"[nmap_scan_async] Agendando verificação ativa do IP: {ip_address} com Nmap...")
     loop = asyncio.get_running_loop()
     is_online = await loop.run_in_executor(None, _worker_is_host_online, ip_address)
     
