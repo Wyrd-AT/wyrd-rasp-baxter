@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Planta Baixa - Status dos Quartos{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Planta Baixa</h1>
+</div>
+
+<div id="planta-container" style="width: 100%; height: auto; border: 1px solid #ccc;">
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const container = document.getElementById('planta-container');
+
+    // Carrega o ficheiro SVG e injeta-o no container
+    fetch("{{ url_for('static', path='planta_baixa.svg') }}")
+        .then(response => response.text())
+        .then(svgData => {
+            container.innerHTML = svgData;
+            // Uma vez que o SVG está no DOM, podemos buscar e atualizar os dados
+            atualizarPlanta();
+        });
+
+    function atualizarPlanta() {
+        // Busca os dados da nossa nova API
+        fetch("{{ url_for('get_planta_dados') }}")
+            .then(response => response.json())
+            .then(dadosQuartos => {
+                dadosQuartos.forEach(quarto => {
+                    // Encontra o elemento do quarto no SVG pelo ID
+                    const elementoQuarto = document.getElementById(quarto.id_quarto);
+
+                    if (elementoQuarto) {
+                        // Lógica de interatividade:
+                        // 1. Mudar a cor se estiver ocupado
+                        if (quarto.numero_ativos > 0) {
+                            elementoQuarto.style.fill = '#a8d5e5'; // Azul claro para ocupado
+                        } else {
+                            elementoQuarto.style.fill = '#cccccc'; // Cinza para livre
+                        }
+
+                        // 2. Adicionar um "tooltip" (dica) ao passar o rato
+                        const nomesAtivosStr = quarto.nomes_ativos.join('\\n'); // \\n para nova linha no title
+                        const titleText = `${quarto.nome_quarto}\\nAtivos: ${quarto.numero_ativos}\\n${nomesAtivosStr}`;
+                        
+                        // Garante que o <title> existe dentro do elemento SVG para o tooltip
+                        let titleElement = elementoQuarto.querySelector('title');
+                        if (!titleElement) {
+                            titleElement = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+                            elementoQuarto.appendChild(titleElement);
+                        }
+                        titleElement.textContent = titleText;
+                    }
+                });
+            });
+    }
+
+    // Opcional: Atualizar a planta a cada X segundos
+    // setInterval(atualizarPlanta, 10000); // Atualiza a cada 10 segundos
+});
+</script>
+{% endblock %}

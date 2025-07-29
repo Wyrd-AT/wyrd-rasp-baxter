@@ -13,7 +13,7 @@ from typing import Optional, Dict, List
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
@@ -297,6 +297,33 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
         "inercia_chegada": int(settings.get("inercia_chegada")),
         "inercia_saida": int(settings.get("inercia_saida")),
     }
+
+@app.get("/planta", name="view_planta")
+def view_planta(request: Request, db: Session = Depends(get_db)):
+    """
+    Renderiza a página da planta baixa interativa.
+    """
+    return templates.TemplateResponse("planta_baixa.html", {"request": request})
+
+@app.get("/api/planta/dados", name="get_planta_dados")
+def get_planta_dados(db: Session = Depends(get_db)):
+    """
+    Endpoint de API que fornece os dados de ocupação dos quartos para a planta.
+    Este endpoint será usado pelo JavaScript e, no futuro, pelo React.
+    """
+    # Usamos joinedload para carregar os ativos juntos e evitar múltiplas queries
+    quartos_com_assets = db.query(Quarto).options(joinedload(Quarto.assets)).order_by(Quarto.id).all()
+    
+    dados_quartos = []
+    for quarto in quartos_com_assets:
+        dados_quartos.append({
+            "id_quarto": f"quarto-{quarto.id}", # Formato do ID que corresponderá ao SVG
+            "nome_quarto": quarto.nome,
+            "numero_ativos": len(quarto.assets),
+            "nomes_ativos": [asset.nome_ativo for asset in quarto.assets]
+        })
+        
+    return JSONResponse(content=dados_quartos)
 
 # ===================================================================
 # SEÇÃO 2: CRUD PARA QUARTOS
