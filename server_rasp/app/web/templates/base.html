@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <title>{% block title %}Baxter Wyrd{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
-    <script src="https://unpkg.com/feather-icons"></script>
 </head>
 <body>
     <div class="container">
@@ -23,7 +22,6 @@
     document.addEventListener('DOMContentLoaded', function() {
     
         // 1. Ativa todos os ícones da biblioteca Feather na página.
-        feather.replace();
 
         // 2. Lógica da Sidebar e do Overlay (fundo escurecido).
         const sidebar = document.getElementById('sidebar');

@@ -1,7 +1,7 @@
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
         <button class="icon-btn" id="sidebar-toggle" title="Menu">
-            <i data-feather="menu"></i>
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/menu.svg') }})"></span>
         </button>
     </div>
     <nav class="sidebar-nav">
@@ -27,7 +27,7 @@
     </nav>
     <div class="sidebar-footer">
         <a href="#" class="nav-item" title="Sair">
-            <i data-feather="log-out"></i>
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/sair.svg') }})"></span>
             <span class="nav-text">Sair</span>
         </a>
     </div>
