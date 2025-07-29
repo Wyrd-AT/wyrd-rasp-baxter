@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 
 # Importa as funções e modelos necessários
-from .dispatcher import dispatch_event_to_rtls
+# from .dispatcher import dispatch_event_to_rtls
 from .models import SessionLocal, Asset, Embarcado, ReceivedEvent
 from .mqtt_client import publish_available_assets, publish_verdict # Importa a nova função de veredito
 
@@ -80,13 +80,15 @@ async def _resolve_dispute(beacon_mac: str):
                 "ativo": asset.mac_beacon, "quarto": emb.quarto.nome,
                 "data_evento": best_event.get("data_on"), "tipo_evento": "wyrd.ENTRADA"
             }
-            success = await dispatch_event_to_rtls("wyrd.ENTRADA", event_data)
-            if success:
-                detail = f"Ativo associado ao quarto '{emb.quarto.nome}' e evento de entrada enviado com sucesso."
-                _update_event_status(best_event.get("event_id"), "OK", detail)
-            else:
-                detail = f"Ativo associado ao quarto '{emb.quarto.nome}', mas a notificação para a Rtls falhou."
-                _update_event_status(best_event.get("event_id"), "Erro", detail)
+            # success = await dispatch_event_to_rtls("wyrd.ENTRADA", event_data)
+            # if success:
+            #     detail = f"Ativo associado ao quarto '{emb.quarto.nome}' e evento de entrada enviado com sucesso."
+            #     _update_event_status(best_event.get("event_id"), "OK", detail)
+            # else:
+            #     detail = f"Ativo associado ao quarto '{emb.quarto.nome}', mas a notificação para a Rtls falhou."
+            #     _update_event_status(best_event.get("event_id"), "Erro", detail)
+            detail = f"Ativo associado ao quarto '{emb.quarto.nome}' com sucesso."
+            _update_event_status(best_event.get("event_id"), "OK", detail)
 
         elif asset and emb and asset.quarto == emb.quarto:
              _update_event_status(best_event.get("event_id"), "Confirmado", f"Ativo já estava no quarto '{emb.quarto}'.")
@@ -121,12 +123,12 @@ async def enqueue_event(evt: dict):
                     "ativo": beacon_mac, "quarto": quarto_anterior.nome,
                     "data_evento": evt.get("data_on"), "tipo_evento": "wyrd.SAIDA"
                 }
-                success = await dispatch_event_to_rtls("wyrd.SAIDA", event_data)
-                if success:
-                    _update_event_status(event_id, "OK", f"Ativo desassociado e evento de saída enviado com sucesso para o quarto '{quarto_anterior}'.")
-                else:
-                    _update_event_status(event_id, "Erro", f"O ativo foi desassociado, mas a notificação para a Rtls falhou.")
-                
+                # success = await dispatch_event_to_rtls("wyrd.SAIDA", event_data)
+                # if success:
+                #     _update_event_status(event_id, "OK", f"Ativo desassociado e evento de saída enviado com sucesso para o quarto '{quarto_anterior}'.")
+                # else:
+                #     _update_event_status(event_id, "Erro", f"O ativo foi desassociado, mas a notificação para a Rtls falhou.")
+                _update_event_status(event_id, "OK", f"Ativo desassociado com sucesso Do quarto '{quarto_anterior}'.")
             elif asset:
                  _update_event_status(event_id, "Confirmado", "Ativo já estava desassociado.")
             else:

@@ -30,7 +30,7 @@
                 <ul class="asset-list">
                     {% for asset in quarto.assets %}
                         <li title="Entrada em: {{ asset.data_entrada_str }}">
-                            <span class="asset-icon" style="--icon-url: url({{ url_for('static', path='icons/emb.svg') }})"></span>
+                            <span class="asset-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
                             <span>{{ asset.nome_ativo }}</span>
                         </li>
                     {% endfor %}

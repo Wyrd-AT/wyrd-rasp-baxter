@@ -50,41 +50,25 @@ def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | Non
 
 def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     """
-    Serviço completo para forçar um ESP e seu quarto a um estado limpo.
-    1. Desassocia TODOS os ativos que o servidor pensa estarem no quarto da ESP.
-    2. Envia um comando RESET_STATE para a ESP.
+    Serviço simplificado para forçar um ESP a um estado limpo.
+    Apenas envia o comando de reset. O ESP será responsável
+    por notificar a saída dos ativos que ele possui.
     """
     try:
-
         embarcado = db.query(Embarcado).get(embarcado_id)
         if not embarcado:
             print(f"[SERVICE] Embarcado com ID '{embarcado_id}' não encontrado. Abortando reset.")
             return
 
-        print(f"[SERVICE] Iniciando reset e sincronização para a ESP: {embarcado.id_esp} no Quarto ID: {embarcado.quarto_id}")
-
-        # 2. Força o reset no lado do cliente (ESP)
-        print(f"[SERVICE] Enviando comando final RESET_STATE para a ESP '{embarcado.id_esp}'.")
+        print(f"[SERVICE] Enviando comando RESET_STATE para a ESP '{embarcado.id_esp}'.")
         mqtt_client.publish_command_to_esp(
             esp_id=embarcado.id_esp,
             command={"type": "command", "data": {"name": "RESET_STATE"}}
         )
-
-        # --- MUDANÇA PRINCIPAL AQUI ---
-        # 1. Encontra e desassocia TODOS os ativos no quarto.
-        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
-        
-        if assets_no_quarto:
-            print(f"[SERVICE] Encontrados {len(assets_no_quarto)} ativos no quarto. Desassociando todos...")
-            for asset in assets_no_quarto:
-                print(f"[SERVICE] Desassociando ativo '{asset.nome_ativo}'...")
-                # Usamos a função central, que já cuida da notificação MQTT
-                update_asset_assignment(db=db, asset_id=asset.id, new_quarto_id=None)
-        else:
-            print(f"[SERVICE] Servidor já indica que o quarto está vazio. OK.")
+        print(f"[SERVICE] Comando de reset enviado. O servidor aguardará os eventos 'OUT' do embarcado.")
 
     except Exception as e:
-        print(f"[SERVICE] ERRO durante a sincronização e reset da ESP ID '{embarcado_id}': {e}")
+        print(f"[SERVICE] ERRO durante o envio do comando de reset para ESP ID '{embarcado_id}': {e}")
 
 def release_assets_for_offline_esp(db: Session, esp_id: str):
     """
