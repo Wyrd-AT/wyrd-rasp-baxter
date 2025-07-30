@@ -12,7 +12,7 @@ import os
 from typing import Optional, Dict, List
 from datetime import datetime, timedelta, timezone
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket, WebSocketDisconnect, BackgroundTasks
 from .connection_manager import manager
 from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
@@ -160,6 +160,9 @@ def get_db():
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
 
+async def run_asset_list_update():
+    """Função async wrapper para ser usada como tarefa em background."""
+    mqtt_client.schedule_asset_list_update()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -237,7 +240,7 @@ LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
 
-async def check_esp_liveness():
+async def check_esp_liveness(background_tasks: BackgroundTasks = Depends()):
     """
     Tarefa de background que verifica na base de dados por ESPs offline.
     """
@@ -265,7 +268,7 @@ async def check_esp_liveness():
             if esps_offline:
                 print(f"[LIVENESS] ESPs considerados offline: {[e.id_esp for e in esps_offline]}")
                 for emb in esps_offline:
-                    await release_assets_for_offline_esp(db, emb.id_esp)
+                    await release_assets_for_offline_esp(db, emb.id_esp, background_tasks)
                     # --- A MUDANÇA CRÍTICA ---
                     # Não apaga o last_seen, apenas adiciona à quarentena
                     _esps_em_quarentena.add(emb.id_esp)
@@ -293,11 +296,18 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     
     # Encontra o embarcado e seu quarto
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+    final_rssi_threshold = int(settings.get("rssi_threshold"))
+
     
     macs_no_quarto = []
     if embarcado:
         # --- LÓGICA MULTI-ATIVO IMPLEMENTADA ---
         # Busca TODOS os ativos que estão no mesmo quarto que o embarcado.
+        if embarcado.rssi_threshold is not None:
+            final_rssi_threshold = embarcado.rssi_threshold
+            print(f"INFO: Usando RSSI individual ({final_rssi_threshold}) para a ESP '{esp_id}'.")
+        else:
+            print(f"INFO: Usando RSSI global ({final_rssi_threshold}) para a ESP '{esp_id}'.")
         assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
         macs_no_quarto = [b.mac_beacon for b in assets_no_quarto]
         print(f"INFO: Para ESP '{esp_id}', encontrados {len(macs_no_quarto)} ativos no quarto ID {embarcado.quarto_id}: {macs_no_quarto}")
@@ -306,7 +316,7 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
 
     return {
         "macs_beacons": macs_no_quarto, # Retorna a lista de MACs
-        "rssi_threshold": int(settings.get("rssi_threshold")),
+        "rssi_threshold": final_rssi_threshold, # <-- Envia o valor final
         "inercia_chegada": int(settings.get("inercia_chegada")),
         "inercia_saida": int(settings.get("inercia_saida")),
     }
@@ -443,11 +453,7 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
 
     for emb in embarcados:
         if emb.last_seen:
-            # --- CORREÇÃO AQUI ---
-            # Anexa a informação de fuso UTC ao datetime que veio do DB
             last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
-            # --- FIM DA CORREÇÃO ---
-
             data_local = last_seen_utc.astimezone(fuso_local)
             emb.last_seen_str = data_local.strftime("às %H:%M:%S de %d/%m")
 
@@ -468,19 +474,34 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         "embarcados": embarcados,
         "available_quartos": available_quartos,
         "form_action": request.url_for("create_embarcado"),
-        "embarcado": None, "search": search,
+        "embarcado": None, 
+        "search": search,
         "global_settings": get_global_settings(db)
     })
 
-@app.post("/embarcados", name="create_embarcado")
-def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int = Form(...), db: Session = Depends(get_db)):
-    # A lógica de criação não muda, pois a validação foi feita na exibição do formulário.
+@app.post("/embarcados/new", name="create_embarcado")
+def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int = Form(...),
+                     rssi_threshold: Optional[str] = Form(None),
+                     db: Session = Depends(get_db)):
+
+    # Converte a string recebida para int apenas se ela não for vazia/nula
+    rssi_value = int(rssi_threshold) if rssi_threshold else None
+    
+    # Usa o valor convertido ao criar o objeto
+    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_id, rssi_threshold=rssi_value)
+    
     try:
-        db.add(Embarcado(id_esp=id_esp, quarto_id=quarto_id))
+        db.add(novo_embarcado)
         db.commit()
+        db.refresh(novo_embarcado)
+
+        print(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. A disparar reset automático.")
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
     except Exception as e:
         db.rollback()
         print(f"[main-db] ERRO ao criar embarcado: {e}")
+
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
@@ -508,12 +529,24 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
         "search": None, "global_settings": get_global_settings(db)
     })
 
+# Em main.py
+
 @app.post("/embarcados/{embarcado_id}/edit", name="update_embarcado")
-def update_embarcado(request: Request, embarcado_id: int, quarto_id: int = Form(...), db: Session = Depends(get_db)):
+def update_embarcado(request: Request, embarcado_id: int, quarto_id: int = Form(...),
+                       rssi_threshold: Optional[str] = Form(None),
+                       db: Session = Depends(get_db)):
     emb = db.query(Embarcado).get(embarcado_id)
     if emb:
+        # Converte a string recebida para int apenas se ela não for vazia/nula
+        rssi_value = int(rssi_threshold) if rssi_threshold else None
+        
         emb.quarto_id = quarto_id
+        emb.rssi_threshold = rssi_value # Salva o valor correto
         db.commit()
+
+        print(f"[main] Embarcado '{emb.id_esp}' atualizado. A disparar reset automático.")
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.get("/embarcados/{embarcado_id}/delete", name="delete_embarcado")
@@ -543,14 +576,14 @@ def list_assets(request: Request, search: Optional[str] = Query(None), db: Sessi
     })
 
 @app.post("/assets", name="create_asset")
-def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+def create_asset(request: Request, background_tasks: BackgroundTasks, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
     asset = Asset(nome_ativo=nome_ativo, mac_beacon=mac_beacon.lower())
     try:
         db.add(asset)
         db.commit()
         # --- CORREÇÃO ADICIONADA ---
         # Notifica o sistema que a lista de ativos mudou.
-        mqtt_client.schedule_asset_list_update()
+        background_tasks.add_task(run_asset_list_update)
     except IntegrityError:
         db.rollback()
         print(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
@@ -569,7 +602,7 @@ def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     })
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")
-def update_asset(request: Request, asset_id: int, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+def update_asset(request: Request, background_tasks: BackgroundTasks, asset_id: int, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
     asset = db.query(Asset).get(asset_id)
     if asset:
         # --- LÓGICA DE VERIFICAÇÃO ADICIONADA ---
@@ -583,20 +616,20 @@ def update_asset(request: Request, asset_id: int, nome_ativo: str = Form(...), m
         # --- CORREÇÃO ADICIONADA ---
         # Só dispara a atualização se o MAC realmente mudou.
         if mac_mudou:
-                mqtt_client.schedule_asset_list_update()
+            background_tasks.add_task(run_asset_list_update)
 
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 @app.get("/assets/{asset_id}/delete", name="delete_asset")
-def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
+def delete_asset(request: Request, background_tasks: BackgroundTasks, asset_id: int, db: Session = Depends(get_db)):
     asset = db.query(Asset).get(asset_id)
     if asset:
         db.delete(asset)
         db.commit()
         # --- CORREÇÃO ADICIONADA ---
         # Notifica o sistema que um ativo foi removido.
-        mqtt_client.schedule_asset_list_update()
+        background_tasks.add_task(run_asset_list_update)
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 
@@ -769,7 +802,7 @@ def start_cleanup_scheduler():
 async def on_startup():
     print("[main] Startup: Iniciando serviços em background.")
     asyncio.create_task(main_aggregator_loop())
-    asyncio.create_task(check_esp_liveness())
+    asyncio.create_task(check_esp_liveness(BackgroundTasks())) 
     mqtt_client.init_mqtt_client(_esps_em_quarentena)
     start_cleanup_scheduler()
 

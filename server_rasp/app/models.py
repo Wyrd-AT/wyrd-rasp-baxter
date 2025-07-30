@@ -38,10 +38,11 @@ class Asset(Base):
 
 class Embarcado(Base):
     __tablename__ = "embarcados"
-    id     = Column(Integer, primary_key=True, index=True)
-    id_esp = Column(String, unique=True, nullable=False, index=True)
+    id        = Column(Integer, primary_key=True, index=True)
+    id_esp    = Column(String, unique=True, nullable=False, index=True)
     last_seen = Column(DateTime(timezone=True), nullable=True)
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
+    rssi_threshold = Column(Integer, nullable=True)
     quarto = relationship("Quarto", back_populates="embarcados")
 
 

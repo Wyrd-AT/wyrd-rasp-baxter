@@ -29,7 +29,9 @@
                 <tr>
                     <th>ID do Embarcado</th>
                     <th>QUARTO</th>
-                    <th>STATUS</th> <th style="text-align: center;">AÇÕES</th>
+                    <th>RSSI MÍN.</th> 
+                    <th>STATUS</th>
+                    <th style="text-align: center;">AÇÕES</th>
                 </tr>
             </thead>
             <tbody>
@@ -38,6 +40,13 @@
                     <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
                     
+                    <td>
+                        {% if emb.rssi_threshold is not none %}
+                            <span title="RSSI Individual">{{ emb.rssi_threshold }}</span>
+                        {% else %}
+                            <span title="Usando Configuração Global" style="color: #999;">Global</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if emb.status == 'Online' %}
                             <span class="status-indicator online" title="Último contato {{ emb.last_seen_str }}"></span> ON

@@ -4,6 +4,7 @@ from .models import Asset, Embarcado, Quarto
 from . import mqtt_client
 import asyncio
 from .connection_manager import manager
+from fastapi import BackgroundTasks
 
 async def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | None):
     """
@@ -74,7 +75,7 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     except Exception as e:
         print(f"[SERVICE] ERRO durante o envio do comando de reset para ESP ID '{embarcado_id}': {e}")
 
-async def release_assets_for_offline_esp(db: Session, esp_id: str):
+async def release_assets_for_offline_esp(db: Session, esp_id: str, background_tasks: BackgroundTasks):
     """
     Liberta todos os ativos associados a uma ESP que ficou offline.
     """
@@ -105,7 +106,7 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str):
         await manager.broadcast("ATUALIZAR_ESTADO") # <-- ADICIONE ESTA LINHA
         
         # Dispara a atualização MQTT para que outras ESPs saibam dos novos ativos disponíveis
-        mqtt_client.schedule_asset_list_update()
+        background_tasks.add_task(trigger_mqtt_update_on_asset_change)
 
     except Exception as e:
         db.rollback()
