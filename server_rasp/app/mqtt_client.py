@@ -1,6 +1,7 @@
 # mqtt_client.py (versão corrigida com a função que faltava)
 import paho.mqtt.client as mqtt
 import json
+import asyncio
 from datetime import datetime, timezone, timedelta
 from .models import SessionLocal, Asset, Embarcado
 from .config import settings
@@ -13,6 +14,33 @@ esp_heartbeats = {}
 
 # --- Cliente MQTT (sem alteração) ---
 client = mqtt.Client()
+
+_update_task = None
+
+async def _publish_debounced():
+    global _update_task
+    try:
+        await asyncio.sleep(3)
+        print("[DEBOUNCER] Janela de 3s fechada. Publicando a lista de ativos consolidados.")
+        
+        # Chama a função que já existe neste ficheiro
+        publish_available_assets()
+        
+        _update_task = None
+    except asyncio.CancelledError:
+        print("[DEBOUNCER] Publicação de ativos adiada por uma nova mudança.")
+        raise
+
+def schedule_asset_list_update():
+    """
+    Agenda a publicação da lista de ativos. Se já houver uma agendada,
+    cancela a antiga e cria uma nova (debounce).
+    """
+    global _update_task
+    if _update_task:
+        _update_task.cancel()
+    
+    _update_task = asyncio.create_task(_publish_debounced())
 
 def get_available_assets_macs():
     """Busca no banco de dados os MACs de BEACONS dos ativos disponíveis."""

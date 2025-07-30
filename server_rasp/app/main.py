@@ -12,6 +12,8 @@ import os
 from typing import Optional, Dict, List
 from datetime import datetime, timedelta, timezone
 
+from fastapi import WebSocket, WebSocketDisconnect
+from .connection_manager import manager
 from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -149,16 +151,27 @@ def get_db():
         db.close()
 
 # --- Listener de Eventos do Banco ---
-@event.listens_for(Asset, 'after_insert')
-@event.listens_for(Asset, 'after_delete')
-@event.listens_for(Asset, 'after_update')
-def structural_asset_change_listener(mapper, connection, target):
-    trigger_mqtt_update_on_asset_change()
+# @event.listens_for(Asset, 'after_insert')
+# @event.listens_for(Asset, 'after_delete')
+# @event.listens_for(Asset, 'after_update')
+# def structural_asset_change_listener(mapper, connection, target):
+#     trigger_mqtt_update_on_asset_change()
 
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
 
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """O endpoint onde os frontends irão se conectar."""
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Mantém a conexão viva. Não precisamos receber dados, apenas enviar.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        print("[WebSocket] Cliente desconectado.")
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
@@ -252,7 +265,7 @@ async def check_esp_liveness():
             if esps_offline:
                 print(f"[LIVENESS] ESPs considerados offline: {[e.id_esp for e in esps_offline]}")
                 for emb in esps_offline:
-                    release_assets_for_offline_esp(db, emb.id_esp)
+                    await release_assets_for_offline_esp(db, emb.id_esp)
                     # --- A MUDANÇA CRÍTICA ---
                     # Não apaga o last_seen, apenas adiciona à quarentena
                     _esps_em_quarentena.add(emb.id_esp)
@@ -537,7 +550,7 @@ def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str 
         db.commit()
         # --- CORREÇÃO ADICIONADA ---
         # Notifica o sistema que a lista de ativos mudou.
-        trigger_mqtt_update_on_asset_change()
+        mqtt_client.schedule_asset_list_update()
     except IntegrityError:
         db.rollback()
         print(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
@@ -570,7 +583,8 @@ def update_asset(request: Request, asset_id: int, nome_ativo: str = Form(...), m
         # --- CORREÇÃO ADICIONADA ---
         # Só dispara a atualização se o MAC realmente mudou.
         if mac_mudou:
-            trigger_mqtt_update_on_asset_change()
+                mqtt_client.schedule_asset_list_update()
+
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
@@ -582,7 +596,7 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
         db.commit()
         # --- CORREÇÃO ADICIONADA ---
         # Notifica o sistema que um ativo foi removido.
-        trigger_mqtt_update_on_asset_change()
+        mqtt_client.schedule_asset_list_update()
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 

@@ -2,8 +2,10 @@
 from sqlalchemy.orm import Session, joinedload
 from .models import Asset, Embarcado, Quarto
 from . import mqtt_client
+import asyncio
+from .connection_manager import manager
 
-def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | None):
+async def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | None):
     """
     Função central para associar um ATIVO a um novo QUARTO (ou a nenhum).
     Também notifica a ESP do quarto que está sendo desocupado.
@@ -23,6 +25,7 @@ def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | Non
             
             asset.quarto_id = new_quarto_id
             db.commit()
+            await manager.broadcast("ATUALIZAR_ESTADO") # <-- ADICIONE ESTA LINHA
 
             print(f"[SERVICE] Ativo '{asset.nome_ativo}' movido do quarto '{quarto_anterior.nome if quarto_anterior else 'Nenhum'}' para o quarto ID '{new_quarto_id}'.")
 
@@ -41,7 +44,8 @@ def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | Non
                     print(f"[SERVICE] Nenhuma ESP encontrada no quarto '{quarto_anterior.nome}'. Nenhum reset enviado.")
 
             # Sempre que uma associação muda, a lista de ativos disponíveis é atualizada
-            trigger_mqtt_update_on_asset_change()
+            mqtt_client.schedule_asset_list_update()
+
 
     except Exception as e:
         db.rollback()
@@ -70,7 +74,7 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     except Exception as e:
         print(f"[SERVICE] ERRO durante o envio do comando de reset para ESP ID '{embarcado_id}': {e}")
 
-def release_assets_for_offline_esp(db: Session, esp_id: str):
+async def release_assets_for_offline_esp(db: Session, esp_id: str):
     """
     Liberta todos os ativos associados a uma ESP que ficou offline.
     """
@@ -98,9 +102,10 @@ def release_assets_for_offline_esp(db: Session, esp_id: str):
         
         db.commit()
         print(f"[SERVICE-LIVENESS] {len(assets_no_quarto)} ativos do quarto {quarto_nome} foram libertados.")
+        await manager.broadcast("ATUALIZAR_ESTADO") # <-- ADICIONE ESTA LINHA
         
         # Dispara a atualização MQTT para que outras ESPs saibam dos novos ativos disponíveis
-        trigger_mqtt_update_on_asset_change()
+        mqtt_client.schedule_asset_list_update()
 
     except Exception as e:
         db.rollback()
