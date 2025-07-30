@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import event, or_
+from sqlalchemy import event, or_, desc
 
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
@@ -41,7 +41,7 @@ print("[main] Módulo carregado para a versão MULTI-ATIVO.")
 HISTORY_RETENTION_DAYS = 7
 EVENT_PAGE_SIZE = 25
 CLEANUP_INTERVAL_SEC = 3600
-NUM_FIXED_ROOMS = 3
+NUM_FIXED_ROOMS = 6
 
 _esps_em_quarentena = set()
 
@@ -308,19 +308,55 @@ def view_planta(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/planta/dados", name="get_planta_dados")
 def get_planta_dados(db: Session = Depends(get_db)):
     """
-    Endpoint de API que fornece os dados de ocupação dos quartos para a planta.
-    Este endpoint será usado pelo JavaScript e, no futuro, pelo React.
+    Endpoint de API que fornece os dados de ocupação dos quartos,
+    incluindo o status do embarcado e detalhes de cada ativo.
     """
-    # Usamos joinedload para carregar os ativos juntos e evitar múltiplas queries
-    quartos_com_assets = db.query(Quarto).options(joinedload(Quarto.assets)).order_by(Quarto.id).all()
+    # Carregamos os quartos com os seus ativos e embarcados associados de uma só vez
+    quartos = db.query(Quarto).options(
+        joinedload(Quarto.assets),
+        joinedload(Quarto.embarcados)
+    ).order_by(Quarto.id).all()
     
     dados_quartos = []
-    for quarto in quartos_com_assets:
+    now_utc = datetime.now(timezone.utc)
+
+    for quarto in quartos:
+        # 1. Determinar o status do embarcado
+        status_embarcado = "Offline"
+        if quarto.embarcados: # Verifica se existe um embarcado associado
+            embarcado = quarto.embarcados[0] # Pega o primeiro (deve ser apenas um)
+            if embarcado.last_seen:
+                last_seen_utc = embarcado.last_seen.replace(tzinfo=timezone.utc)
+                if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
+                    status_embarcado = "Online"
+        
+        # 2. Obter detalhes de cada ativo individualmente
+        ativos_detalhados = []
+        for asset in quarto.assets:
+            # Para cada ativo, busca o seu último evento de entrada bem sucedido
+            ultimo_evento = db.query(ReceivedEvent).filter(
+                ReceivedEvent.ativo == asset.mac_beacon,
+                ReceivedEvent.action == 'GET',
+                ReceivedEvent.status.in_(['OK', 'Confirmado'])
+            ).order_by(desc(ReceivedEvent.data_on)).first()
+            
+            horario = "N/A"
+            if ultimo_evento:
+                # Usamos um fuso horário para formatar a hora local corretamente
+                fuso_local = timezone(timedelta(hours=-3))
+                horario = ultimo_evento.data_on.astimezone(fuso_local).strftime("%H:%M:%S")
+
+            ativos_detalhados.append({
+                "nome": asset.nome_ativo,
+                "horario_entrada": horario
+            })
+
         dados_quartos.append({
-            "id_quarto": f"quarto-{quarto.id}", # Formato do ID que corresponderá ao SVG
+            "id_quarto": f"quarto-{quarto.id}",
             "nome_quarto": quarto.nome,
             "numero_ativos": len(quarto.assets),
-            "nomes_ativos": [asset.nome_ativo for asset in quarto.assets]
+            "status_embarcado": status_embarcado, # <-- NOVO DADO
+            "ativos": ativos_detalhados          # <-- NOVA ESTRUTURA DE DADOS
         })
         
     return JSONResponse(content=dados_quartos)

@@ -402,3 +402,72 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
     /* 2. Define a cor para cinza (herdando do botão) */
     background-color: currentColor;
 }
+
+.planta-grid-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: minmax(200px, auto);
+    gap: 1.5rem;
+    width: 100%;
+}
+
+/* Ajustamos o contentor do quarto para organizar o título e a contagem */
+.quarto-container {
+    position: relative; 
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
+    display: flex;
+    /* Organiza os itens (título, svg, contagem) em uma coluna */
+    flex-direction: column; 
+    /* Espaça os itens verticalmente */
+    justify-content: space-between; 
+    align-items: center;
+}
+
+/* Novo estilo para o título do quarto */
+.quarto-titulo {
+    font-family: 'Lexend', sans-serif;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem; /* Pequeno espaço abaixo do título */
+    /* Garante que o título não interfira com o ponto sobreposto */
+    z-index: 10;
+    position: relative;
+}
+
+/* Novo estilo para a contagem de ativos */
+.quarto-asset-count {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-top: 0.5rem; /* Pequeno espaço acima da contagem */
+    background-color: rgba(255, 255, 255, 0.7); /* Fundo semi-transparente para legibilidade */
+    padding: 2px 8px;
+    border-radius: 10px;
+    /* Garante que a contagem não interfira com o ponto sobreposto */
+    z-index: 10;
+    position: relative;
+}
+
+/* O estilo da imagem SVG permanece o mesmo */
+.quarto-container img {
+    max-width: 90%;
+    height: 90%; /* Altura fixa para consistência */
+    object-fit: contain;
+}
+
+/* O estilo do ponto sobreposto permanece o mesmo */
+.ponto-status-overlay {
+    width: 25px;
+    height: 25px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+    position: absolute;
+    cursor: help;
+    transition: all 0.3s ease;
+    /* O z-index aqui garante que o ponto fique por cima da imagem, mas abaixo do texto */
+    z-index: 5; 
+}

@@ -25,11 +25,6 @@ def load_configuration():
             'MQTT_ASSET_LIST_TOPIC': 'wyrd/rtls/assets/available',
             'MQTT_ESP_COMMAND_TOPIC': 'wyrd/rtls/esp/all/command'
         }
-        # Adicione outras seções se precisar, como a da Rtls
-        config['Rtls'] = {
-            'RTLS_WEBHOOK_URL': 'http://192.168.137.1:9000/api/events',
-            'RTLS_API_KEY': '2Jpjc2gJEe9U9fk5GnzrEUlnmBvxWBO6c5gA+O1JYXE='
-        }
         with open(CONFIG_FILE, 'w') as configfile:
             config.write(configfile)
     
