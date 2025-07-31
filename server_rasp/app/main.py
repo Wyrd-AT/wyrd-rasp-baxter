@@ -464,21 +464,16 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         ))
     
     embarcados = query.order_by(Embarcado.id_esp).all()
-    now_utc = datetime.now(timezone.utc)
     fuso_local = timezone(timedelta(hours=-3))
 
     for emb in embarcados:
+        emb.status = emb.status_rede.capitalize() if emb.status_rede else "Desconhecido"
+
         if emb.last_seen:
             last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
             data_local = last_seen_utc.astimezone(fuso_local)
             emb.last_seen_str = data_local.strftime("às %H:%M:%S de %d/%m")
-
-            if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
-                emb.status = "Online"
-            else:
-                emb.status = "Offline"
         else:
-            emb.status = "Offline"
             emb.last_seen_str = "Nunca visto"
 
     assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
