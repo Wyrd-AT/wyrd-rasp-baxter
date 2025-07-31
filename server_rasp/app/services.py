@@ -11,48 +11,42 @@ logger = logging.getLogger(__name__)
 async def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | None):
     """
     Função central para associar um ATIVO a um novo QUARTO (ou a nenhum).
-    Também notifica a ESP do quarto que está sendo desocupado.
+    As operações são envoltas em uma transação para garantir atomicidade.
     """
+    asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
+    if not asset:
+        logger.warning("Tentativa de atualizar ativo com ID %s, que não foi encontrado.", asset_id)
+        return
+
+    quarto_anterior = asset.quarto
+    quarto_anterior_id = quarto_anterior.id if quarto_anterior else None
+    
+    # Se não houve mudança, não faz nada
+    if quarto_anterior_id == new_quarto_id:
+        logger.info("Ativo '%s' já está no quarto correto (ID: %s). Nenhuma ação necessária.", asset.nome_ativo, new_quarto_id)
+        return
+
     try:
-        asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
-        if not asset:
-            logger.info(f"[SERVICE] Ativo com ID {asset_id} não encontrado.")
-            return
+        # 1. Altera o estado no objeto Python
+        asset.quarto_id = new_quarto_id
+        
+        # 2. Notifica os sistemas externos (WebSocket e MQTT)
+        logger.info("Transmitindo atualização de estado para os clientes WebSocket.")
+        await manager.broadcast("ATUALIZAR_ESTADO")
+        
+        logger.info("Agendando publicação da lista de ativos disponíveis via MQTT.")
+        mqtt_client.schedule_asset_list_update()
 
-        quarto_anterior = asset.quarto
-
-        # Verifica se houve mudança
-        if (quarto_anterior is None and new_quarto_id is not None) or \
-           (quarto_anterior is not None and new_quarto_id != quarto_anterior.id) or \
-           (quarto_anterior is not None and new_quarto_id is None):
-            
-            asset.quarto_id = new_quarto_id
-            db.commit()
-            await manager.broadcast("ATUALIZAR_ESTADO") # <-- ADICIONE ESTA LINHA
-
-            logger.info(f"[SERVICE] Ativo '{asset.nome_ativo}' movido do quarto '{quarto_anterior.nome if quarto_anterior else 'Nenhum'}' para o quarto ID '{new_quarto_id}'.")
-
-            # Se um quarto ficou vago, precisamos notificar a ESP daquele quarto.
-            if new_quarto_id is None and quarto_anterior is not None:
-                logger.info(f"[SERVICE] Quarto '{quarto_anterior.nome}' ficou vago. Procurando ESP para notificar...")
-                esp_no_quarto_anterior = db.query(Embarcado).filter(Embarcado.quarto_id == quarto_anterior.id).first()
-
-                if esp_no_quarto_anterior:
-                    logger.info(f"[SERVICE] ESP '{esp_no_quarto_anterior.id_esp}' encontrada. Enviando comando RESET_STATE.")
-                    mqtt_client.publish_command_to_esp(
-                        esp_id=esp_no_quarto_anterior.id_esp,
-                        command={"type": "command", "data": {"name": "RESET_STATE"}}
-                    )
-                else:
-                    logger.info(f"[SERVICE] Nenhuma ESP encontrada no quarto '{quarto_anterior.nome}'. Nenhum reset enviado.")
-
-            # Sempre que uma associação muda, a lista de ativos disponíveis é atualizada
-            mqtt_client.schedule_asset_list_update()
-
+        # 3. Se TUDO acima funcionou, faz o commit final na base de dados
+        db.commit()
+        logger.info("Ativo '%s' movido com sucesso do quarto ID '%s' para '%s'. Transação concluída.", 
+                    asset.nome_ativo, quarto_anterior_id, new_quarto_id)
 
     except Exception as e:
+        # 4. Se QUALQUER passo falhou, desfaz a alteração e loga o erro
+        logger.error("ERRO na transação de atualização do ativo %s: %s. Desfazendo alterações.",
+                     asset_id, e, exc_info=True)
         db.rollback()
-        logger.error(f"[SERVICE] ERRO ao atualizar ativo: {e}")
 
 
 def synchronize_and_reset_esp(db: Session, embarcado_id: int):
