@@ -12,7 +12,7 @@
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
+const char* idESP = "WRD00000004"; // <-- MUDE CONFORME A ESP
 
 // --- Tópicos MQTT ---
 const char* MQTT_ASSET_LIST_TOPIC = "wyrd/rtls/assets/available";
@@ -204,22 +204,28 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     if (topicStr == MQTT_INDIVIDUAL_COMMAND_TOPIC) {
         StaticJsonDocument<128> doc;
         deserializeJson(doc, payload, length);
-        if (doc.containsKey("type") && strcmp(doc["type"], "command") == 0 && 
-            doc.containsKey("data") && strcmp(doc["data"]["name"], "RESET_STATE") == 0) {
+        if (doc.containsKey("type") && strcmp(doc["type"], "command") == 0 && doc.containsKey("data")) {
+            if (strcmp(doc["data"]["name"], "RESET_STATE") == 0) {
             
-            Serial.println(">>> Comando 'RESET_STATE' recebido! Notificando saída de todos os ativos locais.");
+                Serial.println(">>> Comando 'RESET_STATE' recebido! Notificando saída de todos os ativos locais.");
 
-            // 1. ANTES de limpar o estado, notifica a saída de cada ativo
-            for (int i = 0; i < lockedAssetsCount; i++) {
-                Serial.printf("  - Enviando evento OUT para o ativo travado: %s\n", lockedAssets[i].mac.c_str());
-                // Envia o evento 'OUT' sem se preocupar com a média de RSSI ou WiFi. O servidor vai entender.
-                enviarEventoHTTP(lockedAssets[i].mac.c_str(), "OUT", -100, 0, 0); 
+                // 1. ANTES de limpar o estado, notifica a saída de cada ativo
+                for (int i = 0; i < lockedAssetsCount; i++) {
+                    Serial.printf("  - Enviando evento OUT para o ativo travado: %s\n", lockedAssets[i].mac.c_str());
+                    // Envia o evento 'OUT' sem se preocupar com a média de RSSI ou WiFi. O servidor vai entender.
+                    enviarEventoHTTP(lockedAssets[i].mac.c_str(), "OUT", -100, 0, 0); 
+                }
+
+                // 2. AGORA, limpa o estado local
+                Serial.println(">>> Estado local limpo.");
+                lockedAssetsCount = 0;
             }
 
-            // 2. AGORA, limpa o estado local
-            Serial.println(">>> Estado local limpo.");
-            lockedAssetsCount = 0;
-        }
+            if (strcmp(doc["data"]["name"], "REBOOT") == 0) {
+                Serial.println(">>> Comando 'REBOOT' recebido! Reiniciando em 3 segundos...");
+                delay(3000);
+                ESP.restart();
+            }
         return;
     }
 

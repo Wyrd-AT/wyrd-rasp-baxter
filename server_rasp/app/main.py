@@ -52,6 +52,9 @@ EVENT_PAGE_SIZE = 25
 CLEANUP_INTERVAL_SEC = 3600
 NUM_FIXED_ROOMS = 6
 
+PERIODIC_PUBLISH_INTERVAL_SEC = 1200 # 20 minutos (20 * 60)
+
+
 try:
     base_path = sys._MEIPASS
 except Exception:
@@ -155,6 +158,22 @@ def get_db():
     finally:
         db.close()
 
+async def periodic_asset_list_publish():
+    """
+    Tarefa de background que publica periodicamente a lista completa de ativos
+    disponíveis como uma medida de reconciliação de estado.
+    """
+    while True:
+        # Espera pelo intervalo definido
+        await asyncio.sleep(PERIODIC_PUBLISH_INTERVAL_SEC)
+
+        logger.info("[PERIODIC PUBLISH] Publicando a lista de ativos disponíveis como rotina de reconciliação.")
+        try:
+            # Chama a função que já existe no mqtt_client
+            mqtt_client.publish_available_assets()
+        except Exception as e:
+            logger.error("[PERIODIC PUBLISH] Falha ao publicar a lista de ativos: %s", e, exc_info=True)
+
 # --- Listener de Eventos do Banco ---
 # @event.listens_for(Asset, 'after_insert')
 # @event.listens_for(Asset, 'after_delete')
@@ -200,6 +219,26 @@ def main_page(request: Request):
 def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
     synchronize_and_reset_esp(db=db, embarcado_id=embarcado_id)
     time.sleep(1)
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+@app.post("/embarcados/{embarcado_id}/reconfigure", name="reconfigure_esp")
+def reconfigure_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    embarcado = db.query(Embarcado).get(embarcado_id)
+    if embarcado:
+        logger.info("Enviando comando 'fetch_config' para a ESP '%s'.", embarcado.id_esp)
+        # Este é o comando GLOBAL, que funciona para isto.
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+@app.post("/embarcados/{embarcado_id}/reboot", name="reboot_esp")
+def reboot_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    embarcado = db.query(Embarcado).get(embarcado_id)
+    if embarcado:
+        logger.info("Enviando comando 'REBOOT' para a ESP '%s'.", embarcado.id_esp)
+        command = {"type": "command", "data": {"name": "REBOOT"}}
+        # Usamos a função que envia para o canal individual da ESP
+        mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/settings/update", name="update_settings")
@@ -814,6 +853,7 @@ async def on_startup():
     logger.info("[main] Startup: Iniciando serviços em background.")
     asyncio.create_task(main_aggregator_loop())
     asyncio.create_task(check_esp_liveness(BackgroundTasks())) 
+    asyncio.create_task(periodic_asset_list_publish())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 

@@ -97,6 +97,8 @@ def publish_command_to_esp(esp_id: str, command: dict):
     client.publish(command_topic, payload, qos=2)
 # --- FIM DA FUNÇÃO QUE ESTAVA FALTANDO ---
 
+
+
 def on_message(client, userdata, msg):
     """Callback para processar mensagens de heartbeat."""
     topic_parts = msg.topic.split('/')

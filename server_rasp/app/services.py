@@ -79,34 +79,39 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str, background_ta
         # Encontra o embarcado e o seu quarto
         embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
         if not embarcado or not embarcado.quarto_id:
-            logger.info(f"[SERVICE-LIVENESS] ESP {esp_id} offline, mas não foi encontrado ou não tinha quarto associado.")
+            logger.info("[LIVENESS] ESP %s offline, mas não foi encontrado ou não tinha quarto associado.", esp_id)
             return
 
         quarto_id = embarcado.quarto_id
         quarto_nome = embarcado.quarto.nome
-        logger.info(f"[SERVICE-LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Libertando seus ativos...")
+        logger.warning("[LIVENESS] ESP %s (Quarto: %s) ficou offline. Libertando seus ativos...", esp_id, quarto_nome)
 
         # Encontra todos os ativos naquele quarto e os desassocia
         assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id).all()
         
         if not assets_no_quarto:
-            logger.info(f"[SERVICE-LIVENESS] Quarto {quarto_nome} já estava vazio. Nenhuma ação necessária.")
+            logger.info("[LIVENESS] Quarto %s já estava vazio. Nenhuma ação necessária.", quarto_nome)
             return
 
         for asset in assets_no_quarto:
-            logger.info(f"[SERVICE-LIVENESS] Libertando ativo '{asset.nome_ativo}'...")
+            logger.info("[LIVENESS] Libertando ativo '%s'...", asset.nome_ativo)
             asset.quarto_id = None
         
         db.commit()
-        logger.info(f"[SERVICE-LIVENESS] {len(assets_no_quarto)} ativos do quarto {quarto_nome} foram libertados.")
-        await manager.broadcast("ATUALIZAR_ESTADO") # <-- ADICIONE ESTA LINHA
+        logger.info("[LIVENESS] %d ativos do quarto %s foram libertados.", len(assets_no_quarto), quarto_nome)
         
-        # Dispara a atualização MQTT para que outras ESPs saibam dos novos ativos disponíveis
-        background_tasks.add_task(trigger_mqtt_update_on_asset_change)
+        # Notifica o frontend
+        await manager.broadcast("ATUALIZAR_ESTADO")
+        
+        # --- ALTERAÇÃO PRINCIPAL AQUI ---
+        # Chamamos diretamente a função que agenda a publicação, sem intermediários.
+        logger.info("[LIVENESS] Agendando atualização da lista de ativos disponíveis via MQTT...")
+        mqtt_client.schedule_asset_list_update()
 
     except Exception as e:
         db.rollback()
-        logger.error(f"[SERVICE-LIVENESS] ERRO ao libertar ativos da ESP {esp_id}: {e}")
+        logger.error("[LIVENESS] ERRO ao libertar ativos da ESP %s: %s", esp_id, e, exc_info=True)
+
 
 def trigger_mqtt_update_on_asset_change():
     """Dispara a publicação da lista de ativos quando um é criado/deletado/alterado."""

@@ -54,11 +54,17 @@
                             <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
                         {% endif %}
                     </td>
-                    <td style="text-align: center;">
-                        <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o estado desta ESP?');">
-                            <button type="submit" class="btn-cancel" title="Forçar Reset de Estado">
-                                Resetar
-                            </button>
+                    <td style="text-align: center; display: flex; gap: 5px; align-items: center;">
+                        <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o ESTADO desta ESP?');">
+                            <button type="submit" class="btn-cancel" title="Limpar estado local da ESP">Reset</button>
+                        </form>
+                        
+                        <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja forçar a reconfiguração desta ESP?');">
+                            <button type="submit" class="btn-cancel" style="background-color: #fd7e14;" title="Forçar ESP a pedir nova configuração">Reconfig</button>
+                        </form>
+
+                        <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja REINICIAR esta ESP?');">
+                            <button type="submit" class="btn-cancel" style="background-color: #17a2b8;" title="Reiniciar fisicamente a ESP">Reboot</button>
                         </form>
                     </td>
                 </tr>
