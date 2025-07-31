@@ -30,11 +30,11 @@ const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
 String MQTT_HEARTBEAT_TOPIC = "";
 unsigned long lastHeartbeatMillis = 0;
 
-char SERVER_IP[16]          = "10.0.0.149";
-char SERVER_PORT_STR[6]     = "8000";
-char MQTT_BROKER_HOST[16]   = "10.0.0.149";
+char SERVER_IP[16]          = "10.0.0.124";
+char SERVER_PORT_STR[6]     = "8080";
+char MQTT_BROKER_HOST[16]   = "10.0.0.124";
 char MQTT_BROKER_PORT_STR[6]= "1883";
-uint16_t SERVER_PORT        = 8000;
+uint16_t SERVER_PORT        = 8080;
 uint16_t MQTT_BROKER_PORT   = 1883;
 
 // --- Configurações de Lógica ---
@@ -67,6 +67,7 @@ struct TargetAsset {
     unsigned long inicioInercia = 0;
     int mediaRSSI = -100;
     bool emDisputa = false; // NOVO: Flag para saber se já enviámos um GET
+    unsigned long inicioDisputa = 0;
     uint32_t idTransacao = 0; // NOVO: ID de transação para esta disputa
 };
 
@@ -101,9 +102,9 @@ void reconnect_mqtt();
 // =================== LÓGICA DE CONFIGURAÇÃO ===================
 void lerConfiguracoes() {
     preferences.begin("rtls-config", false);
-    String saved_server_ip = preferences.getString("server_ip", "192.168.0.5");
-    String saved_server_port = preferences.getString("server_port", "8000");
-    String saved_mqtt_host = preferences.getString("mqtt_host", "192.168.0.5");
+    String saved_server_ip = preferences.getString("server_ip", "10.0.0.124");
+    String saved_server_port = preferences.getString("server_port", "8080");
+    String saved_mqtt_host = preferences.getString("mqtt_host", "10.0.0.124");
     String saved_mqtt_port = preferences.getString("mqtt_port", "1883");
     strcpy(SERVER_IP, saved_server_ip.c_str());
     strcpy(SERVER_PORT_STR, saved_server_port.c_str());
@@ -203,9 +204,20 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     if (topicStr == MQTT_INDIVIDUAL_COMMAND_TOPIC) {
         StaticJsonDocument<128> doc;
         deserializeJson(doc, payload, length);
-        if (doc.containsKey("type") && strcmp(doc["type"], "command") == 0 && doc.containsKey("data") && strcmp(doc["data"]["name"], "RESET_STATE") == 0) {
-            Serial.println(">>> Comando 'RESET_STATE' recebido! Limpando estado.");
-            // Limpa a lista de ativos e o estado de disputa
+        if (doc.containsKey("type") && strcmp(doc["type"], "command") == 0 && 
+            doc.containsKey("data") && strcmp(doc["data"]["name"], "RESET_STATE") == 0) {
+            
+            Serial.println(">>> Comando 'RESET_STATE' recebido! Notificando saída de todos os ativos locais.");
+
+            // 1. ANTES de limpar o estado, notifica a saída de cada ativo
+            for (int i = 0; i < lockedAssetsCount; i++) {
+                Serial.printf("  - Enviando evento OUT para o ativo travado: %s\n", lockedAssets[i].mac.c_str());
+                // Envia o evento 'OUT' sem se preocupar com a média de RSSI ou WiFi. O servidor vai entender.
+                enviarEventoHTTP(lockedAssets[i].mac.c_str(), "OUT", -100, 0, 0); 
+            }
+
+            // 2. AGORA, limpa o estado local
+            Serial.println(">>> Estado local limpo.");
             lockedAssetsCount = 0;
         }
         return;
@@ -443,6 +455,15 @@ void processarLogicaAtivo() {
     // 2. Lógica de ENTRADA (agora processa TODOS os alvos elegíveis)
     for (int i = 0; i < potentialTargetsCount; i++) {
         TargetAsset &target = potentialTargets[i];
+
+        if (target.emDisputa && (agora - target.inicioDisputa > VEREDICT_TIMEOUT_MS)) {
+            Serial.printf("!!! TIMEOUT DE VEREDITO para %s. Cancelando disputa local.\n", target.mac.c_str());
+            target.emDisputa = false;      // Libera o ativo para novas tentativas
+            target.inicioInercia = 0;     // Reseta a inércia para ele poder ser reavaliado
+            target.idTransacao = 0;
+            target.inicioDisputa = 0;
+        }
+
         if (target.emDisputa) continue; 
         if (!target.isFull) continue;
 
@@ -476,6 +497,7 @@ void processarLogicaAtivo() {
             if (enviarEventoHTTP(target.mac.c_str(), "GET", target.mediaRSSI, WiFi.RSSI(), transacao)) {
                 target.emDisputa = true;
                 target.idTransacao = transacao; 
+                target.inicioDisputa = millis(); 
                 Serial.printf("Disputa iniciada para %s com ID OTIMIZADO %u.\n", target.mac.c_str(), transacao);
             }
         }
@@ -583,20 +605,15 @@ void syncTimeFromServer() {
             deserializeJson(doc, payload);
             long unix_time = doc["unix_time"];
 
-            if (unix_time > 0) {
-                // --- ALTERAÇÃO PARA FUSO HORÁRIO DO BRASIL ---
-                const long gmtOffset_sec = -3 * 3600; // -3 horas para o fuso de Brasília
-                const int daylightOffset_sec = 0;     // 0 pois o Brasil não adota mais horário de verão
-
-                configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org");
-                
+             if (unix_time > 0) {
                 timeval tv = { unix_time, 0 };
                 settimeofday(&tv, NULL);
-                // --- FIM DA ALTERAÇÃO ---
-
-                Serial.printf("Tempo sincronizado com sucesso! Timestamp UTC: %ld\n", unix_time);
+                Serial.printf("Tempo sincronizado com sucesso via servidor local! Timestamp UTC: %ld\n", unix_time);
 
                 struct tm timeinfo;
+                setenv("TZ", "BRT+3", 1); // Define o fuso para Brasília (BRT, 3 horas a oeste de UTC)
+                tzset();
+
                 getLocalTime(&timeinfo);
                 Serial.printf("Verificação da hora local (Brasília): %02d:%02d:%02d\n", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
             }

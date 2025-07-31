@@ -1,5 +1,6 @@
 # aggregator.py - Versão Final com Janela de Disputa e Veredito Explícito
-
+import logging
+logger = logging.getLogger(__name__)
 import asyncio
 from datetime import datetime, timezone
 from .connection_manager import manager
@@ -30,7 +31,7 @@ def _update_event_status(event_id: int, status: str, detail: str):
             event_to_update.status_detail = detail
             db.commit()
     except Exception as e:
-        print(f"[aggregator-update] ERRO ao atualizar evento {event_id}: {e}")
+        logger.error(f"[aggregator-update] ERRO ao atualizar evento {event_id}: {e}")
         db.rollback()
     finally:
         db.close()
@@ -46,12 +47,12 @@ async def _resolve_dispute(beacon_mac: str):
         if not events:
             return
 
-    print(f"\n[aggregator] Janela para '{beacon_mac}' FECHADA. Resolvendo com {len(events)} eventos.")
+    logger.info(f"\n[aggregator] Janela para '{beacon_mac}' FECHADA. Resolvendo com {len(events)} eventos.")
 
     # 1. Elege o melhor evento baseado no RSSI mais forte
     best_event = max(events, key=lambda e: e.get("RSSI", -1000))
     winner_esp_id = best_event.get("esp_id")
-    print(f"[aggregator] Vencedor da disputa: ESP '{winner_esp_id}' com RSSI {best_event.get('RSSI')}.")
+    logger.info(f"[aggregator] Vencedor da disputa: ESP '{winner_esp_id}' com RSSI {best_event.get('RSSI')}.")
 
     # 2. Envia o veredito ("WIN" ou "LOSE") para cada participante da disputa
     transacao_id = best_event.get("transacao_id")
@@ -102,7 +103,7 @@ async def _resolve_dispute(beacon_mac: str):
 
 async def enqueue_event(evt: dict):
     """ Coloca um evento na fila de disputa ou o processa imediatamente se for 'OUT'. """
-    print(f"[aggregator] Evento recebido: {evt}")
+    logger.info(f"[aggregator] Evento recebido: {evt}")
     event_id = evt.get("event_id")
     beacon_mac = evt.get("ativo")
 
@@ -143,7 +144,7 @@ async def enqueue_event(evt: dict):
             # Se já existe uma disputa em andamento, apenas adiciona o evento a ela.
             if beacon_mac in _dispute_windows:
                 _dispute_windows[beacon_mac].append(evt)
-                print(f"[aggregator] Evento da ESP '{evt.get('esp_id')}' adicionado à disputa existente por '{beacon_mac}'.")
+                logger.info(f"[aggregator] Evento da ESP '{evt.get('esp_id')}' adicionado à disputa existente por '{beacon_mac}'.")
                 return
 
             # --- VERIFICAÇÃO DE SEGURANÇA CRÍTICA ---
@@ -157,7 +158,7 @@ async def enqueue_event(evt: dict):
 
                 if asset_ja_alocado:
                     # Se o ativo já tem um quarto, este é um pedido atrasado.
-                    print(f"[aggregator] Pedido GET para '{beacon_mac}' IGNORADO. Ativo já pertence ao quarto '{asset_ja_alocado.quarto.nome}'.")
+                    logger.info(f"[aggregator] Pedido GET para '{beacon_mac}' IGNORADO. Ativo já pertence ao quarto '{asset_ja_alocado.quarto.nome}'.")
                     _update_event_status(event_id, "Ignorado", f"Ativo já alocado ao quarto {asset_ja_alocado.quarto.nome}.")
                     return # Impede o "roubo".
             finally:
@@ -165,7 +166,7 @@ async def enqueue_event(evt: dict):
             # --- FIM DA VERIFICAÇÃO ---
             
             # Se chegámos aqui, o ativo está livre e não há disputa. Podemos iniciar uma.
-            print(f"[aggregator] Nova janela de disputa de {DISPUTE_WINDOW_SEC}s para o ativo '{beacon_mac}'.")
+            logger.info(f"[aggregator] Nova janela de disputa de {DISPUTE_WINDOW_SEC}s para o ativo '{beacon_mac}'.")
             _dispute_windows[beacon_mac] = [evt] # Adiciona o evento atual como o primeiro
             
             loop = asyncio.get_running_loop()
@@ -177,12 +178,12 @@ async def enqueue_event(evt: dict):
 # O loop principal agora apenas precisa existir, o trabalho é feito pelos eventos.
 async def main_aggregator_loop():
     """ O loop principal agora apenas mantém o programa rodando. """
-    print(f"[aggregator] Agregador orientado a eventos iniciado. Janela de disputa: {DISPUTE_WINDOW_SEC}s.")
+    logger.info(f"[aggregator] Agregador orientado a eventos iniciado. Janela de disputa: {DISPUTE_WINDOW_SEC}s.")
     while True:
         # O loop pode dormir por mais tempo, já que a lógica agora é reativa
         await asyncio.sleep(3600) # Dorme por uma hora, apenas para manter a task viva.
 
 # Esta função não é mais necessária, mas a mantemos para não quebrar nenhuma importação antiga.
 def cancel_pending_task(wifi_mac: str) -> bool:
-    print(f"[aggregator-cancel] A função de cancelamento não é mais aplicável na nova arquitetura.")
+    logger.info(f"[aggregator-cancel] A função de cancelamento não é mais aplicável na nova arquitetura.")
     return False

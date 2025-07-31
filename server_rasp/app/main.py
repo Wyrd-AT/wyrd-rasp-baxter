@@ -1,6 +1,13 @@
 # main.py (Versão Final, Completa e Consolidada para Multi-Ativo)
 
 import asyncio
+import logging 
+from .logging_config import setup_logging 
+
+setup_logging() 
+
+logger = logging.getLogger(__name__)
+
 import threading
 import time
 import uvicorn
@@ -37,7 +44,7 @@ from .aggregator import main_aggregator_loop, enqueue_event
 from .config import settings
 from .auth import authenticate_admin
 
-print("[main] Módulo carregado para a versão MULTI-ATIVO.")
+logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 
 # --- Constantes e Configuração Inicial ---
 HISTORY_RETENTION_DAYS = 7
@@ -82,16 +89,16 @@ def seed_database():
     try:
         num_quartos = db.query(Quarto).count()
         if num_quartos < NUM_FIXED_ROOMS:
-            print(f"INFO: Detectados {num_quartos}/{NUM_FIXED_ROOMS} quartos. Criando os quartos fixos restantes...")
+            logger.info(f"INFO: Detectados {num_quartos}/{NUM_FIXED_ROOMS} quartos. Criando os quartos fixos restantes...")
             for i in range(num_quartos + 1, NUM_FIXED_ROOMS + 1):
                 quarto_nome = f"Quarto {i}"
                 existing_quarto = db.query(Quarto).filter(Quarto.nome == quarto_nome).first()
                 if not existing_quarto:
                     db.add(Quarto(nome=quarto_nome))
             db.commit()
-            print("INFO: Quartos fixos criados com sucesso.")
+            logger.info("INFO: Quartos fixos criados com sucesso.")
     except Exception as e:
-        print(f"ERRO ao 'semear' o banco de dados com quartos fixos: {e}")
+        logger.error(f"ERRO ao 'semear' o banco de dados com quartos fixos: {e}")
         db.rollback()
     finally:
         db.close()
@@ -174,7 +181,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-        print("[WebSocket] Cliente desconectado.")
+        logger.error("[WebSocket] Cliente desconectado.")
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
@@ -207,14 +214,14 @@ def update_settings(request: Request, db: Session = Depends(get_db), rssi_thresh
             db.add(setting)
         setting.value = value
     db.commit()
-    print("[main] Configurações globais salvas. Enviando comando de atualização para todas as ESPs.")
+    logger.info("[main] Configurações globais salvas. Enviando comando de atualização para todas as ESPs.")
     command_payload = {"command": "fetch_config"}
     mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/event", status_code=status.HTTP_202_ACCEPTED)
 async def receive_event(event_data: Dict, db: Session = Depends(get_db)):
-    print(f"[main] Evento HTTP recebido: {event_data}")
+    logger.info(f"[main] Evento HTTP recebido: {event_data}")
     required_keys = ["esp_id", "ativo", "status", "data_on"]
     if not all(key in event_data for key in required_keys):
         raise HTTPException(status_code=400, detail="Payload do evento incompleto.")
@@ -233,7 +240,7 @@ async def receive_event(event_data: Dict, db: Session = Depends(get_db)):
         return {"status": "success", "message": "Evento recebido e enfileirado"}
     except Exception as e:
         db.rollback()
-        print(f"[main-db] ERRO CRÍTICO ao salvar evento recebido: {e}")
+        logger.error(f"[main-db] ERRO CRÍTICO ao salvar evento recebido: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao processar e salvar o evento: {e}")
 
 LIVENESS_CHECK_INTERVAL_SEC = 30
@@ -266,7 +273,7 @@ async def check_esp_liveness(background_tasks: BackgroundTasks = Depends()):
                     esps_offline.append(emb)
             
             if esps_offline:
-                print(f"[LIVENESS] ESPs considerados offline: {[e.id_esp for e in esps_offline]}")
+                logger.info(f"[LIVENESS] ESPs considerados offline: {[e.id_esp for e in esps_offline]}")
                 for emb in esps_offline:
                     await release_assets_for_offline_esp(db, emb.id_esp, background_tasks)
                     # --- A MUDANÇA CRÍTICA ---
@@ -289,7 +296,7 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     - Lista de MACs de ativos que já estão no seu quarto.
     - Configurações globais de sensibilidade.
     """
-    print(f"INFO: ESP '{esp_id}' solicitou sua configuração inicial.")
+    logger.info(f"INFO: ESP '{esp_id}' solicitou sua configuração inicial.")
     
     # Busca as configurações globais primeiro
     settings = get_global_settings(db)
@@ -305,14 +312,14 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
         # Busca TODOS os ativos que estão no mesmo quarto que o embarcado.
         if embarcado.rssi_threshold is not None:
             final_rssi_threshold = embarcado.rssi_threshold
-            print(f"INFO: Usando RSSI individual ({final_rssi_threshold}) para a ESP '{esp_id}'.")
+            logger.info(f"INFO: Usando RSSI individual ({final_rssi_threshold}) para a ESP '{esp_id}'.")
         else:
-            print(f"INFO: Usando RSSI global ({final_rssi_threshold}) para a ESP '{esp_id}'.")
+            logger.info(f"INFO: Usando RSSI global ({final_rssi_threshold}) para a ESP '{esp_id}'.")
         assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
         macs_no_quarto = [b.mac_beacon for b in assets_no_quarto]
-        print(f"INFO: Para ESP '{esp_id}', encontrados {len(macs_no_quarto)} ativos no quarto ID {embarcado.quarto_id}: {macs_no_quarto}")
+        logger.info(f"INFO: Para ESP '{esp_id}', encontrados {len(macs_no_quarto)} ativos no quarto ID {embarcado.quarto_id}: {macs_no_quarto}")
     else:
-        print(f"AVISO: ESP com ID '{esp_id}' não cadastrado no sistema.")
+        logger.info(f"AVISO: ESP com ID '{esp_id}' não cadastrado no sistema.")
 
     return {
         "macs_beacons": macs_no_quarto, # Retorna a lista de MACs
@@ -495,12 +502,12 @@ def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int =
         db.commit()
         db.refresh(novo_embarcado)
 
-        print(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. A disparar reset automático.")
+        logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. A disparar reset automático.")
         command_payload = {"command": "fetch_config"}
         mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
     except Exception as e:
         db.rollback()
-        print(f"[main-db] ERRO ao criar embarcado: {e}")
+        logger.error(f"[main-db] ERRO ao criar embarcado: {e}")
 
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
@@ -544,7 +551,7 @@ def update_embarcado(request: Request, embarcado_id: int, quarto_id: int = Form(
         emb.rssi_threshold = rssi_value # Salva o valor correto
         db.commit()
 
-        print(f"[main] Embarcado '{emb.id_esp}' atualizado. A disparar reset automático.")
+        logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. A disparar reset automático.")
         command_payload = {"command": "fetch_config"}
         mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
@@ -586,10 +593,10 @@ def create_asset(request: Request, background_tasks: BackgroundTasks, nome_ativo
         background_tasks.add_task(run_asset_list_update)
     except IntegrityError:
         db.rollback()
-        print(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
+        logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
     except Exception as e:
         db.rollback()
-        print(f"[main-db] ERRO ao criar ativo: {e}")
+        logger.error(f"[main-db] ERRO ao criar ativo: {e}")
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 @app.get("/assets/{asset_id}/edit", name="edit_asset")
@@ -784,9 +791,9 @@ def purge_old_events():
         deleted_count = db.query(ReceivedEvent).filter(ReceivedEvent.data_on < cutoff).delete()
         db.commit()
         if deleted_count > 0:
-            print(f"[main] Limpeza de eventos antigos: {deleted_count} registros removidos.")
+            logger.info(f"[main] Limpeza de eventos antigos: {deleted_count} registros removidos.")
     except Exception as e:
-        print(f"ERRO durante a limpeza de eventos: {e}")
+        logger.error(f"ERRO durante a limpeza de eventos: {e}")
         db.rollback()
     finally:
         db.close()
@@ -800,7 +807,7 @@ def start_cleanup_scheduler():
 
 @app.on_event("startup")
 async def on_startup():
-    print("[main] Startup: Iniciando serviços em background.")
+    logger.info("[main] Startup: Iniciando serviços em background.")
     asyncio.create_task(main_aggregator_loop())
     asyncio.create_task(check_esp_liveness(BackgroundTasks())) 
     mqtt_client.init_mqtt_client(_esps_em_quarentena)

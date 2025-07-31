@@ -1,5 +1,6 @@
 # connection_manager.py
-
+import logging
+logger = logging.getLogger(__name__)
 from fastapi import WebSocket
 from typing import List
 
@@ -18,7 +19,7 @@ class ConnectionManager:
 
     async def broadcast(self, message: str):
         """Envia uma mensagem para TODAS as conexões ativas."""
-        print(f"[WebSocket] Transmitindo mensagem para {len(self.active_connections)} clientes: {message}")
+        logger.info(f"[WebSocket] Transmitindo mensagem para {len(self.active_connections)} clientes: {message}")
         for connection in self.active_connections:
             await connection.send_text(message)
 

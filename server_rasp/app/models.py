@@ -2,6 +2,8 @@
 from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine, ForeignKey
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+import logging
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = "sqlite:///./base_wh.db"
 engine = create_engine(

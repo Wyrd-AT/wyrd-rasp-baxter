@@ -1,6 +1,8 @@
 # config.py
 import configparser
 import os
+import logging
+logger = logging.getLogger(__name__)
 
 # Define o nome do arquivo de configuração que ficará ao lado do .exe
 CONFIG_FILE = 'config.ini'
@@ -13,7 +15,7 @@ def load_configuration():
     config = configparser.ConfigParser()
     
     if not os.path.exists(CONFIG_FILE):
-        print(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
+        logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
         # Se o config.ini não existe, cria um com valores padrão
         config['Network'] = {
             'IP': '0.0.0.0',

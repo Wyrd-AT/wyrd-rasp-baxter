@@ -5,6 +5,8 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from .models import SessionLocal, Asset, Embarcado
 from .config import settings
+import logging
+logger = logging.getLogger(__name__)
 
 _esps_em_quarentena = None
 
@@ -21,14 +23,14 @@ async def _publish_debounced():
     global _update_task
     try:
         await asyncio.sleep(3)
-        print("[DEBOUNCER] Janela de 3s fechada. Publicando a lista de ativos consolidados.")
+        logger.info("[DEBOUNCER] Janela de 3s fechada. Publicando a lista de ativos consolidados.")
         
         # Chama a função que já existe neste ficheiro
         publish_available_assets()
         
         _update_task = None
     except asyncio.CancelledError:
-        print("[DEBOUNCER] Publicação de ativos adiada por uma nova mudança.")
+        logger.error("[DEBOUNCER] Publicação de ativos adiada por uma nova mudança.")
         raise
 
 def schedule_asset_list_update():
@@ -59,17 +61,17 @@ def publish_available_assets():
     topic = settings.get('mqtt_asset_list_topic')
 
     if not client.is_connected():
-        print(f"[MQTT] Cliente não conectado. Enfileirando publicação para o tópico '{topic}'.")
+        logger.info(f"[MQTT] Cliente não conectado. Enfileirando publicação para o tópico '{topic}'.")
         _publish_queue.append({'topic': topic, 'payload': payload, 'qos': 1, 'retain': True})
         return
 
-    print(f"[MQTT] Publicando lista de ATIVOS disponíveis no tópico '{topic}': {payload}")
+    logger.info(f"[MQTT] Publicando lista de ATIVOS disponíveis no tópico '{topic}': {payload}")
     client.publish(topic, payload, qos=1, retain=True)
 
 def publish_verdict(esp_id: str, status: str, beacon_mac: str, transacao_id: int):
     """Publica o resultado de uma disputa para uma ESP específica, incluindo o ID da transação."""
     if not client.is_connected():
-        print(f"[MQTT] Cliente não conectado. Abortando envio de veredito para {esp_id}.")
+        logger.info(f"[MQTT] Cliente não conectado. Abortando envio de veredito para {esp_id}.")
         return
 
     verdict_topic = f"wyrd/rtls/esp/{esp_id}/verdict"
@@ -79,21 +81,21 @@ def publish_verdict(esp_id: str, status: str, beacon_mac: str, transacao_id: int
         "transacao_id": transacao_id
     })
     
-    print(f"[MQTT] Enviando veredito '{status}' (ID: {transacao_id}) para a ESP '{esp_id}' no tópico '{verdict_topic}'")
+    logger.info(f"[MQTT] Enviando veredito '{status}' (ID: {transacao_id}) para a ESP '{esp_id}' no tópico '{verdict_topic}'")
     client.publish(verdict_topic, payload, qos=2)
 
 # --- FUNÇÃO QUE ESTAVA FALTANDO ---
 def publish_command_to_esp(esp_id: str, command: dict):
     """Publica um comando específico para o canal individual de uma ESP."""
     if not client.is_connected():
-        print(f"[MQTT] Cliente não conectado. Abortando envio de comando para {esp_id}.")
+        logger.info(f"[MQTT] Cliente não conectado. Abortando envio de comando para {esp_id}.")
         return
 
     # Este tópico deve ser compatível com o que o ESP espera
     command_topic = f"wyrd/rtls/esp/{esp_id}/command"
     payload = json.dumps(command)
 
-    print(f"[MQTT] Enviando comando {payload} para a ESP '{esp_id}' no tópico '{command_topic}'")
+    logger.info(f"[MQTT] Enviando comando {payload} para a ESP '{esp_id}' no tópico '{command_topic}'")
     client.publish(command_topic, payload, qos=2)
 # --- FIM DA FUNÇÃO QUE ESTAVA FALTANDO ---
 
@@ -107,7 +109,7 @@ def on_message(client, userdata, msg):
         # A lista de quarentena agora é usada aqui
         if _esps_em_quarentena is not None and esp_id in _esps_em_quarentena:
             _esps_em_quarentena.remove(esp_id)
-            print(f"[LIVENESS] ESP {esp_id} voltou a ficar online.")
+            logger.info(f"[LIVENESS] ESP {esp_id} voltou a ficar online.")
 
         db = SessionLocal()
         try:
@@ -122,15 +124,15 @@ def on_message(client, userdata, msg):
 def on_connect(client, userdata, flags, rc):
     """Callback executado quando a conexão com o broker é (re)estabelecida."""
     if rc == 0:
-        print("[MQTT] Conectado com sucesso ao Broker MQTT!")
+        logger.info("[MQTT] Conectado com sucesso ao Broker MQTT!")
 
         client.subscribe("wyrd/rtls/esp/heartbeat/+")
-        print("[MQTT] Subscrito ao tópico de heartbeats 'wyrd/rtls/esp/heartbeat/+'")
+        logger.info("[MQTT] Subscrito ao tópico de heartbeats 'wyrd/rtls/esp/heartbeat/+'")
 
         publish_available_assets()
 
         if _publish_queue:
-            print(f"[MQTT] Enviando {_publish_queue.__len__()} mensagens da fila de espera...")
+            logger.info(f"[MQTT] Enviando {_publish_queue.__len__()} mensagens da fila de espera...")
             for msg in list(_publish_queue):
                 client.publish(
                     topic=msg['topic'],
@@ -139,9 +141,9 @@ def on_connect(client, userdata, flags, rc):
                     retain=msg.get('retain', False)
                 )
                 _publish_queue.remove(msg)
-            print("[MQTT] Fila de mensagens processada.")
+            logger.info("[MQTT] Fila de mensagens processada.")
     else:
-        print(f"[MQTT] Falha ao conectar, código de retorno: {rc}\n")
+        logger.info(f"[MQTT] Falha ao conectar, código de retorno: {rc}\n")
 
 def connect_mqtt():
     """Inicia a conexão com o broker MQTT."""
@@ -152,7 +154,7 @@ def connect_mqtt():
         client.connect(settings.get("mqtt_broker_host"), broker_port, 60)
         client.loop_start()
     except Exception as e:
-        print(f"[MQTT] Não foi possível conectar ao broker: {e}")
+        logger.error(f"[MQTT] Não foi possível conectar ao broker: {e}")
 
 def init_mqtt_client(quarantine_set: set):
     """
