@@ -8,8 +8,6 @@ from .config import settings
 import logging
 logger = logging.getLogger(__name__)
 
-_esps_em_quarentena = None
-
 # --- ESTRUTURA ADICIONADA ---
 _publish_queue = []
 esp_heartbeats = {}
@@ -105,17 +103,14 @@ def on_message(client, userdata, msg):
     
     if len(topic_parts) == 5 and topic_parts[3] == "heartbeat":
         esp_id = topic_parts[4]
-        
-        # A lista de quarentena agora é usada aqui
-        if _esps_em_quarentena is not None and esp_id in _esps_em_quarentena:
-            _esps_em_quarentena.remove(esp_id)
-            logger.info(f"[LIVENESS] ESP {esp_id} voltou a ficar online.")
-
         db = SessionLocal()
         try:
             embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
             if embarcado:
                 embarcado.last_seen = datetime.now(timezone.utc)
+                if embarcado.status_rede == 'offline':
+                    embarcado.status_rede = 'online'
+                    logger.info("ESP %s voltou a ficar online.", esp_id)
                 db.commit()
         finally:
             db.close()
@@ -156,10 +151,9 @@ def connect_mqtt():
     except Exception as e:
         logger.error(f"[MQTT] Não foi possível conectar ao broker: {e}")
 
-def init_mqtt_client(quarantine_set: set):
+def start_mqtt_client():
     """
-    Inicializa o cliente MQTT, recebendo as dependências de que precisa.
+    Inicializa e conecta o cliente MQTT.
     """
-    global _esps_em_quarentena
-    _esps_em_quarentena = quarantine_set
+    logger.info("[MQTT] Iniciando cliente...")
     connect_mqtt()

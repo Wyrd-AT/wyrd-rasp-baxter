@@ -52,8 +52,6 @@ EVENT_PAGE_SIZE = 25
 CLEANUP_INTERVAL_SEC = 3600
 NUM_FIXED_ROOMS = 6
 
-_esps_em_quarentena = set()
-
 try:
     base_path = sys._MEIPASS
 except Exception:
@@ -250,6 +248,7 @@ ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
 async def check_esp_liveness(background_tasks: BackgroundTasks = Depends()):
     """
     Tarefa de background que verifica na base de dados por ESPs offline.
+    Usa o campo 'status_rede' para um estado de quarentena persistente.
     """
     while True:
         await asyncio.sleep(LIVENESS_CHECK_INTERVAL_SEC)
@@ -259,27 +258,37 @@ async def check_esp_liveness(background_tasks: BackgroundTasks = Depends()):
             now_utc = datetime.now(timezone.utc)
             cutoff_time = now_utc - timedelta(seconds=ESP_TIMEOUT_SEC)
             
-            # Busca todos os ESPs que já foram vistos alguma vez
-            esps_vistos = db.query(Embarcado).filter(Embarcado.last_seen != None).all()
+            # 1. A query agora busca apenas os ESPs que o sistema considera 'online'.
+            #    Isto substitui a verificação do set '_esps_em_quarentena'.
+            esps_a_verificar = db.query(Embarcado).filter(
+                Embarcado.last_seen != None,
+                Embarcado.status_rede == 'online'
+            ).all()
 
-            esps_offline = []
-            for emb in esps_vistos:
-                # Ignora ESPs que já estão em quarentena
-                if emb.id_esp in _esps_em_quarentena:
-                    continue
-
+            esps_que_ficaram_offline = []
+            for emb in esps_a_verificar:
+                # A lógica de verificação do tempo é a mesma
                 last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
                 if last_seen_utc < cutoff_time:
-                    esps_offline.append(emb)
+                    esps_que_ficaram_offline.append(emb)
             
-            if esps_offline:
-                logger.info(f"[LIVENESS] ESPs considerados offline: {[e.id_esp for e in esps_offline]}")
-                for emb in esps_offline:
+            if esps_que_ficaram_offline:
+                logger.warning("[LIVENESS] ESPs considerados offline nesta verificação: %s", [e.id_esp for e in esps_que_ficaram_offline])
+                
+                for emb in esps_que_ficaram_offline:
+                    # Liberta os ativos associados, como antes
                     await release_assets_for_offline_esp(db, emb.id_esp, background_tasks)
-                    # --- A MUDANÇA CRÍTICA ---
-                    # Não apaga o last_seen, apenas adiciona à quarentena
-                    _esps_em_quarentena.add(emb.id_esp)
-                # O db.commit() não é mais necessário aqui, pois não alteramos o DB
+                    
+                    # 2. Em vez de adicionar a um set, atualizamos o estado no banco de dados.
+                    #    Isto torna a quarentena persistente.
+                    emb.status_rede = 'offline'
+                
+                # 3. Commit final para salvar todas as alterações de status na base de dados.
+                db.commit()
+        
+        except Exception as e:
+            logger.error("[LIVENESS] Ocorreu um erro durante a verificação de atividade das ESPs: %s", e, exc_info=True)
+            db.rollback()
         finally:
             db.close()
 
@@ -810,7 +819,7 @@ async def on_startup():
     logger.info("[main] Startup: Iniciando serviços em background.")
     asyncio.create_task(main_aggregator_loop())
     asyncio.create_task(check_esp_liveness(BackgroundTasks())) 
-    mqtt_client.init_mqtt_client(_esps_em_quarentena)
+    mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 
 if __name__ == "__main__":
