@@ -66,6 +66,10 @@
                         <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja REINICIAR esta ESP?');">
                             <button type="submit" class="btn-cancel" style="background-color: #17a2b8;" title="Reiniciar fisicamente a ESP">Reboot</button>
                         </form>
+
+                        <form action="{{ url_for('test_rssi_esp', embarcado_id=emb.id) }}" method="post" onsubmit="alert('Comando de teste RSSI enviado para a ESP {{ emb.id_esp }}. Aguarde o resultado.');">
+                            <button type="submit" class="btn-cancel" style="background-color: #28a745;" title="Pedir um relatório de RSSI de beacons próximos">Testar RSSI</button>
+                        </form>
                     </td>
                 </tr>
                 {% endfor %}

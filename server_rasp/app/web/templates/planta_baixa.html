@@ -94,38 +94,16 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
-    function conectarWebSocket() {
-        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
+    window.addEventListener('websocket_open', function() {
+        console.log("Planta Baixa: WebSocket conectado. Carregando dados iniciais.");
+        atualizarPlanta();
+    });
 
-        socket.onopen = function(event) {
-            console.log("Conexão WebSocket estabelecida com sucesso!");
-            // Carrega os dados pela primeira vez assim que conecta
-            atualizarPlanta(); 
-        };
-
-        // Ouve por mensagens vindas do servidor
-        socket.onmessage = function(event) {
-            // Se a mensagem for o nosso sinal "ATUALIZAR_ESTADO"
-            if (event.data === "ATUALIZAR_ESTADO") {
-                // Chama a função para buscar os novos dados e redesenhar a página
-                atualizarPlanta();
-            }
-        };
-
-        socket.onclose = function(event) {
-            console.log("Conexão WebSocket perdida. Tentando reconectar em 5 segundos...");
-            setTimeout(conectarWebSocket, 5000); // Tenta reconectar após 5s
-        };
-
-        socket.onerror = function(error) {
-            console.error("Erro no WebSocket:", error);
-            socket.close(); // Fecha a conexão para acionar o 'onclose' e tentar reconectar
-        };
-    }
-
-    // Inicia a primeira tentativa de conexão
-    conectarWebSocket();
+    // Ouve pelo evento 'atualizar_estado' disparado pelo base.html
+    window.addEventListener('atualizar_estado', function() {
+        console.log("Planta Baixa: Recebido sinal para atualizar. Buscando novos dados.");
+        atualizarPlanta();
+    });
 });
 </script>
 {% endblock %}

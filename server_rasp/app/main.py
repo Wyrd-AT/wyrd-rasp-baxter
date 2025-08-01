@@ -190,15 +190,27 @@ async def run_asset_list_update():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """O endpoint onde os frontends irão se conectar."""
+    """
+    Endpoint WebSocket robusto com mecanismo de ping para manter a conexão ativa.
+    """
     await manager.connect(websocket)
     try:
         while True:
-            # Mantém a conexão viva. Não precisamos receber dados, apenas enviar.
-            await websocket.receive_text()
+            # Espera por uma mensagem do cliente por 60 segundos
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=60)
+            except asyncio.TimeoutError:
+                # Se não receber nada em 60s, envia um ping para manter a conexão viva
+                logger.debug("[WebSocket] Conexão inativa, enviando ping.")
+                await websocket.send_text("ping")
+
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-        logger.error("[WebSocket] Cliente desconectado.")
+        logger.info("[WebSocket] Cliente desconectado. (Evento normal)")
+
+    except Exception as e:
+        manager.disconnect(websocket)
+        logger.error("[WebSocket] Erro inesperado na conexão: %s", e, exc_info=True)
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
@@ -221,14 +233,23 @@ def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(g
     time.sleep(1)
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
+@app.post("/embarcados/{embarcado_id}/test_rssi", name="test_rssi_esp")
+def test_rssi_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    embarcado = db.query(Embarcado).get(embarcado_id)
+    if embarcado:
+        logger.info("Enviando comando 'RSSI_TEST' para a ESP '%s'.", embarcado.id_esp)
+        command = {"type": "command", "data": {"name": "RSSI_TEST"}}
+        mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
 @app.post("/embarcados/{embarcado_id}/reconfigure", name="reconfigure_esp")
 def reconfigure_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
     embarcado = db.query(Embarcado).get(embarcado_id)
     if embarcado:
-        logger.info("Enviando comando 'fetch_config' para a ESP '%s'.", embarcado.id_esp)
-        # Este é o comando GLOBAL, que funciona para isto.
-        command_payload = {"command": "fetch_config"}
-        mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
+        logger.info("Enviando comando 'FETCH_CONFIG' individual para a ESP '%s'.", embarcado.id_esp)        
+        command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
+        mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
+        
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/embarcados/{embarcado_id}/reboot", name="reboot_esp")
