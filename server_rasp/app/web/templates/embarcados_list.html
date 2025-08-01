@@ -139,42 +139,35 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // --- LÓGICA DO WEBSOCKET (PARA RECEBER O RELATÓRIO RSSI) ---
-    function conectarWebSocket() {
-        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
-
-        socket.onopen = () => console.log("WebSocket conectado na página de Embarcados.");
-        
-        socket.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === "RSSI_REPORT") {
-                    modalTitle.textContent = `Relatório de RSSI da ESP: ${data.esp_id}`;
-                    let reportHtml = '<p>Beacons detectados (ordenados por força):</p><ul class="asset-list">';
-                    if (data.report && data.report.length > 0) {
-                        data.report.sort((a, b) => b.rssi - a.rssi);
-                        data.report.forEach(beacon => {
-                            reportHtml += `<li><strong>MAC:</strong> ${beacon.mac} | <strong>RSSI:</strong> ${beacon.rssi} dBm</li>`;
-                        });
-                    } else {
-                        reportHtml += "<li>Nenhum beacon encontrado.</li>";
-                    }
-                    reportHtml += '</ul>';
-                    modalBody.innerHTML = reportHtml;
-                    modal.style.display = "block";
+    window.addEventListener('websocket_message', function (event) {
+        try {
+            // event.detail contém a mensagem original
+            const data = JSON.parse(event.detail); 
+            
+            // Verifica se a mensagem é a que lhe interessa
+            if (data.type === "RSSI_REPORT") {
+                console.log("Relatório RSSI recebido!", data);
+                // Preenche o modal com os dados
+                const modalTitle = document.getElementById('modal-title');
+                const modalBody = document.getElementById('modal-body-content');
+                
+                modalTitle.textContent = `Relatório de RSSI da ESP: ${data.esp_id}`;
+                let reportHtml = '<p>Beacons detectados (ordenados por força):</p><ul class="asset-list">';
+                if (data.report && data.report.length > 0) {
+                    data.report.sort((a, b) => b.rssi - a.rssi);
+                    data.report.forEach(beacon => {
+                        reportHtml += `<li><strong>MAC:</strong> ${beacon.mac} | <strong>RSSI:</strong> ${beacon.rssi} dBm</li>`;
+                    });
+                } else {
+                    reportHtml += "<li>Nenhum beacon encontrado.</li>";
                 }
-            } catch (e) {
-                console.log("Mensagem recebida (não é relatório RSSI):", event.data);
+                reportHtml += '</ul>';
+                
+                modalBody.innerHTML = reportHtml;
+                modal.style.display = "block";
             }
-        };
-
-        socket.onclose = () => setTimeout(conectarWebSocket, 5000);
-        socket.onerror = (error) => {
-            console.error("Erro no WebSocket:", error);
-            socket.close();
-        };
-    }
-    conectarWebSocket();
+        } catch (e) {} // Ignora mensagens que não são JSON ou não são para esta página
+    });
 
     // --- LÓGICA PARA OS MENUS DE AÇÕES (DROPDOWN) ---
     document.querySelectorAll('.actions-menu-trigger').forEach(button => {

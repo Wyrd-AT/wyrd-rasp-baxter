@@ -107,52 +107,31 @@
             const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
 
             socket.onopen = function(event) {
-                console.log("Conexão WebSocket global estabelecida com sucesso!");
-                // Notifica as páginas que podem precisar de carregar dados iniciais
+                console.log("SUCESSO: Conexão WebSocket global estabelecida.");
+                // Anuncia para toda a aplicação que a conexão está aberta
                 window.dispatchEvent(new Event('websocket_open'));
             };
 
             socket.onmessage = function(event) {
-                // Primeiro, verifica se é uma mensagem de texto simples
-                if (event.data === "ATUALIZAR_ESTADO") {
-                    console.log("Recebido sinal ATUALIZAR_ESTADO.");
-                    // Dispara um evento global para que páginas específicas possam reagir
-                    window.dispatchEvent(new Event('atualizar_estado'));
+                // Ignora os pings para não poluir a consola
+                if (event.data === "ping") {
+                    console.log("Ping recebido do servidor.");
                     return;
                 }
-
-                // Se não for, tenta analisar como JSON
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.type === "RSSI_REPORT") {
-                        let reportText = `Relatório de RSSI da ESP: ${data.esp_id}\n\n`;
-                        if (data.report && data.report.length > 0) {
-                            data.report.sort((a, b) => b.rssi - a.rssi);
-                            data.report.forEach(beacon => {
-                                reportText += `MAC: ${beacon.mac}  |  RSSI: ${beacon.rssi} dBm\n`;
-                            });
-                        } else {
-                            reportText += "Nenhum beacon encontrado.";
-                        }
-                        alert(reportText);
-                    }
-                } catch (e) {
-                    // Se não for um JSON válido nem a nossa string, ignora.
-                    console.log("Recebida mensagem WebSocket não padronizada:", event.data);
-                }
+                // Anuncia a mensagem recebida para que outras páginas possam ouvi-la
+                window.dispatchEvent(new CustomEvent('websocket_message', { detail: event.data }));
             };
 
             socket.onclose = function(event) {
-                console.log("Conexão WebSocket perdida. Tentando reconectar em 5 segundos...");
+                console.warn("AVISO: Conexão WebSocket perdida. Tentando reconectar em 5s...");
                 setTimeout(conectarWebSocket, 5000);
             };
 
             socket.onerror = function(error) {
-                console.error("Erro no WebSocket:", error);
-                socket.close();
+                console.error("ERRO: Erro na conexão WebSocket:", error);
+                socket.close(); // Força o onclose para acionar a reconexão
             };
         }
-
         conectarWebSocket();
     });
     </script>

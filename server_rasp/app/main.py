@@ -617,7 +617,7 @@ def update_embarcado(request: Request, embarcado_id: int, quarto_id: int = Form(
 
         logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. A disparar reset automático.")
         command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
-        mqtt_client.publish_command_to_esp(esp_id=novo_embarcado.id_esp, command=command)
+        mqtt_client.publish_command_to_esp(esp_id=emb.id_esp, command=command)
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.get("/embarcados/{embarcado_id}/delete", name="delete_embarcado")

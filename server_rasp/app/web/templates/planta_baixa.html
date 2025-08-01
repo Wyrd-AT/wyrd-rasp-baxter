@@ -100,9 +100,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // Ouve pelo evento 'atualizar_estado' disparado pelo base.html
-    window.addEventListener('atualizar_estado', function() {
-        console.log("Planta Baixa: Recebido sinal para atualizar. Buscando novos dados.");
-        atualizarPlanta();
+    window.addEventListener('websocket_message', function (event) {
+        if (event.detail === "ATUALIZAR_ESTADO") {
+            console.log("Planta Baixa: Sinal de atualização recebido.");
+            atualizarPlanta();
+        }
     });
 });
 </script>
