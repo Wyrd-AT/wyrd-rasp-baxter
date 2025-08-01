@@ -139,7 +139,7 @@ def on_connect(client, userdata, flags, rc):
                 _publish_queue.remove(msg)
             logger.info("[MQTT] Fila de mensagens processada.")
     else:
-        logger.info(f"[MQTT] Falha ao conectar, código de retorno: {rc}\n")
+        logger.info(f"[MQTT] Falha ao conectar, código de retorno: {rc}")
 
 def connect_mqtt():
     """Inicia a conexão com o broker MQTT."""

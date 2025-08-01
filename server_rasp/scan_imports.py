@@ -32,7 +32,7 @@ finder = ModuleFinder(
 )
 finder.run_script(ENTRY_POINT_SCRIPT)
 
-logger.info(f"\n[INFO] Módulos encontrados a partir de '{ENTRY_POINT_SCRIPT}':")
+logger.info(f"[INFO] Módulos encontrados a partir de '{ENTRY_POINT_SCRIPT}':")
 
 all_top_level_modules = set()
 
@@ -48,7 +48,7 @@ for name, mod in finder.modules.items():
 for pkg in KNOWN_PACKAGES:
     all_top_level_modules.add(pkg)
 
-logger.info("\n--- LISTA DE BIBLIOTECAS PRINCIPAIS PARA O PYINSTALLER ---")
+logger.info("--- LISTA DE BIBLIOTECAS PRINCIPAIS PARA O PYINSTALLER ---")
 logger.info("Use esta lista para os argumentos --collect-submodules e --hidden-import.")
 
 for module_name in sorted(list(all_top_level_modules)):

@@ -47,7 +47,7 @@ async def _resolve_dispute(beacon_mac: str):
         if not events:
             return
 
-    logger.info(f"\n[aggregator] Janela para '{beacon_mac}' FECHADA. Resolvendo com {len(events)} eventos.")
+    logger.info(f"[aggregator] Janela para '{beacon_mac}' FECHADA. Resolvendo com {len(events)} eventos.")
 
     # 1. Elege o melhor evento baseado no RSSI mais forte
     best_event = max(events, key=lambda e: e.get("RSSI", -1000))
