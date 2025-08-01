@@ -32,6 +32,7 @@ from sqlalchemy import event, or_, desc
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request as StarletteRequest
+from starlette.exceptions import WebSocketException 
 
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
@@ -54,6 +55,7 @@ NUM_FIXED_ROOMS = 6
 
 PERIODIC_PUBLISH_INTERVAL_SEC = 1200 # 20 minutos (20 * 60)
 
+pending_rssi_requests = {} 
 
 try:
     base_path = sys._MEIPASS
@@ -190,27 +192,50 @@ async def run_asset_list_update():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    Endpoint WebSocket robusto com mecanismo de ping para manter a conexão ativa.
-    """
-    await manager.connect(websocket)
+    client_id = await manager.connect(websocket)
+    receiver_task = None
+    pinger_task = None
+    
     try:
-        while True:
-            # Espera por uma mensagem do cliente por 60 segundos
-            try:
-                await asyncio.wait_for(websocket.receive_text(), timeout=60)
-            except asyncio.TimeoutError:
-                # Se não receber nada em 60s, envia um ping para manter a conexão viva
-                logger.debug("[WebSocket] Conexão inativa, enviando ping.")
-                await websocket.send_text("ping")
+        logger.info("[WebSocket] Nova conexão estabelecida. Cliente: %s, ID: %s", websocket.client, client_id)
+        await websocket.send_text(json.dumps({"type": "CONNECTION_INFO", "client_id": client_id}))
+        logger.info("[WebSocket] ID '%s' enviado para o cliente.", client_id)
 
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-        logger.info("[WebSocket] Cliente desconectado. (Evento normal)")
+        async def receiver(ws: WebSocket):
+            # Esta tarefa simplesmente espera. Se o cliente desconectar, ela irá falhar.
+            async for _ in ws.iter_text():
+                pass
+
+        async def pinger(ws: WebSocket):
+            while True:
+                await asyncio.sleep(30)
+                try:
+                    # Tenta enviar o ping.
+                    await ws.send_text("ping")
+                    logger.debug("[WebSocket] Ping enviado para %s.", client_id)
+                except (WebSocketException, RuntimeError):
+                    # Se falhar porque a conexão está a fechar, quebra o loop silenciosamente.
+                    # Isto é o que previne o erro.
+                    break
+        
+        receiver_task = asyncio.create_task(receiver(websocket))
+        pinger_task = asyncio.create_task(pinger(websocket))
+        
+        # Espera que uma das tarefas termine (o que indica uma desconexão)
+        done, pending = await asyncio.wait(
+            [receiver_task, pinger_task], return_when=asyncio.FIRST_COMPLETED
+        )
 
     except Exception as e:
-        manager.disconnect(websocket)
-        logger.error("[WebSocket] Erro inesperado na conexão: %s", e, exc_info=True)
+        logger.error("[WebSocket] Erro inesperado no endpoint com %s: %s", client_id, e, exc_info=True)
+    finally:
+        # Bloco de limpeza final
+        if pinger_task: pinger_task.cancel()
+        if receiver_task: receiver_task.cancel()
+        
+        manager.disconnect(client_id)
+        logger.info("[WebSocket] Conexão com o cliente %s limpa e encerrada.", client_id)
+    
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
@@ -233,14 +258,22 @@ def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(g
     time.sleep(1)
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-@app.post("/embarcados/{embarcado_id}/test_rssi", name="test_rssi_esp")
-def test_rssi_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+@app.post("/embarcados/test_rssi", name="test_rssi_esp")
+async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+    embarcado_id = data.get("embarcado_id")
+    client_id = data.get("client_id")
+
+    if not embarcado_id or not client_id:
+        raise HTTPException(status_code=400, detail="embarcado_id e client_id são necessários.")
+
     embarcado = db.query(Embarcado).get(embarcado_id)
     if embarcado:
-        logger.info("Enviando comando 'RSSI_TEST' para a ESP '%s'.", embarcado.id_esp)
+        logger.info("Pedido de Teste RSSI da ESP '%s' pelo cliente '%s'.", embarcado.id_esp, client_id)
+        pending_rssi_requests[embarcado.id_esp] = client_id
         command = {"type": "command", "data": {"name": "RSSI_TEST"}}
         mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
-    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+    return Response(status_code=status.HTTP_202_ACCEPTED)
 
 @app.post("/rssi-report", status_code=status.HTTP_204_NO_CONTENT)
 async def receive_rssi_report(report_data: Dict):
@@ -253,15 +286,16 @@ async def receive_rssi_report(report_data: Dict):
 
     if not esp_id or report_payload is None:
         raise HTTPException(status_code=400, detail="Payload do relatório incompleto.")
+    
+    client_id = pending_rssi_requests.pop(esp_id, None)
+    if client_id:
+        logger.info("Relatório da ESP '%s' recebido. Enviando para o cliente '%s'.", esp_id, client_id)
+        websocket_message = {"type": "RSSI_REPORT", "esp_id": esp_id, "report": report_data.get("report")}
 
-    logger.info("[HTTP-RSSI] Relatório RSSI recebido da ESP '%s'. Retransmitindo via WebSocket...", esp_id)
+        await manager.send_to_client(client_id, json.dumps(websocket_message))
+    else:
+        logger.warning("Relatório da ESP '%s' recebido, mas nenhum cliente estava à espera dele.", esp_id)
 
-    websocket_message = {
-        "type": "RSSI_REPORT",
-        "esp_id": esp_id,
-        "report": report_payload
-    }
-    await manager.broadcast(json.dumps(websocket_message))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @app.get("/api/assets/map", name="get_assets_map")

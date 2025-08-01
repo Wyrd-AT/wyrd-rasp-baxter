@@ -59,9 +59,7 @@
                             <button class="actions-menu-trigger" title="Abrir menu de ações">
                                 &#8942; </button>
                             <div class="actions-dropdown">
-                                <form action="{{ url_for('test_rssi_esp', embarcado_id=emb.id) }}" method="post">
-                                    <button type="submit" class="menu-item-btn">Testar RSSI</button>
-                                </form>
+                                <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
                                 <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
                                     <button type="submit" class="menu-item-btn">Reconfigurar</button>
                                 </form>
@@ -145,6 +143,26 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (d !== this.nextElementSibling) d.classList.remove('show');
             });
             this.nextElementSibling.classList.toggle('show');
+        });
+    });
+
+    document.querySelectorAll('.test-rssi-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            if (!myClientId) {
+                alert("Ainda a conectar ao servidor, por favor tente novamente em segundos.");
+                return;
+            }
+            const embarcadoId = this.dataset.embarcadoId;
+
+            fetch("{{ url_for('test_rssi_esp') }}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    embarcado_id: parseInt(embarcadoId),
+                    client_id: myClientId // Envia o nosso "crachá"
+                })
+            });
+            alert(`Comando de teste RSSI enviado para o embarcado. Aguarde o resultado.`);
         });
     });
 

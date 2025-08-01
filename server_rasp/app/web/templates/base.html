@@ -115,10 +115,21 @@
             socket.onmessage = function(event) {
                 // Ignora os pings para não poluir a consola
                 if (event.data === "ping") {
-                    console.log("Ping recebido do servidor.");
                     return;
                 }
-                // Anuncia a mensagem recebida para que outras páginas possam ouvi-la
+                try {
+                    const data = JSON.parse(event.data);
+                    // Verifica se é a mensagem especial de conexão para receber o nosso "crachá"
+                    if (data.type === "CONNECTION_INFO") {
+                        myClientId = data.client_id;
+                        console.log("Crachá de cliente recebido:", myClientId);
+                        return; // Não precisa de anunciar esta mensagem para outras páginas
+                    }
+                } catch (e) {
+                    // A mensagem não é um JSON, provavelmente é "ATUALIZAR_ESTADO"
+                }
+                
+                // Anuncia TODAS as outras mensagens para que as páginas específicas possam ouvi-las
                 window.dispatchEvent(new CustomEvent('websocket_message', { detail: event.data }));
             };
 

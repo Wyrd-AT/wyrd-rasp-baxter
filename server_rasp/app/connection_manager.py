@@ -1,27 +1,33 @@
-# connection_manager.py
-import logging
-logger = logging.getLogger(__name__)
+# app/connection_manager.py
+import uuid
+from typing import Dict
 from fastapi import WebSocket
-from typing import List
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        # Usamos um dicionário para guardar {client_id: websocket}
+        self.active_connections: Dict[str, WebSocket] = {}
 
-    async def connect(self, websocket: WebSocket):
-        """Aceita uma nova conexão."""
+    async def connect(self, websocket: WebSocket) -> str:
+        """Aceita uma nova conexão, gera um ID e guarda-a."""
         await websocket.accept()
-        self.active_connections.append(websocket)
+        client_id = str(uuid.uuid4()) # Gera um ID único
+        self.active_connections[client_id] = websocket
+        return client_id
 
-    def disconnect(self, websocket: WebSocket):
-        """Remove uma conexão da lista."""
-        self.active_connections.remove(websocket)
+    def disconnect(self, client_id: str):
+        """Remove uma conexão pelo seu ID."""
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+
+    async def send_to_client(self, client_id: str, message: str):
+        """Envia uma mensagem para um cliente específico."""
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_text(message)
 
     async def broadcast(self, message: str):
-        """Envia uma mensagem para TODAS as conexões ativas."""
-        logger.info(f"[WebSocket] Transmitindo mensagem para {len(self.active_connections)} clientes: {message}")
-        for connection in self.active_connections:
+        """Envia uma mensagem para TODOS os clientes."""
+        for connection in self.active_connections.values():
             await connection.send_text(message)
 
-# Cria uma instância única que será usada em toda a aplicação
 manager = ConnectionManager()
