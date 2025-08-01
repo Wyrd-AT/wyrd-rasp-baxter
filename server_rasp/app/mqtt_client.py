@@ -98,8 +98,6 @@ def publish_command_to_esp(esp_id: str, command: dict):
     client.publish(command_topic, payload, qos=2)
 # --- FIM DA FUNÇÃO QUE ESTAVA FALTANDO ---
 
-
-
 def on_message(client, userdata, msg):
     """Callback para processar mensagens de heartbeat."""
     topic_parts = msg.topic.split('/')
@@ -118,21 +116,6 @@ def on_message(client, userdata, msg):
         finally:
             db.close()
         return
-    
-    if len(topic_parts) == 5 and topic_parts[4] == "rssi_report":
-        esp_id = topic_parts[3]
-        payload = msg.payload.decode('utf-8')
-        logger.info("[MQTT] Relatório RSSI recebido da ESP '%s'.", esp_id)
-        
-        # Cria um objeto para enviar via WebSocket
-        report_data = {
-            "type": "RSSI_REPORT",
-            "esp_id": esp_id,
-            "report": json.loads(payload)
-        }
-        # Envia para todos os clientes de frontend conectados
-        asyncio.run(manager.broadcast(json.dumps(report_data)))
-        return
 
 def on_connect(client, userdata, flags, rc):
     """Callback executado quando a conexão com o broker é (re)estabelecida."""
@@ -140,7 +123,6 @@ def on_connect(client, userdata, flags, rc):
         logger.info("[MQTT] Conectado com sucesso ao Broker MQTT!")
 
         client.subscribe("wyrd/rtls/esp/heartbeat/+")
-        client.subscribe("wyrd/rtls/esp/+/rssi_report") # <-- NOVA SUBSCRIÇÃO
         logger.info("[MQTT] Subscrito ao tópico de heartbeats 'wyrd/rtls/esp/heartbeat/+'")
 
         publish_available_assets()

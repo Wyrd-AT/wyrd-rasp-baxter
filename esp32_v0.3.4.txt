@@ -19,7 +19,6 @@ const char* MQTT_ASSET_LIST_TOPIC = "wyrd/rtls/assets/available";
 const char* MQTT_COMMAND_TOPIC = "wyrd/rtls/esp/all/command";
 String MQTT_VERDICT_TOPIC = "";
 String MQTT_INDIVIDUAL_COMMAND_TOPIC = "";
-String MQTT_RSSI_REPORT_TOPIC = "";
 
 // --- Gatilho para Modo de Configuração ---
 String TRIGGER_HOTSPOT_SSID = "";
@@ -319,7 +318,6 @@ void setup() {
     MQTT_INDIVIDUAL_COMMAND_TOPIC = "wyrd/rtls/esp/" + String(idESP) + "/command";
     TRIGGER_HOTSPOT_SSID = "RTLS_" + String(idESP);
     MQTT_HEARTBEAT_TOPIC = "wyrd/rtls/esp/heartbeat/" + String(idESP);
-    MQTT_RSSI_REPORT_TOPIC = "wyrd/rtls/esp/" + String(idESP) + "/rssi_report";
 
     Serial.println("\n==============================");
     Serial.println("= EMBARCADO RTLS v0.3.4    =");
@@ -559,37 +557,63 @@ void processarLogicaAtivo() {
 
 // =================== FUNÇÕES AUXILIARES ===================
 void runRssiTest() {
-    Serial.println(">>> Iniciando teste de RSSI...");
-    BLEScan* pBLEScan = BLEDevice::getScan();
-
-    // A função start() faz o scan, retorna os resultados e limpa os resultados antigos.
-    // Isto substitui as 3 linhas antigas por apenas 1.
-    pBLEScan->start(5, false); 
-    BLEScanResults* pResults = pBLEScan->getResults();
+    Serial.println(">>> Iniciando teste de RSSI com dados em memória...");
 
     StaticJsonDocument<1024> doc;
-    JsonArray report = doc.to<JsonArray>();
+    doc["esp_id"] = idESP; // Adiciona o ID da ESP ao objeto principal
+    JsonArray report = doc.createNestedArray("report");
 
-    Serial.printf(">>> Scan concluído. %d dispositivos encontrados.\n", pResults->getCount());
-
-    // O loop para construir o relatório está correto.
-    for (int i = 0; i < pResults->getCount(); i++) {
-        BLEAdvertisedDevice device = pResults->getDevice(i);
+    Serial.printf("  - Reportando %d ativos presentes (locked)...\n", lockedAssetsCount);
+    for (int i = 0; i < lockedAssetsCount; i++) {
         JsonObject obj = report.createNestedObject();
-        obj["mac"] = device.getAddress().toString().c_str();
-        obj["rssi"] = device.getRSSI();
+        obj["mac"] = lockedAssets[i].mac;
+        
+        int soma = 0;
+        int count = lockedAssets[i].isFull ? RSSI_HISTORY_SIZE : lockedAssets[i].index;
+        if (count > 0) {
+            for (int k = 0; k < count; k++) {
+                soma += lockedAssets[i].rssiHistory[k];
+            }
+            obj["rssi"] = soma / count;
+        } else {
+            obj["rssi"] = -100; // Valor padrão se não houver leituras
+        }
+        obj["status"] = "Presente";
     }
 
-    pBLEScan->clearResults();
+    // 2. Adiciona os alvos disponíveis que a ESP está a monitorizar
+    Serial.printf("  - Reportando %d alvos disponíveis (potential)...\n", potentialTargetsCount);
+    for (int i = 0; i < potentialTargetsCount; i++) {
+        // Só reporta os que já tiveram pelo menos uma leitura de RSSI
+        if (potentialTargets[i].index > 0 || potentialTargets[i].isFull) {
+            JsonObject obj = report.createNestedObject();
+            obj["mac"] = potentialTargets[i].mac;
+            obj["rssi"] = potentialTargets[i].mediaRSSI; // Usa a média já calculada
+            obj["status"] = "Disponível";
+        }
+    }
     
     String payload;
     serializeJson(doc, payload);
 
-    if (mqttClient.connected()) {
-        mqttClient.publish(MQTT_RSSI_REPORT_TOPIC.c_str(), payload.c_str());
-        Serial.println(">>> Relatório de teste de RSSI enviado.");
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/rssi-report";
+        
+        http.begin(serverUrl);
+        http.addHeader("Content-Type", "application/json");
+
+        Serial.println(">>> Enviando relatório de teste de RSSI via HTTP POST...");
+        int httpResponseCode = http.POST(payload);
+
+        if (httpResponseCode > 0) {
+            Serial.printf(">>> Resposta do servidor: %d\n", httpResponseCode);
+        } else {
+            Serial.printf("ERRO no envio do POST: %s\n", http.errorToString(httpResponseCode).c_str());
+        }
+        http.end();
     } else {
-        Serial.println("ERRO: Não foi possível enviar o relatório. Cliente MQTT desconectado.");
+        Serial.println("ERRO: Não foi possível enviar o relatório. Wi-Fi desconectado.");
     }
 }
 

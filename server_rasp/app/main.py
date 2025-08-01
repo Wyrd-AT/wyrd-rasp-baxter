@@ -242,6 +242,38 @@ def test_rssi_esp(request: Request, embarcado_id: int, db: Session = Depends(get
         mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
+@app.post("/rssi-report", status_code=status.HTTP_204_NO_CONTENT)
+async def receive_rssi_report(report_data: Dict):
+    """
+    Recebe um relatório de RSSI de uma ESP via POST e o retransmite
+    para todos os clientes conectados via WebSocket.
+    """
+    esp_id = report_data.get("esp_id") 
+    report_payload = report_data.get("report")
+
+    if not esp_id or report_payload is None:
+        raise HTTPException(status_code=400, detail="Payload do relatório incompleto.")
+
+    logger.info("[HTTP-RSSI] Relatório RSSI recebido da ESP '%s'. Retransmitindo via WebSocket...", esp_id)
+
+    websocket_message = {
+        "type": "RSSI_REPORT",
+        "esp_id": esp_id,
+        "report": report_payload
+    }
+    await manager.broadcast(json.dumps(websocket_message))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@app.get("/api/assets/map", name="get_assets_map")
+def get_assets_map(db: Session = Depends(get_db)):
+    """
+    Retorna um dicionário JSON simples mapeando
+    o mac_beacon de cada ativo para o seu nome_ativo.
+    """
+    assets = db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()
+    asset_map = {asset.mac_beacon: asset.nome_ativo for asset in assets}
+    return asset_map
+
 @app.post("/embarcados/{embarcado_id}/reconfigure", name="reconfigure_esp")
 def reconfigure_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
     embarcado = db.query(Embarcado).get(embarcado_id)
@@ -524,6 +556,13 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         ))
     
     embarcados = query.order_by(Embarcado.id_esp).all()
+    global_settings = get_global_settings(db)
+    rssi_thresholds = {
+        "global": int(global_settings.get("rssi_threshold", -60)),
+        "individuais": {
+            emb.id_esp: emb.rssi_threshold for emb in embarcados if emb.rssi_threshold is not None
+        }
+    }
     fuso_local = timezone(timedelta(hours=-3))
 
     for emb in embarcados:
@@ -547,7 +586,8 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         "form_action": request.url_for("create_embarcado"),
         "embarcado": None, 
         "search": search,
-        "global_settings": get_global_settings(db)
+        "global_settings": get_global_settings(db),
+        "rssi_thresholds": json.dumps(rssi_thresholds)
     })
 
 @app.post("/embarcados/new", name="create_embarcado")

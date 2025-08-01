@@ -123,7 +123,7 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // --- LÓGICA DO MODAL (PARA O TESTE RSSI) ---
+    // --- LÓGICA DO MODAL (sem alterações) ---
     const modal = document.getElementById('rssi-modal');
     const modalTitle = document.getElementById('modal-title');
     const modalBody = document.getElementById('modal-body-content');
@@ -138,38 +138,6 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     }
 
-    // --- LÓGICA DO WEBSOCKET (PARA RECEBER O RELATÓRIO RSSI) ---
-    window.addEventListener('websocket_message', function (event) {
-        try {
-            // event.detail contém a mensagem original
-            const data = JSON.parse(event.detail); 
-            
-            // Verifica se a mensagem é a que lhe interessa
-            if (data.type === "RSSI_REPORT") {
-                console.log("Relatório RSSI recebido!", data);
-                // Preenche o modal com os dados
-                const modalTitle = document.getElementById('modal-title');
-                const modalBody = document.getElementById('modal-body-content');
-                
-                modalTitle.textContent = `Relatório de RSSI da ESP: ${data.esp_id}`;
-                let reportHtml = '<p>Beacons detectados (ordenados por força):</p><ul class="asset-list">';
-                if (data.report && data.report.length > 0) {
-                    data.report.sort((a, b) => b.rssi - a.rssi);
-                    data.report.forEach(beacon => {
-                        reportHtml += `<li><strong>MAC:</strong> ${beacon.mac} | <strong>RSSI:</strong> ${beacon.rssi} dBm</li>`;
-                    });
-                } else {
-                    reportHtml += "<li>Nenhum beacon encontrado.</li>";
-                }
-                reportHtml += '</ul>';
-                
-                modalBody.innerHTML = reportHtml;
-                modal.style.display = "block";
-            }
-        } catch (e) {} // Ignora mensagens que não são JSON ou não são para esta página
-    });
-
-    // --- LÓGICA PARA OS MENUS DE AÇÕES (DROPDOWN) ---
     document.querySelectorAll('.actions-menu-trigger').forEach(button => {
         button.addEventListener('click', function (event) {
             event.stopPropagation();
@@ -184,6 +152,70 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!event.target.matches('.actions-menu-trigger')) {
             document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
         }
+    });
+    
+    const rssiThresholds = JSON.parse('{{ rssi_thresholds | safe }}');
+    let assetNameMap = {};
+
+    fetch("{{ url_for('get_assets_map') }}")
+        .then(response => response.json())
+        .then(data => { assetNameMap = data; });
+
+    // 2. "Ouvinte" do WebSocket
+    window.addEventListener('websocket_message', function (event) {
+        try {
+            const data = JSON.parse(event.detail); 
+            
+            if (data.type === "RSSI_REPORT") {
+                const modalTitle = document.getElementById('modal-title');
+                const modalBody = document.getElementById('modal-body-content');
+                const esp_id = data.esp_id;
+
+                // 3. Determina qual limite usar para esta ESP
+                const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
+                
+                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (${threshold} dBm)`;
+                
+                let reportHtml = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Nome do Ativo</th>
+                                <th>MAC Address</th>
+                                <th>RSSI</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                if (data.report && data.report.length > 0) {
+                    data.report.sort((a, b) => b.rssi - a.rssi);
+                    
+                    data.report.forEach(beacon => {
+                        const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
+                        const rssiValue = beacon.rssi;
+
+                        // 4. Lógica de coloração
+                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
+                        
+                        reportHtml += `
+                            <tr>
+                                <td>${assetName}</td>
+                                <td>${beacon.mac}</td>
+                                <td class="${rssiClass}">${rssiValue} dBm</td>
+                            </tr>
+                        `;
+                    });
+                } else {
+                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
+                }
+
+                reportHtml += '</tbody></table>';
+                
+                modalBody.innerHTML = reportHtml;
+                document.getElementById('rssi-modal').style.display = "block";
+            }
+        } catch (e) { /* Ignora outras mensagens */ }
     });
 });
 </script>
