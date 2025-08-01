@@ -1,6 +1,6 @@
 // ===================================================================================
-// = RTLS - FIRMWARE v0.3.3                               =
-// = HeartBeat e detalhes corrigidos =
+// = RTLS - FIRMWARE v0.3.4 =
+// = Teste RSSI, Configuração insitente, Comandos de Reboot, Reset, Config e Test =
 // ===================================================================================
 
 #include <WiFi.h>
@@ -12,18 +12,23 @@
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* idESP = "WRD00000004"; // <-- MUDE CONFORME A ESP
+const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
 
 // --- Tópicos MQTT ---
 const char* MQTT_ASSET_LIST_TOPIC = "wyrd/rtls/assets/available";
 const char* MQTT_COMMAND_TOPIC = "wyrd/rtls/esp/all/command";
 String MQTT_VERDICT_TOPIC = "";
 String MQTT_INDIVIDUAL_COMMAND_TOPIC = "";
+String MQTT_RSSI_REPORT_TOPIC = "";
 
 // --- Gatilho para Modo de Configuração ---
 String TRIGGER_HOTSPOT_SSID = "";
 const char* TRIGGER_HOTSPOT_PASSWORD = "rtlsconfig";
 const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
+
+bool isInitialized = false; // Flag para saber se a configuração inicial foi bem-sucedida
+unsigned long lastInitAttemptMillis = 0; // Temporizador para a tentativa de reinicialização
+const unsigned long INIT_RETRY_INTERVAL_MS = 30000; // Tenta a cada 30 segundos
 
 // --- Constantes de Heartbeat ---
 #define HEARTBEAT_INTERVAL_MS 60000 // 60 segundos
@@ -97,6 +102,7 @@ String obterDataAtualISO8601();
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi, uint32_t transacao_id);
 void processarLogicaAtivo();
 void syncTimeFromServer();
+void runRssiTest();
 void reconnect_mqtt();
 
 // =================== LÓGICA DE CONFIGURAÇÃO ===================
@@ -226,7 +232,18 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
                 delay(3000);
                 ESP.restart();
             }
+
+            if (strcmp(doc["data"]["name"], "RSSI_TEST") == 0) {
+                Serial.println(">>> Comando 'RSSI_TEST' recebido!");
+                runRssiTest(); // Chama a função de teste
+            }
+
+            if (strcmp(doc["data"]["name"], "FETCH_CONFIG") == 0) {
+                Serial.println(">>> Comando 'FETCH_CONFIG' individual recebido! Buscando novas configurações.");
+                checkInitialState();
+            }
         return;
+        }
     }
 
     // --- LÓGICA DE COMANDO GLOBAL (Mantida do seu código) ---
@@ -285,7 +302,8 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         
         if (potentialTargetsCount == 0 && !inEmergencyCooldown) {
             Serial.println("\n>>> ALERTA: Lista de alvos vazia recebida! ...");
-            // ... (resto da lógica de emergência sem alterações) ...
+            inEmergencyCooldown = true;
+            emergencyCooldownStart = millis();
         }
         return;
     }
@@ -301,9 +319,10 @@ void setup() {
     MQTT_INDIVIDUAL_COMMAND_TOPIC = "wyrd/rtls/esp/" + String(idESP) + "/command";
     TRIGGER_HOTSPOT_SSID = "RTLS_" + String(idESP);
     MQTT_HEARTBEAT_TOPIC = "wyrd/rtls/esp/heartbeat/" + String(idESP);
+    MQTT_RSSI_REPORT_TOPIC = "wyrd/rtls/esp/" + String(idESP) + "/rssi_report";
 
     Serial.println("\n==============================");
-    Serial.println("= EMBARCADO RTLS v0.3.3    =");
+    Serial.println("= EMBARCADO RTLS v0.3.4    =");
     Serial.println("==============================");
 
     WiFi.mode(WIFI_STA);
@@ -379,14 +398,41 @@ void setup() {
         mqttClient.setCallback(mqtt_callback);
         checkInitialState();
         if (mqttClient.connected()) {
-            mqttClient.publish(MQTT_HEARTBEAT_TOPIC.c_str(), ""); 
+            mqttClient.publish(MQTT_HEARTBEAT_TOPIC.c_str(), "");
             Serial.println(">>> Heartbeat inicial enviado.");
+            isInitialized = true; // Se tudo correu bem, marcamos como inicializado
+        } else {
+            Serial.println("AVISO: Falha na conexão MQTT inicial. A ESP tentará novamente.");
+            isInitialized = false; // Se falhou, marcamos para tentar de novo
         }
     }
 }
 
 void loop() {
     unsigned long agora = millis(); // Usar uma variável local 'agora'
+
+    if (!isInitialized) {
+        if (agora - lastInitAttemptMillis > INIT_RETRY_INTERVAL_MS) {
+            Serial.println(">>> A inicialização ainda não foi concluída. Tentando sincronizar novamente...");
+            
+            // Tenta refazer os passos críticos da inicialização
+            syncTimeFromServer();
+            checkInitialState();
+            
+            // Tenta reconectar ao MQTT e subscrever aos tópicos
+            if (!mqttClient.connected()) {
+                reconnect_mqtt();
+            }
+            
+            // Se agora estiver tudo OK, marca como inicializado
+            if (mqttClient.connected()) {
+                Serial.println(">>> Sincronização bem-sucedida! Operação normal retomada.");
+                isInitialized = true;
+            }
+            
+            lastInitAttemptMillis = agora; // Atualiza o temporizador da tentativa
+        }
+    }
 
     // --- LÓGICA DE HEARTBEAT ADICIONADA ---
     if (agora - lastHeartbeatMillis > HEARTBEAT_INTERVAL_MS) {
@@ -512,6 +558,41 @@ void processarLogicaAtivo() {
 }
 
 // =================== FUNÇÕES AUXILIARES ===================
+void runRssiTest() {
+    Serial.println(">>> Iniciando teste de RSSI...");
+    BLEScan* pBLEScan = BLEDevice::getScan();
+
+    // A função start() faz o scan, retorna os resultados e limpa os resultados antigos.
+    // Isto substitui as 3 linhas antigas por apenas 1.
+    pBLEScan->start(5, false); 
+    BLEScanResults* pResults = pBLEScan->getResults();
+
+    StaticJsonDocument<1024> doc;
+    JsonArray report = doc.to<JsonArray>();
+
+    Serial.printf(">>> Scan concluído. %d dispositivos encontrados.\n", pResults->getCount());
+
+    // O loop para construir o relatório está correto.
+    for (int i = 0; i < pResults->getCount(); i++) {
+        BLEAdvertisedDevice device = pResults->getDevice(i);
+        JsonObject obj = report.createNestedObject();
+        obj["mac"] = device.getAddress().toString().c_str();
+        obj["rssi"] = device.getRSSI();
+    }
+
+    pBLEScan->clearResults();
+    
+    String payload;
+    serializeJson(doc, payload);
+
+    if (mqttClient.connected()) {
+        mqttClient.publish(MQTT_RSSI_REPORT_TOPIC.c_str(), payload.c_str());
+        Serial.println(">>> Relatório de teste de RSSI enviado.");
+    } else {
+        Serial.println("ERRO: Não foi possível enviar o relatório. Cliente MQTT desconectado.");
+    }
+}
+
 void checkInitialState() {
     HTTPClient http;
     String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/esp/" + String(idESP) + "/config";

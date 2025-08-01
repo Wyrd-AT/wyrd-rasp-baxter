@@ -19,7 +19,7 @@ def load_configuration():
         # Se o config.ini não existe, cria um com valores padrão
         config['Network'] = {
             'IP': '0.0.0.0',
-            'PORT': '8000'
+            'PORT': '8080'
         }
         config['MQTT'] = {
             'MQTT_BROKER_HOST': '127.0.0.1',
