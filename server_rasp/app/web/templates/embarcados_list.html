@@ -24,6 +24,7 @@
 </button>
             </div>
         </div>
+        
         <table class="data-table">
             <thead>
                 <tr>
@@ -39,7 +40,6 @@
                 <tr class="selectable-row" data-id="{{ emb.id }}">
                     <td>{{ emb.id_esp }}</td>
                     <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
-                    
                     <td>
                         {% if emb.rssi_threshold is not none %}
                             <span title="RSSI Individual">{{ emb.rssi_threshold }}</span>
@@ -54,24 +54,27 @@
                             <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
                         {% endif %}
                     </td>
-                    <td style="text-align: center; display: flex; gap: 5px; align-items: center;">
-                        <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja resetar o ESTADO desta ESP?');">
-                            <button type="submit" class="btn-cancel" title="Limpar estado local da ESP">Reset</button>
-                        </form>
-                        
-                        <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja forçar a reconfiguração desta ESP?');">
-                            <button type="submit" class="btn-cancel" style="background-color: #fd7e14;" title="Forçar ESP a pedir nova configuração">Reconfig</button>
-                        </form>
-
-                        <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja REINICIAR esta ESP?');">
-                            <button type="submit" class="btn-cancel" style="background-color: #17a2b8;" title="Reiniciar fisicamente a ESP">Reboot</button>
-                        </form>
-
-                        <form action="{{ url_for('test_rssi_esp', embarcado_id=emb.id) }}" method="post" onsubmit="alert('Comando de teste RSSI enviado para a ESP {{ emb.id_esp }}. Aguarde o resultado.');">
-                            <button type="submit" class="btn-cancel" style="background-color: #28a745;" title="Pedir um relatório de RSSI de beacons próximos">Testar RSSI</button>
-                        </form>
+                    <td style="text-align: center;">
+                        <div class="actions-menu-container">
+                            <button class="actions-menu-trigger" title="Abrir menu de ações">
+                                &#8942; </button>
+                            <div class="actions-dropdown">
+                                <form action="{{ url_for('test_rssi_esp', embarcado_id=emb.id) }}" method="post">
+                                    <button type="submit" class="menu-item-btn">Testar RSSI</button>
+                                </form>
+                                <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
+                                    <button type="submit" class="menu-item-btn">Reconfigurar</button>
+                                </form>
+                                <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
+                                    <button type="submit" class="menu-item-btn">Reiniciar</button>
+                                </form>
+                                <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Resetar o ESTADO da ESP {{ emb.id_esp }}?');">
+                                    <button type="submit" class="menu-item-btn">Resetar Estado</button>
+                                </form>
+                            </div>
+                        </div>
                     </td>
-                </tr>
+                    </tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -101,6 +104,94 @@
             </form>
         </div>
     </div>
-
 </div>
+
+<div id="rssi-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modal-title">Relatório de RSSI</h3>
+            <span class="close-btn" id="modal-close-btn">&times;</span>
+        </div>
+        <div class="modal-body" id="modal-body-content">
+            </div>
+    </div>
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // --- LÓGICA DO MODAL (PARA O TESTE RSSI) ---
+    const modal = document.getElementById('rssi-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalBody = document.getElementById('modal-body-content');
+    const closeBtn = document.getElementById('modal-close-btn');
+
+    if (modal && closeBtn) {
+        closeBtn.onclick = () => { modal.style.display = "none"; };
+        window.onclick = (event) => {
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        };
+    }
+
+    // --- LÓGICA DO WEBSOCKET (PARA RECEBER O RELATÓRIO RSSI) ---
+    function conectarWebSocket() {
+        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
+
+        socket.onopen = () => console.log("WebSocket conectado na página de Embarcados.");
+        
+        socket.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === "RSSI_REPORT") {
+                    modalTitle.textContent = `Relatório de RSSI da ESP: ${data.esp_id}`;
+                    let reportHtml = '<p>Beacons detectados (ordenados por força):</p><ul class="asset-list">';
+                    if (data.report && data.report.length > 0) {
+                        data.report.sort((a, b) => b.rssi - a.rssi);
+                        data.report.forEach(beacon => {
+                            reportHtml += `<li><strong>MAC:</strong> ${beacon.mac} | <strong>RSSI:</strong> ${beacon.rssi} dBm</li>`;
+                        });
+                    } else {
+                        reportHtml += "<li>Nenhum beacon encontrado.</li>";
+                    }
+                    reportHtml += '</ul>';
+                    modalBody.innerHTML = reportHtml;
+                    modal.style.display = "block";
+                }
+            } catch (e) {
+                console.log("Mensagem recebida (não é relatório RSSI):", event.data);
+            }
+        };
+
+        socket.onclose = () => setTimeout(conectarWebSocket, 5000);
+        socket.onerror = (error) => {
+            console.error("Erro no WebSocket:", error);
+            socket.close();
+        };
+    }
+    conectarWebSocket();
+
+    // --- LÓGICA PARA OS MENUS DE AÇÕES (DROPDOWN) ---
+    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
+        button.addEventListener('click', function (event) {
+            event.stopPropagation();
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                if (d !== this.nextElementSibling) d.classList.remove('show');
+            });
+            this.nextElementSibling.classList.toggle('show');
+        });
+    });
+
+    window.addEventListener('click', (event) => {
+        if (!event.target.matches('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+        }
+    });
+});
+</script>
 {% endblock %}

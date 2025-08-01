@@ -567,8 +567,8 @@ def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int =
         db.refresh(novo_embarcado)
 
         logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. A disparar reset automático.")
-        command_payload = {"command": "fetch_config"}
-        mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
+        command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
+        mqtt_client.publish_command_to_esp(esp_id=novo_embarcado.id_esp, command=command)
     except Exception as e:
         db.rollback()
         logger.error(f"[main-db] ERRO ao criar embarcado: {e}")
@@ -616,8 +616,8 @@ def update_embarcado(request: Request, embarcado_id: int, quarto_id: int = Form(
         db.commit()
 
         logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. A disparar reset automático.")
-        command_payload = {"command": "fetch_config"}
-        mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
+        command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
+        mqtt_client.publish_command_to_esp(esp_id=novo_embarcado.id_esp, command=command)
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.get("/embarcados/{embarcado_id}/delete", name="delete_embarcado")
