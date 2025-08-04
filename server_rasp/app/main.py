@@ -441,7 +441,7 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
 
     if embarcado:
         embarcado.last_seen = datetime.now(timezone.utc)
-        
+        #
         if embarcado.status_rede == 'offline':
             embarcado.status_rede = 'online'
             logger.info(f"INFO: Status da ESP '{esp_id}' atualizado para 'online' devido a um novo pedido de configuração.")
