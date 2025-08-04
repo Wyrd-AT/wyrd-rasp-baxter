@@ -438,6 +438,16 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     
     # Encontra o embarcado e seu quarto
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+
+    if embarcado:
+        embarcado.last_seen = datetime.now(timezone.utc)
+        
+        if embarcado.status_rede == 'offline':
+            embarcado.status_rede = 'online'
+            logger.info(f"INFO: Status da ESP '{esp_id}' atualizado para 'online' devido a um novo pedido de configuração.")
+
+        db.commit()
+
     final_rssi_threshold = int(settings.get("rssi_threshold"))
 
     
