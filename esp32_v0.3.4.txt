@@ -703,7 +703,7 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi, u
 
 void reconnect_mqtt() {
     while (!mqttClient.connected()) {
-        if (mqttClient.connect(idESP)) {
+        if (mqttClient.connect(idESP, "wyrd_user", "Wyrd2025")) {
             mqttClient.subscribe(MQTT_ASSET_LIST_TOPIC);
             mqttClient.subscribe(MQTT_COMMAND_TOPIC);
             mqttClient.subscribe(MQTT_VERDICT_TOPIC.c_str());

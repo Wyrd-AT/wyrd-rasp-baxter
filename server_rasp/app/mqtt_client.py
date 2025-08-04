@@ -146,6 +146,7 @@ def connect_mqtt():
     client.on_connect = on_connect
     client.on_message = on_message
     try:
+        client.username_pw_set("wyrd_user", "Wyrd2025") 
         broker_port = int(settings.get("mqtt_broker_port"))
         client.connect(settings.get("mqtt_broker_host"), broker_port, 60)
         client.loop_start()
