@@ -951,6 +951,16 @@ async def on_startup():
     asyncio.create_task(periodic_asset_list_publish())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
+    await asyncio.sleep(5) 
+    
+    print("[main] Startup: Enviando comando de sincronização para todas as ESPs.")    
+    command_payload = {"command": "fetch_config"}
+    mqtt_client.client.publish(
+        topic=settings.get("mqtt_esp_command_topic"), 
+        payload=json.dumps(command_payload),
+        qos=1 
+    )
+    print("[main] Startup: Comando de sincronização enviado com sucesso.")
 
 if __name__ == "__main__":
     uvicorn.run(
