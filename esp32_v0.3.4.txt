@@ -24,7 +24,7 @@
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
+const char* idESP = "WRD00000006"; // <-- MUDE CONFORME A ESP
 
 // --- Tópicos MQTT ---
 const char* MQTT_ASSET_LIST_TOPIC = "wyrd/rtls/assets/available";
@@ -40,6 +40,7 @@ const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
 bool isInitialized = false; // Flag para saber se a configuração inicial foi bem-sucedida
 unsigned long lastInitAttemptMillis = 0; // Temporizador para a tentativa de reinicialização
 const unsigned long INIT_RETRY_INTERVAL_MS = 30000; // Tenta a cada 30 segundos
+const unsigned long AUSENCIA_TIMEOUT_MS = 10000;  // ex: 20 s
 
 // --- Constantes de Heartbeat ---
 #define HEARTBEAT_INTERVAL_MS 60000 // 60 segundos
@@ -94,6 +95,7 @@ struct LockedAsset {
     uint8_t index = 0;
     bool isFull = false;
     unsigned long inicioInerciaSaida = 0;
+    unsigned long lastSeen = 0;          
 } lockedAsset;
 
 LockedAsset lockedAssets[MAX_LOCKED_ASSETS]; // <-- NOVO: Array para os ativos presentes
@@ -152,10 +154,11 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
 
         // --- MUDANÇA AQUI: Verifica a lista de ativos travados ---
         for (int i = 0; i < lockedAssetsCount; i++) {
-            if (foundMac.equalsIgnoreCase(lockedAssets[i].mac)) {
+            if (foundMac.equalsIgnoreCase(lockedAssets[i].mac)) {  
                 lockedAssets[i].rssiHistory[lockedAssets[i].index] = advertisedDevice.getRSSI();
                 lockedAssets[i].index = (lockedAssets[i].index + 1) % RSSI_HISTORY_SIZE;
                 if (lockedAssets[i].index == 0) lockedAssets[i].isFull = true;
+                lockedAssets[i].lastSeen = millis();
                 return; // Encontrou o ativo, pode parar a busca
             }
         }
@@ -201,6 +204,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
                     lockedAssets[lockedAssetsCount] = {};
                     lockedAssets[lockedAssetsCount].mac = ativo_mac;
                     lockedAssets[lockedAssetsCount].confirmada = true;
+                    lockedAssets[lockedAssetsCount].lastSeen = millis();
                     lockedAssetsCount++;
                 } else {
                     LOGF(">>> VEREDITO VÁLIDO (ID %u): PERDEU ou QUARTO CHEIO para o ativo %s\n", idTransacaoRecebida, ativo_mac.c_str());
@@ -278,6 +282,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         JsonArray macArray = doc.as<JsonArray>();
 
         TargetAsset newPotentialTargets[MAX_AVAILABLE_ASSETS];
+
         int newCount = 0;
 
         for (JsonVariant v : macArray) {
@@ -487,6 +492,16 @@ void processarLogicaAtivo() {
     // 1. Lógica de SAÍDA (itera sobre a lista de presentes) - SEM MUDANÇAS
     for (int i = lockedAssetsCount - 1; i >= 0; i--) { // Usando o laço mais seguro
         LockedAsset &asset = lockedAssets[i];
+
+        if (asset.isFull && (millis() - asset.lastSeen > AUSENCIA_TIMEOUT_MS)) {
+          LOGF(">>> TIMEOUT de ausência em %s (%lums). FORÇANDO OUT\n",
+              asset.mac.c_str(), millis() - asset.lastSeen);
+          if (enviarEventoHTTP(asset.mac.c_str(), "OUT", -100, WiFi.RSSI(), 0)) {
+            removerAtivoTravado(i);
+          }
+          continue;
+        }
+
         if (!asset.isFull) continue;
 
         int soma = 0;
