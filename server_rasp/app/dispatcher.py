@@ -16,6 +16,9 @@ import json
 import time
 from .config import settings
 
+import logging
+logger = logging.getLogger(__name__)
+
 # --- Seção: Estratégia de Nova Tentativa (Exponential Backoff) ---
 # Esta função auxiliar implementa uma estratégia de "backoff exponencial".
 # A cada nova tentativa de conexão falha, ela calcula um tempo de espera
@@ -43,21 +46,21 @@ def dispatch_event(evt) -> bool: # Adicionamos a anotação de retorno -> bool
         "wifi":   evt.get("wifi")
     }
     msg = json.dumps(payload) + "\n"
-    print(f"[dispatch_event] Payload montado: {payload}")
+    logger.info(f"[dispatch_event] Payload montado: {payload}")
 
     attempt = 0
     while attempt < 5:
         try:
             attempt += 1
-            print(f"[dispatch_event] Tentativa {attempt} de conexão...")
+            logger.info(f"[dispatch_event] Tentativa {attempt} de conexão...")
             with socket.create_connection((settings.get("final_ip"), int(settings.get("final_port"))), timeout=5) as sock:
                 sock.sendall(msg.encode())
-                print(f"[dispatch_event] Payload enviado com sucesso.")
+                logger.info(f"[dispatch_event] Payload enviado com sucesso.")
                 return True # SUCESSO: Retorna True
         except (socket.timeout, socket.error) as e:
             wait = exponential_backoff(attempt)
-            print(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s.")
+            logger.info(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s.")
             time.sleep(wait)
     else:
-        print(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
+        logger.info(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
         return False # FALHA FINAL: Retorna False

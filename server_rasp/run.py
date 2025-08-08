@@ -47,9 +47,9 @@ if __name__ == '__main__':
         host_ip = '0.0.0.0'
         port_int = 8000
         
-    print(f"--- WHConnect Server v0.1.1 ---")
-    print(f"Iniciando servidor em http://{host_ip}:{port_int}")
-    print("Pressione CTRL+C para encerrar.")
+    logger.info(f"--- WHConnect Server v0.1.1 ---")
+    logger.info(f"Iniciando servidor em http://{host_ip}:{port_int}")
+    logger.info("Pressione CTRL+C para encerrar.")
 
     uvicorn.run(
         app,

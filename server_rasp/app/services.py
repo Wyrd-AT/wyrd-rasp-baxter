@@ -17,6 +17,9 @@ from .models import SessionLocal, Bed, Embarcado
 from sqlalchemy.orm import Session, joinedload
 from . import mqtt_client
 
+import logging
+logger = logging.getLogger(__name__)
+
 # --- Seção: Serviço de Associação de Cama ---
 # A função 'update_bed_assignment' é a ÚNICA maneira correta de associar
 # ou desassociar uma cama de um quarto. Ela garante que duas ações
@@ -46,26 +49,26 @@ def update_bed_assignment(bed_id: int, new_room: str | None):
             db.commit() # Salva a alteração da cama
 
             if new_room is None and quarto_anterior is not None:
-                print(f"[SERVICE] Cama '{bed.nome_cama}' foi desassociada do quarto '{quarto_anterior}'. Procurando ESP para resetar.")
+                logger.info(f"[SERVICE] Cama '{bed.nome_cama}' foi desassociada do quarto '{quarto_anterior}'. Procurando ESP para resetar.")
                 
                 # ...procuramos pela ESP que estava naquele quarto.
                 esp_no_quarto = db.query(Embarcado).filter(Embarcado.quarto == quarto_anterior).first()
                 
                 if esp_no_quarto:
                     # Se encontrarmos a ESP, enviamos um comando direto para ela se resetar.
-                    print(f"[SERVICE] Enviando comando RESET_STATE para a ESP: {esp_no_quarto.id_esp}")
+                    logger.info(f"[SERVICE] Enviando comando RESET_STATE para a ESP: {esp_no_quarto.id_esp}")
                     mqtt_client.publish_to_esp_channel(
                         esp_id=esp_no_quarto.id_esp,
                         message_type="command",
                         data={"name": "RESET_STATE"}
                     )
                 else:
-                    print(f"[SERVICE] Nenhuma ESP encontrada no quarto '{quarto_anterior}'. Nenhum reset enviado.")
+                    logger.info(f"[SERVICE] Nenhuma ESP encontrada no quarto '{quarto_anterior}'. Nenhum reset enviado.")
             mqtt_client.publish_available_beds()
             
     except Exception as e:
         db.rollback()
-        print(f"[SERVICE] ERRO ao atualizar cama: {e}")
+        logger.info(f"[SERVICE] ERRO ao atualizar cama: {e}")
     finally:
         db.close() # Garante que a sessão seja sempre fechada
 
@@ -81,21 +84,21 @@ def synchronize_and_reset_esp(esp_id: str):
     """
     db = SessionLocal()
     try:
-        print(f"[SERVICE] Iniciando reset e sincronização para a ESP: {esp_id}")
+        logger.info(f"[SERVICE] Iniciando reset e sincronização para a ESP: {esp_id}")
         
         embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
         
         # Passo 1: Envia um comando MQTT para o canal individual da ESP,
         # mandando-a resetar seu estado interno (limpar qual cama ela
         # acha que está monitorando).
-        print(f"[SERVICE] Enviando comando RESET_STATE para a ESP: {esp_id}")
+        logger.info(f"[SERVICE] Enviando comando RESET_STATE para a ESP: {esp_id}")
         mqtt_client.publish_to_esp_channel(
             esp_id=esp_id,
             message_type="command",
             data={"name": "RESET_STATE"}
         )
 
-        print(f"[SERVICE] Comando RESET_STATE enviado para a ESP: {esp_id}. O servidor aguardará o evento 'OUT'.")
+        logger.info(f"[SERVICE] Comando RESET_STATE enviado para a ESP: {esp_id}. O servidor aguardará o evento 'OUT'.")
     
     finally:
         db.close()
@@ -111,27 +114,27 @@ def release_bed_for_offline_esp(db: Session, esp_id: str):
             return
 
         quarto_nome = embarcado.quarto
-        print(f"[SERVICE-LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Verificando se há cama para libertar...")
+        logger.info(f"[SERVICE-LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Verificando se há cama para libertar...")
 
         # Encontra a cama que está naquele quarto
         bed_in_room = db.query(Bed).filter(Bed.quarto == quarto_nome).first()
         
         if not bed_in_room:
-            print(f"[SERVICE-LIVENESS] Quarto {quarto_nome} já estava vazio. Nenhuma ação necessária.")
+            logger.info(f"[SERVICE-LIVENESS] Quarto {quarto_nome} já estava vazio. Nenhuma ação necessária.")
             return
 
-        print(f"[SERVICE-LIVENESS] Libertando cama '{bed_in_room.nome_cama}' do quarto {quarto_nome}...")
+        logger.info(f"[SERVICE-LIVENESS] Libertando cama '{bed_in_room.nome_cama}' do quarto {quarto_nome}...")
         
         # Reutiliza a função de serviço principal para garantir consistência
         # ao desassociar a cama e notificar todos via MQTT.
         update_bed_assignment(bed_id=bed_in_room.id, new_room=None)
         
         db.commit()
-        print(f"[SERVICE-LIVENESS] Cama '{bed_in_room.nome_cama}' libertada com sucesso.")
+        logger.info(f"[SERVICE-LIVENESS] Cama '{bed_in_room.nome_cama}' libertada com sucesso.")
         
     except Exception as e:
         db.rollback()
-        print(f"[SERVICE-LIVENESS] ERRO ao libertar cama da ESP {esp_id}: {e}")
+        logger.info(f"[SERVICE-LIVENESS] ERRO ao libertar cama da ESP {esp_id}: {e}")
 
 # --- Seção: Gatilho de Atualização MQTT ---
 # 'trigger_mqtt_update_on_bed_change' é uma função de conveniência.

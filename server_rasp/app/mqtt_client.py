@@ -7,6 +7,9 @@ from datetime import datetime, timezone # +++ ADIÇÃO +++
 from .models import SessionLocal, Bed, Embarcado
 from .config import settings
 
+import logging
+logger = logging.getLogger(__name__)
+
 # --- MUDANÇA 1: Adicionar a Fila de Publicação ---
 # Esta lista em memória irá armazenar as mensagens que não puderam ser
 # enviadas porque o broker estava offline.
@@ -41,13 +44,13 @@ def publish_available_beds():
     payload = json.dumps(mac_list)
 
     if not client.is_connected():
-        print("[MQTT] Cliente não conectado. Enfileirando publicação da lista de camas.")
+        logger.info("[MQTT] Cliente não conectado. Enfileirando publicação da lista de camas.")
         # Adiciona um dicionário com os detalhes da mensagem à fila.
         # O 'retain=True' é importante para que seja mantido na publicação final.
         _publish_queue.append({'topic': topic, 'payload': payload, 'retain': True})
         return
     
-    print(f"[MQTT] Publicando lista de beacons disponíveis no tópico '{topic}': {payload}")
+    logger.info(f"[MQTT] Publicando lista de beacons disponíveis no tópico '{topic}': {payload}")
     client.publish(topic, payload, qos=1, retain=True)
 
 
@@ -58,14 +61,14 @@ def publish_to_esp_channel(esp_id: str, message_type: str, data: dict):
     Publica uma mensagem direcionada para uma ESP específica.
     """
     if not client.is_connected():
-        print(f"[MQTT] Cliente não conectado. Abortando envio para {esp_id}.")
+        logger.info(f"[MQTT] Cliente não conectado. Abortando envio para {esp_id}.")
         # Poderíamos enfileirar aqui também, mas vereditos são sensíveis ao tempo.
         # Por enquanto, vamos manter o comportamento de descarte para estes.
         return
 
     topic_template = INDIVIDUAL_COMMAND_TOPIC
     if not topic_template:
-        print("[MQTT] ERRO: INDIVIDUAL_COMMAND_TOPIC não encontrado nas configurações.")
+        logger.info("[MQTT] ERRO: INDIVIDUAL_COMMAND_TOPIC não encontrado nas configurações.")
         return
 
     individual_topic = topic_template.format(esp_id=esp_id)
@@ -75,19 +78,19 @@ def publish_to_esp_channel(esp_id: str, message_type: str, data: dict):
         "data": data
     })
     
-    print(f"[MQTT] Publicando no canal individual '{individual_topic}': {payload}")
+    logger.info(f"[MQTT] Publicando no canal individual '{individual_topic}': {payload}")
     client.publish(individual_topic, payload, qos=1)
 
 # A função de comando geral também pode ser modificada se for crítica.
 def publish_command_to_all(command: dict):
     if not client.is_connected():
-        print("[MQTT] Cliente não conectado. Enfileirando comando geral.")
+        logger.info("[MQTT] Cliente não conectado. Enfileirando comando geral.")
         _publish_queue.append({'topic': settings.get("command_topic"), 'payload': json.dumps(command), 'retain': False})
         return
 
     topic = settings.get("command_topic")
     payload = json.dumps(command)
-    print(f"[MQTT] Publicando comando GERAL no tópico '{topic}': {payload}")
+    logger.info(f"[MQTT] Publicando comando GERAL no tópico '{topic}': {payload}")
     client.publish(topic, payload, qos=1)
 
 
@@ -110,7 +113,7 @@ def on_message(client, userdata, msg):
                 # Se a ESP estava marcada como offline, "acorda-a".
                 if embarcado.status_rede == 'offline':
                     embarcado.status_rede = 'online'
-                    print(f"[LIVENESS] ESP {esp_id} voltou a ficar online. Status atualizado na base de dados.")
+                    logger.info(f"[LIVENESS] ESP {esp_id} voltou a ficar online. Status atualizado na base de dados.")
                 db.commit()
         finally:
             db.close()
@@ -121,7 +124,7 @@ def on_connect(client, userdata, flags, rc):
     Callback executado quando a conexão com o broker é (re)estabelecida.
     """
     if rc == 0:
-        print("[MQTT] Conectado com sucesso ao Broker MQTT!")
+        logger.info("[MQTT] Conectado com sucesso ao Broker MQTT!")
         # Imediatamente após conectar, publica a lista atual de camas.
         client.subscribe("wyrd/baxter/esp/heartbeat/+")
         publish_available_beds()
@@ -129,15 +132,15 @@ def on_connect(client, userdata, flags, rc):
         # --- LÓGICA DE PROCESSAMENTO DA FILA ---
         # Verifica se há mensagens pendentes que foram enfileiradas.
         if _publish_queue:
-            print(f"[MQTT] Encontradas {len(_publish_queue)} mensagens na fila. Enviando agora...")
+            logger.info(f"[MQTT] Encontradas {len(_publish_queue)} mensagens na fila. Enviando agora...")
             # Itera sobre uma cópia da fila e envia cada mensagem.
             for msg in list(_publish_queue):
                 client.publish(msg['topic'], msg['payload'], qos=1, retain=msg.get('retain', False))
                 _publish_queue.remove(msg) # Remove a mensagem da fila original após o envio.
-            print("[MQTT] Fila de mensagens pendentes processada.")
+            logger.info("[MQTT] Fila de mensagens pendentes processada.")
 
     else:
-        print(f"[MQTT] Falha ao conectar, código de retorno: {rc}\n")
+        logger.info(f"[MQTT] Falha ao conectar, código de retorno: {rc}\n")
 
 
 def connect_mqtt():
@@ -150,7 +153,7 @@ def connect_mqtt():
         client.connect(broker_host, broker_port, 60)
         client.loop_start()
     except Exception as e:
-        print(f"[MQTT] Não foi possível conectar ao broker: {e}")
+        logger.info(f"[MQTT] Não foi possível conectar ao broker: {e}")
 
 
 def init_mqtt_client():

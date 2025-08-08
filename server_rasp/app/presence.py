@@ -5,6 +5,9 @@ import time
 # Importa as novas funções assíncronas do módulo de scan
 from .nmap_scan import get_mac_to_ip_map_async, is_host_online_async
 
+import logging
+logger = logging.getLogger(__name__)
+
 # Estrutura de Cache para o Mapa
 _mac_ip_map_cache = {}
 _cache_last_updated = 0
@@ -17,13 +20,13 @@ async def check_presence(mac: str) -> bool:
     """
     global _mac_ip_map_cache, _cache_last_updated
     
-    #print(f"[presence_async] Verificando presença do MAC: {mac}")
+    #logger.info(f"[presence_async] Verificando presença do MAC: {mac}")
     target_mac = mac.lower()
     now = time.time()
     
     # 1. Verifica se o cache expirou
     if not _mac_ip_map_cache or (now - _cache_last_updated > CACHE_TTL_SECONDS):
-        #print("[presence_async] Cache do mapa MAC->IP expirado. Atualizando...")
+        #logger.info("[presence_async] Cache do mapa MAC->IP expirado. Atualizando...")
         _mac_ip_map_cache = await get_mac_to_ip_map_async()
         _cache_last_updated = now
         
@@ -33,7 +36,7 @@ async def check_presence(mac: str) -> bool:
     # 3. Lógica de Cache-Miss: Se não encontrou, o cache pode estar desatualizado.
     #    Força uma nova leitura da rede para garantir.
     if not target_ip:
-        #print(f"[presence_async] MAC {target_mac} não encontrado no cache. Forçando atualização da rede...")
+        #logger.info(f"[presence_async] MAC {target_mac} não encontrado no cache. Forçando atualização da rede...")
         _mac_ip_map_cache = await get_mac_to_ip_map_async()
         _cache_last_updated = now
         
@@ -45,5 +48,5 @@ async def check_presence(mac: str) -> bool:
         return await is_host_online_async(target_ip)
     
     # 5. Se mesmo após forçar a atualização o MAC não foi encontrado, ele está offline
-    print(f"[presence_async] MAC {target_mac} não foi encontrado no mapa da rede. Considerado offline.")
+    logger.info(f"[presence_async] MAC {target_mac} não foi encontrado no mapa da rede. Considerado offline.")
     return False

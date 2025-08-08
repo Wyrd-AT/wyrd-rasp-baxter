@@ -28,6 +28,13 @@ import re
 import sys
 import os
 
+import logging 
+from .logging_config import setup_logging 
+
+setup_logging() 
+
+logger = logging.getLogger(__name__)
+
 # --- Seção: Importações e Configuração Inicial ---
 # Importa todos os componentes essenciais do FastAPI, tipos de dados,
 # e bibliotecas padrão para manipulação de tempo e dados (CSV, JSON).
@@ -94,7 +101,7 @@ def get_global_settings(db: Session) -> dict:
     db_settings = {s.key: s.value for s in settings_from_db}
     return {**defaults, **db_settings}
 
-print("[main] Módulo carregado")
+logger.info("[main] Módulo carregado")
 
 # Inicializa o banco (cria tabelas se não existirem) e a aplicação FastAPI.
 init_db()
@@ -107,7 +114,7 @@ app = FastAPI()
 # A função on_startup é executada uma vez quando o servidor inicia.
 @app.on_event("startup")
 async def on_startup():
-    print("[main] Startup: Iniciando processos em segundo plano.")
+    logger.info("[main] Startup: Iniciando processos em segundo plano.")
     restart_pending_tasks()
     asyncio.create_task(main_aggregator_loop()) # Inicia o cérebro do sistema.
     asyncio.create_task(check_esp_liveness())
@@ -116,14 +123,14 @@ async def on_startup():
     start_cleanup_scheduler() 
     await asyncio.sleep(5) 
     
-    print("[main] Startup: Enviando comando de sincronização para todas as ESPs.")    
+    logger.info("[main] Startup: Enviando comando de sincronização para todas as ESPs.")    
     command_payload = {"command": "fetch_config"}
     mqtt_client.client.publish(
         topic=settings.get("command_topic"), 
         payload=json.dumps(command_payload),
         qos=1 
     )
-    print("[main] Startup: Comando de sincronização enviado com sucesso.")
+    logger.info("[main] Startup: Comando de sincronização enviado com sucesso.")
 
 # Função que remove eventos antigos do banco de dados.
 def purge_old_events():
@@ -131,7 +138,7 @@ def purge_old_events():
     cutoff = datetime.now(timezone.utc) - timedelta(days=int(settings.get("history_retention_days")))
     deleted = db.query(ReceivedEvent).filter(ReceivedEvent.data_on < cutoff).delete()
     db.commit()
-    print(f"[main] purge_old_events: removidos {deleted} eventos antes de {cutoff.isoformat()}")
+    logger.info(f"[main] purge_old_events: removidos {deleted} eventos antes de {cutoff.isoformat()}")
 
 MONITOR_INTERVAL_SEC = int(settings.get("monitor_interval_sec"))
 _monitor_failure_counts = defaultdict(int)
@@ -142,7 +149,7 @@ async def monitor_connected_beds():
     já estão em estado pendente e agindo apenas após múltiplas falhas.
     AGORA TAMBÉM ENVIA UM EVENTO DE WARNING ANTES DE RESETAR.
     """
-    print(f"[MONITOR] Guardião de camas ativas iniciado. Verificando a cada {MONITOR_INTERVAL_SEC}s.")
+    logger.info(f"[MONITOR] Guardião de camas ativas iniciado. Verificando a cada {MONITOR_INTERVAL_SEC}s.")
     while True:
         await asyncio.sleep(MONITOR_INTERVAL_SEC)
 
@@ -152,7 +159,7 @@ async def monitor_connected_beds():
             if not active_beds:
                 continue
 
-            #print(f"[MONITOR] Verificando a liveness de {len(active_beds)} cama(s) ativa(s)...")
+            #logger.info(f"[MONITOR] Verificando a liveness de {len(active_beds)} cama(s) ativa(s)...")
             pending_macs = get_pending_macs()
 
             for bed in active_beds:
@@ -163,11 +170,11 @@ async def monitor_connected_beds():
 
                 if not is_still_present:
                     _monitor_failure_counts[bed.mac_address] += 1
-                    print(f"[MONITOR] AVISO: Cama '{bed.nome_cama}' falhou na verificação. Contagem de falhas: {_monitor_failure_counts[bed.mac_address]}")
+                    logger.info(f"[MONITOR] AVISO: Cama '{bed.nome_cama}' falhou na verificação. Contagem de falhas: {_monitor_failure_counts[bed.mac_address]}")
 
                     # Se atingir 3 falhas, toma uma atitude
                     if _monitor_failure_counts[bed.mac_address] >= 3:
-                        print(f"[MONITOR] ALERTA: A cama '{bed.nome_cama}' está offline de forma consistente. A notificar e forçar reset.")
+                        logger.info(f"[MONITOR] ALERTA: A cama '{bed.nome_cama}' está offline de forma consistente. A notificar e forçar reset.")
                         
                         # --- INÍCIO DA NOVA LÓGICA DE WARNING ---
                         
@@ -200,7 +207,7 @@ async def monitor_connected_beds():
                         # Usamos 'run_in_executor' porque dispatch_event é síncrono
                         loop = asyncio.get_running_loop()
                         await loop.run_in_executor(None, dispatch_event, warning_payload)
-                        print(f"[MONITOR] Evento de WARNING para a cama '{nome_da_cama}' enviado com sucesso.")
+                        logger.info(f"[MONITOR] Evento de WARNING para a cama '{nome_da_cama}' enviado com sucesso.")
 
                         # --- FIM DA NOVA LÓGICA DE WARNING ---
 
@@ -216,11 +223,11 @@ async def monitor_connected_beds():
                         del _monitor_failure_counts[bed.mac_address]
                 else:
                     if bed.mac_address in _monitor_failure_counts:
-                        print(f"[MONITOR] Cama '{bed.nome_cama}' voltou a ficar online. Resetando contador de falhas.")
+                        logger.info(f"[MONITOR] Cama '{bed.nome_cama}' voltou a ficar online. Resetando contador de falhas.")
                         del _monitor_failure_counts[bed.mac_address]
 
         except Exception as e:
-            print(f"[MONITOR] Erro durante a verificação de camas ativas: {e}")
+            logger.error(f"[MONITOR] Erro durante a verificação de camas ativas: {e}")
             db.rollback() # Garante que o DB não fica em estado inconsistente em caso de erro
         finally:
             db.close()
@@ -232,7 +239,7 @@ async def check_esp_liveness():
     Tarefa de background que verifica na base de dados por ESPs offline,
     usando o campo 'status_rede' para uma quarentena persistente.
     """
-    print(f"[LIVENESS] Verificador de ESPs ativas iniciado. Timeout: {ESP_TIMEOUT_SEC}s.")
+    logger.info(f"[LIVENESS] Verificador de ESPs ativas iniciado. Timeout: {ESP_TIMEOUT_SEC}s.")
     while True:
         await asyncio.sleep(60) # Roda a verificação a cada minuto
 
@@ -255,20 +262,20 @@ async def check_esp_liveness():
                     
                     # Em vez de adicionar a um set, atualizamos o estado no banco.
                     emb.status_rede = 'offline'
-                    print(f"[LIVENESS] ESP {emb.id_esp} marcada como 'offline' na base de dados.")
+                    logger.info(f"[LIVENESS] ESP {emb.id_esp} marcada como 'offline' na base de dados.")
             
             # Um único commit no final para salvar todas as alterações de status.
             db.commit()
         
         except Exception as e:
-            print(f"[LIVENESS] Erro durante a verificação de ESPs: {e}")
+            logger.error(f"[LIVENESS] Erro durante a verificação de ESPs: {e}")
             db.rollback()
         finally:
             db.close()
 
 # Inicia uma thread que chama a função de limpeza em intervalos regulares.
 def start_cleanup_scheduler():
-    print(f"[main] Cleanup scheduler iniciado (a cada {settings.get('cleanup_interval_sec')} s)")
+    logger.info(f"[main] Cleanup scheduler iniciado (a cada {settings.get('cleanup_interval_sec')} s)")
     def loop():
         while True:
             purge_old_events()
@@ -286,15 +293,15 @@ def restart_pending_tasks():
     Verifica o DB por eventos pendentes na inicialização e reinicia
     as tarefas de verificação para eles.
     """
-    print("[main] Verificando se há tarefas pendentes para reiniciar...")
+    logger.info("[main] Verificando se há tarefas pendentes para reiniciar...")
     db = SessionLocal()
     try:
         pending_events = db.query(ReceivedEvent).filter(ReceivedEvent.status == 'Pendente').all()
         if not pending_events:
-            print("[main] Nenhuma tarefa pendente encontrada.")
+            logger.info("[main] Nenhuma tarefa pendente encontrada.")
             return
 
-        print(f"[main] Encontradas {len(pending_events)} tarefas pendentes. Reiniciando...")
+        logger.info(f"[main] Encontradas {len(pending_events)} tarefas pendentes. Reiniciando...")
         
         # Criamos um mapa de beacon -> mac_wifi para evitar consultas repetidas ao DB
         beacon_to_wifi_map = {b.mac_beacon: b.mac_address for b in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
@@ -302,10 +309,10 @@ def restart_pending_tasks():
         for event in pending_events:
             wifi_mac = beacon_to_wifi_map.get(event.cama)
             if not wifi_mac:
-                print(f"[main] ERRO: Não foi possível encontrar o MAC Wi-Fi para o beacon {event.cama} do evento pendente {event.id}. Ignorando.")
+                logger.info(f"[main] ERRO: Não foi possível encontrar o MAC Wi-Fi para o beacon {event.cama} do evento pendente {event.id}. Ignorando.")
                 continue
 
-            print(f"  - Reiniciando tarefa para o evento {event.id} (ESP: {event.esp_id}, Cama: {event.cama})")
+            logger.info(f"  - Reiniciando tarefa para o evento {event.id} (ESP: {event.esp_id}, Cama: {event.cama})")
             # Usa a mesma função do agregador para criar a tarefa em segundo plano
             asyncio.create_task(
                 retry_presence_task(
@@ -393,7 +400,7 @@ def test_nmap_route():
     
 @app.post("/event", status_code=202)
 async def receive_event(event_data: Dict):
-    print(f"[main] Evento HTTP recebido: {event_data}")
+    logger.info(f"[main] Evento HTTP recebido: {event_data}")
     required_keys = ["esp_id", "cama", "status"]
     if not all(key in event_data for key in required_keys):
         raise HTTPException(status_code=400, detail="Payload incompleto. Faltando chaves essenciais.")
@@ -412,7 +419,7 @@ async def receive_event(event_data: Dict):
         enqueue_event(event_with_id)
         return {"status": "success", "message": "Evento recebido e enfileirado"}
     except Exception as e:
-        print(f"[main] Erro ao salvar evento no DB: {e}")
+        logger.error(f"[main] Erro ao salvar evento no DB: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail="Erro ao processar e salvar o evento.")
     finally:
@@ -438,9 +445,9 @@ def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
         # Se o embarcado tiver um valor individual definido, usa-o
         if embarcado.rssi_threshold is not None:
             final_rssi_threshold = embarcado.rssi_threshold
-            print(f"INFO: Usando RSSI individual ({final_rssi_threshold}) para a ESP '{esp_id}'.")
+            logger.info(f"INFO: Usando RSSI individual ({final_rssi_threshold}) para a ESP '{esp_id}'.")
         else:
-            print(f"INFO: Usando RSSI global ({final_rssi_threshold}) para a ESP '{esp_id}'.")
+            logger.info(f"INFO: Usando RSSI global ({final_rssi_threshold}) para a ESP '{esp_id}'.")
 
     bed = db.query(Bed).filter(Bed.quarto == embarcado.quarto).first() if embarcado else None
     
@@ -534,7 +541,7 @@ def create_bed(
 ):
     # 1. Validação do formato do MAC antes de qualquer operação
     if not is_valid_mac(mac_address) or not is_valid_mac(mac_beacon):
-        print(f"ERRO: Tentativa de criar cama com formato de MAC inválido. MAC: {mac_address}, Beacon: {mac_beacon}")
+        logger.info(f"ERRO: Tentativa de criar cama com formato de MAC inválido. MAC: {mac_address}, Beacon: {mac_beacon}")
         # Idealmente, aqui você passaria uma mensagem de erro para o template.
         # Por enquanto, retornamos sem criar o registro.
         return RedirectResponse(request.url_for("list_beds"), status_code=303)
@@ -549,7 +556,7 @@ def create_bed(
         
     except IntegrityError: # 3. Captura erro se o MAC ou Beacon já existirem
         db.rollback()
-        print(f"ERRO DE INTEGRIDADE: Tentativa de criar cama com MAC ou Beacon duplicado. MAC: {mac_address}")
+        logger.info(f"ERRO DE INTEGRIDADE: Tentativa de criar cama com MAC ou Beacon duplicado. MAC: {mac_address}")
         # Novamente, o ideal é mostrar uma mensagem de erro ao usuário.
     finally:
         db.close()
@@ -574,7 +581,7 @@ def update_bed(
 ):
     # 1. Validação do formato do MAC
     if not is_valid_mac(mac_address) or not is_valid_mac(mac_beacon):
-        print(f"ERRO: Tentativa de atualizar cama com formato de MAC inválido. MAC: {mac_address}, Beacon: {mac_beacon}")
+        logger.info(f"ERRO: Tentativa de atualizar cama com formato de MAC inválido. MAC: {mac_address}, Beacon: {mac_beacon}")
         return RedirectResponse(request.url_for("list_beds"), status_code=303)
 
     db = SessionLocal()
@@ -597,7 +604,7 @@ def update_bed(
 
     except IntegrityError: # 3. Captura erro de duplicidade
         db.rollback()
-        print(f"ERRO DE INTEGRIDADE: Tentativa de atualizar para um MAC ou Beacon que já existe. MAC: {mac_address}")
+        logger.info(f"ERRO DE INTEGRIDADE: Tentativa de atualizar para um MAC ou Beacon que já existe. MAC: {mac_address}")
     finally:
         db.close()
         
@@ -704,7 +711,7 @@ async def test_rssi_esp(esp_id: str, data: Dict):
     if not client_id:
         raise HTTPException(status_code=400, detail="client_id é obrigatório.")
 
-    print(f"[main] Pedido de Teste RSSI para ESP '{esp_id}' pelo cliente '{client_id}'.")
+    logger.info(f"[main] Pedido de Teste RSSI para ESP '{esp_id}' pelo cliente '{client_id}'.")
     
     pending_rssi_requests[esp_id] = client_id
     
@@ -730,7 +737,7 @@ async def receive_rssi_report(report_data: Dict):
     client_id = pending_rssi_requests.pop(esp_id, None)
     
     if client_id:
-        print(f"Relatório da ESP '{esp_id}' recebido. Enviando para o cliente '{client_id}'.")
+        logger.info(f"Relatório da ESP '{esp_id}' recebido. Enviando para o cliente '{client_id}'.")
         
         # Monta a mensagem para o WebSocket
         websocket_message = {
@@ -740,14 +747,14 @@ async def receive_rssi_report(report_data: Dict):
         }
         await manager.send_to_client(client_id, json.dumps(websocket_message))
     else:
-        print(f"AVISO: Relatório da ESP '{esp_id}' recebido, mas nenhum cliente estava à espera.")
+        logger.info(f"AVISO: Relatório da ESP '{esp_id}' recebido, mas nenhum cliente estava à espera.")
 
 @app.post("/embarcados/{esp_id}/reboot", name="reboot_esp")
 def reboot_esp(request: Request, esp_id: str):
     """
     Envia um comando MQTT para forçar o reinício de uma ESP específica.
     """
-    print(f"[main] Recebido pedido de REBOOT para a ESP: {esp_id}")
+    logger.info(f"[main] Recebido pedido de REBOOT para a ESP: {esp_id}")
     
     command_payload = {
         "type": "command",
@@ -765,7 +772,7 @@ def reboot_esp(request: Request, esp_id: str):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     client_id = await manager.connect(websocket)
-    print(f"[WebSocket] Nova conexão, cliente ID: {client_id}")
+    logger.info(f"[WebSocket] Nova conexão, cliente ID: {client_id}")
     try:
         # Envia o ID de cliente para o browser, para que ele saiba o seu "nome"
         await websocket.send_text(json.dumps({"type": "CONNECTION_INFO", "client_id": client_id}))
@@ -774,7 +781,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(client_id)
-        print(f"[WebSocket] Cliente {client_id} desconectado.")
+        logger.info(f"[WebSocket] Cliente {client_id} desconectado.")
 
 @app.post("/settings/update", name="update_settings")
 def update_settings(request: Request, db: Session = Depends(get_db), rssi_threshold: str = Form(...), inercia_chegada: str = Form(...), inercia_saida: str = Form(...)):

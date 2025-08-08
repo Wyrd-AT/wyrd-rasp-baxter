@@ -194,7 +194,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     DeserializationError error = deserializeJson(doc, payload, length);
 
     if (error) {
-        Serial.print(F("Falha ao decodificar JSON: "));
+        Serial.printf("Falha ao decodificar JSON: "));
         Serial.println(error.c_str());
         return;
     }
@@ -339,7 +339,7 @@ void setup() {
         }
         if (triggerFound) break;
         delay(500);
-        Serial.print(".");
+        Serial.logger.info(".");
     }
     Serial.println();
     WiFi.scanDelete();
@@ -382,7 +382,7 @@ void setup() {
     // Se não, inicia em modo de operação normal.
     else {
         Serial.println("\nHotspot de configuração não encontrado. Iniciando em modo de operação normal.");
-        Serial.print("Conectando à rede Wi-Fi salva...");
+        Serial.logger.info("Conectando à rede Wi-Fi salva...");
         WiFi.begin();
 
         unsigned long wifiStartTime = millis();
@@ -392,12 +392,12 @@ void setup() {
                 delay(3000);
                 ESP.restart();
             }
-            Serial.print(".");
+            Serial.logger.info(".");
             delay(500);
         }
 
         Serial.println("\nWi-Fi conectado com sucesso!");
-        Serial.print("IP: ");
+        Serial.logger.info("IP: ");
         Serial.println(WiFi.localIP());
 
         syncTimeFromServer();
@@ -690,7 +690,7 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
 
 void reconnect_mqtt() {
     while (!mqttClient.connected()) {
-        Serial.print("Tentando conectar ao Broker MQTT...");
+        Serial.logger.info("Tentando conectar ao Broker MQTT...");
         if (mqttClient.connect(idESP)) {
             Serial.println(" conectado!");
             mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
@@ -702,8 +702,8 @@ void reconnect_mqtt() {
             }
             checkInitialState();
         } else {
-            Serial.print(" falhou, rc=");
-            Serial.print(mqttClient.state());
+            Serial.logger.info(" falhou, rc=");
+            Serial.logger.info(mqttClient.state());
             Serial.println(" tentando novamente em 5 segundos");
             delay(5000);
         }

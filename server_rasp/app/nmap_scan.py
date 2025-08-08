@@ -6,6 +6,9 @@ import re
 import subprocess
 from .config import settings
 
+import logging
+logger = logging.getLogger(__name__)
+
 # --- Funções "Trabalhadoras" (Síncronas) ---
 
 def _worker_get_mac_to_ip_map() -> dict:
@@ -21,7 +24,7 @@ def _worker_get_mac_to_ip_map() -> dict:
             encoding='cp850'
         )
         if result.returncode != 0:
-            print(f"[nmap_scan_worker] ERRO: Comando 'arp -a' falhou. Stderr: {result.stderr}")
+            logger.info(f"[nmap_scan_worker] ERRO: Comando 'arp -a' falhou. Stderr: {result.stderr}")
             return {}
 
         output = result.stdout
@@ -29,10 +32,10 @@ def _worker_get_mac_to_ip_map() -> dict:
         matches = pattern.findall(output)
         mac_ip_map = {mac.lower().replace('-', ':'): ip for ip, mac in matches}
         
-        #print(f"[nmap_scan_worker] Mapa MAC->IP atualizado. {len(mac_ip_map)} dispositivos encontrados.")
+        #logger.info(f"[nmap_scan_worker] Mapa MAC->IP atualizado. {len(mac_ip_map)} dispositivos encontrados.")
         return mac_ip_map
     except Exception as e:
-        print(f"[nmap_scan_worker] ERRO CRÍTICO ao criar mapa MAC->IP: {e}")
+        logger.info(f"[nmap_scan_worker] ERRO CRÍTICO ao criar mapa MAC->IP: {e}")
         return {}
 
 def _worker_is_host_online(ip_address: str) -> bool:
@@ -58,30 +61,30 @@ def _worker_is_host_online(ip_address: str) -> bool:
         # --- FIM DA CORREÇÃO ---
             
     except FileNotFoundError:
-        print("\n\n[NMAP] ERRO CRÍTICO: O comando 'nmap' não foi encontrado. Instale o Nmap no seu sistema.\n\n")
+        logger.info("\n\n[NMAP] ERRO CRÍTICO: O comando 'nmap' não foi encontrado. Instale o Nmap no seu sistema.\n\n")
         return False
     except Exception as e:
-        print(f"[nmap_scan_worker] Erro ao executar Nmap para o IP {ip_address}: {e}")
+        logger.info(f"[nmap_scan_worker] Erro ao executar Nmap para o IP {ip_address}: {e}")
         return False
 
 # --- Funções de Interface (Assíncronas) ---
 
 async def get_mac_to_ip_map_async() -> dict:
     """Interface assíncrona que chama a função trabalhadora numa thread separada."""
-    #print("[nmap_scan_async] Agendando atualização de mapa MAC->IP...")
+    #logger.info("[nmap_scan_async] Agendando atualização de mapa MAC->IP...")
     loop = asyncio.get_running_loop()
     mac_ip_map = await loop.run_in_executor(None, _worker_get_mac_to_ip_map)
     return mac_ip_map
 
 async def is_host_online_async(ip_address: str) -> bool:
     """Interface assíncrona que chama a verificação ativa do Nmap numa thread separada."""
-    #print(f"[nmap_scan_async] Agendando verificação ativa do IP: {ip_address} com Nmap...")
+    #logger.info(f"[nmap_scan_async] Agendando verificação ativa do IP: {ip_address} com Nmap...")
     loop = asyncio.get_running_loop()
     is_online = await loop.run_in_executor(None, _worker_is_host_online, ip_address)
     
     if is_online:
-        print(f"[nmap_scan_async] SUCESSO: Host {ip_address} está online.")
+        logger.info(f"[nmap_scan_async] SUCESSO: Host {ip_address} está online.")
     else:
-        print(f"[nmap_scan_async] FALHA: Host {ip_address} parece estar offline.")
+        logger.info(f"[nmap_scan_async] FALHA: Host {ip_address} parece estar offline.")
         
     return is_online

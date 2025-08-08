@@ -34,6 +34,9 @@ from .presence import check_presence
 from .mqtt_client import publish_available_beds, publish_to_esp_channel
 from .services import synchronize_and_reset_esp, update_bed_assignment
 
+import logging
+logger = logging.getLogger(__name__)
+
 # --- Seção: Configurações e Estruturas de Dados em Memória ---
 RETRY_PRESENCE_FREQUENCY_SEC = 20 # A cada quantos segundos tentar verificar a presença de um Wi-Fi ausente.
 AGGREGATOR_LOOP_INTERVAL_SEC = 2  # Frequência do loop principal do agregador.
@@ -48,7 +51,7 @@ def get_pending_macs():
 def enqueue_event(evt: dict):
     """ Coloca um novo evento no buffer para ser processado pelo loop principal. """
     _buffer.append(evt)
-    print(f"[aggregator] Evento enfileirado: {evt}")
+    logger.info(f"[aggregator] Evento enfileirado: {evt}")
 
 def _update_event_status(event_id: int, status: str, detail: str):
     """ Função utilitária para atualizar o status de um evento no banco de dados. """
@@ -60,7 +63,7 @@ def _update_event_status(event_id: int, status: str, detail: str):
             event_to_update.status_detail = detail
             db.commit()
     except Exception as e:
-        print(f"[aggregator-update] ERRO ao atualizar evento {event_id}: {e}")
+        logger.error(f"[aggregator-update] ERRO ao atualizar evento {event_id}: {e}")
         db.rollback()
     finally:
         db.close()
@@ -70,7 +73,7 @@ def _update_event_status(event_id: int, status: str, detail: str):
 # mas o seu módulo Wi-Fi ainda não está visível na rede. Ela fica tentando
 # encontrar o Wi-Fi em intervalos regulares.
 async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id: int, esp_id: str):
-    print(f"[aggregator-retry] Iniciada tarefa para Beacon '{beacon_mac}' (MAC Wi-Fi: {wifi_mac}).")
+    logger.info(f"[aggregator-retry] Iniciada tarefa para Beacon '{beacon_mac}' (MAC Wi-Fi: {wifi_mac}).")
     
     start_time = datetime.now(timezone.utc)
     warning_created = False
@@ -80,7 +83,7 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
     while True:
         # Lógica de Timeout (Vencido): Se a verificação demorar mais que o tempo máximo...
         if datetime.now(timezone.utc) - start_time > timedelta(minutes=max_pending_minutes):
-            print(f"[aggregator-retry] MAC '{wifi_mac}' pendente por mais de {max_pending_minutes} min. Marcando como Vencido.")
+            logger.info(f"[aggregator-retry] MAC '{wifi_mac}' pendente por mais de {max_pending_minutes} min. Marcando como Vencido.")
             # Atualiza o evento original para "Vencido"
             _update_event_status(
                 original_event_id, 
@@ -101,13 +104,13 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
 
         if is_present:
             # SUCESSO: O Wi-Fi foi encontrado.
-            print(f"[aggregator-retry] SUCESSO! MAC Wi-Fi '{wifi_mac}' encontrado na rede.")
+            logger.info(f"[aggregator-retry] SUCESSO! MAC Wi-Fi '{wifi_mac}' encontrado na rede.")
             db = SessionLocal()
             try:
                 bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
                 if bed:
                     # O evento original agora é "Resolvido".
-                    print("[aggregator-retry] Wi-Fi confirmado. Aguardando 5s para estabilização do serviço...")
+                    logger.info("[aggregator-retry] Wi-Fi confirmado. Aguardando 5s para estabilização do serviço...")
                     delay_wifi_to_server = int(settings.get("delay_wifi_to_server", 5))
                     await asyncio.sleep(delay_wifi_to_server)
 
@@ -140,7 +143,7 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
                 db.close()
         
         elif not warning_created and (datetime.now(timezone.utc) - start_time > timedelta(minutes=warning_delay_minutes)):
-            print(f"[aggregator-retry] MAC '{wifi_mac}' ausente por mais de {warning_delay_minutes} min. GERANDO WARNING.")
+            logger.info(f"[aggregator-retry] MAC '{wifi_mac}' ausente por mais de {warning_delay_minutes} min. GERANDO WARNING.")
             db = SessionLocal()
             try:
                 bed = db.query(Bed).filter(Bed.mac_beacon == beacon_mac).first()
@@ -177,7 +180,7 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
     # Limpeza final: remove a tarefa do dicionário de pendências.
     if wifi_mac in _pending_mac_checks:
         del _pending_mac_checks[wifi_mac]
-    print(f"[aggregator-retry] Finalizada tarefa de verificação para MAC Wi-Fi '{wifi_mac}'.")
+    logger.info(f"[aggregator-retry] Finalizada tarefa de verificação para MAC Wi-Fi '{wifi_mac}'.")
 
 
 # --- Seção: Processamento de Lotes de Eventos ---
@@ -195,7 +198,7 @@ async def _process_events_batch(events: list):
             main_out_event = out_events[0]
             event_id = main_out_event.get("event_id")
             beacon_mac = main_out_event.get("cama")
-            print(f"[aggregator] Evento 'OUT' detectado para o beacon '{beacon_mac}'.")
+            logger.info(f"[aggregator] Evento 'OUT' detectado para o beacon '{beacon_mac}'.")
             
             for evt in out_events[1:]:
                 _update_event_status(evt.get("event_id"), "Ignorado", "Evento OUT duplicado no mesmo lote.")
@@ -210,7 +213,7 @@ async def _process_events_batch(events: list):
                     ).order_by(ReceivedEvent.data_on.desc()).first()
 
                     if pending_event:
-                        print(f"[aggregator] Encontrado e cancelado evento pendente (ID: {pending_event.id}). Atualizando status.")
+                        logger.info(f"[aggregator] Encontrado e cancelado evento pendente (ID: {pending_event.id}). Atualizando status.")
                         pending_event.status = "Cancelado"
                         pending_event.status_detail = "Cancelado por evento de saída subsequente."
                 
@@ -243,7 +246,7 @@ async def _process_events_batch(events: list):
             _update_event_status(event_id, "Erro", "Componente (cama ou ESP) não cadastrado.")
             return
         
-        print(f"[aggregator] Novo GET recebido para '{beacon_mac}'. Cancelando tarefas pendentes anteriores...")
+        logger.info(f"[aggregator] Novo GET recebido para '{beacon_mac}'. Cancelando tarefas pendentes anteriores...")
         cancel_pending_task(wifi_mac=bed.mac_address)
         
         # ETAPA B: Validar o estado da cama ANTES de enviar qualquer veredito
@@ -262,7 +265,7 @@ async def _process_events_batch(events: list):
             else:
                 # Cenário 2a: A associação ao outro quarto ainda está PENDENTE.
                 if bed.mac_address in _pending_mac_checks:
-                    print(f"[aggregator] BLOQUEIO (PENDENTE): Cama {beacon_mac} já está em processo pendente. Ignorando GET da ESP {best_event['esp_id']}.")
+                    logger.info(f"[aggregator] BLOQUEIO (PENDENTE): Cama {beacon_mac} já está em processo pendente. Ignorando GET da ESP {best_event['esp_id']}.")
                     _update_event_status(event_id, "Ignorado", "A cama já está em um processo de associação pendente.")
                     publish_to_esp_channel(
                         esp_id=best_event['esp_id'], message_type="verdict",
@@ -273,7 +276,7 @@ async def _process_events_batch(events: list):
 
                 # Cenário 2b: A associação ao outro quarto já está CONFIRMADA. (ESTA É A CORREÇÃO PRINCIPAL)
                 else:
-                    print(f"[aggregator] BLOQUEIO (CONFIRMADO): Tentativa da ESP {best_event['esp_id']} de 'roubar' a cama '{beacon_mac}', que já pertence ao quarto '{bed.quarto}'.")
+                    logger.info(f"[aggregator] BLOQUEIO (CONFIRMADO): Tentativa da ESP {best_event['esp_id']} de 'roubar' a cama '{beacon_mac}', que já pertence ao quarto '{bed.quarto}'.")
                     _update_event_status(event_id, "Ignorado", f"A cama já está confirmada no quarto {bed.quarto}.")
                     publish_to_esp_channel(
                         esp_id=best_event['esp_id'], message_type="verdict",
@@ -285,7 +288,7 @@ async def _process_events_batch(events: list):
         # ETAPA C: Enviar os Vereditos (APÓS a validação)
         # Se chegamos aqui, a associação é legítima. Agora sim podemos enviar os vereditos.
         transacao_id = best_event.get("transacao_id")
-        print(f"[aggregator-verdict] Enviando WIN (ID: {transacao_id}) para a ESP {best_event['esp_id']}")
+        logger.info(f"[aggregator-verdict] Enviando WIN (ID: {transacao_id}) para a ESP {best_event['esp_id']}")
         publish_to_esp_channel(
             esp_id=best_event['esp_id'], message_type="verdict",
             data={"cama": beacon_mac, "status": "WIN", "transacao_id": transacao_id}
@@ -306,7 +309,7 @@ async def _process_events_batch(events: list):
         publish_available_beds()
         
         if is_present:
-            print("[aggregator] Wi-Fi confirmado. Aguardando 5s para estabilização do serviço na cama...")
+            logger.info("[aggregator] Wi-Fi confirmado. Aguardando 5s para estabilização do serviço na cama...")
             await asyncio.sleep(5)
             br_timezone = timezone(timedelta(hours=-3))
             timestamp_agora_br = datetime.now(br_timezone)
@@ -346,17 +349,17 @@ def cancel_pending_task(wifi_mac: str) -> bool:
         task = _pending_mac_checks[wifi_mac]
         task.cancel()
         del _pending_mac_checks[wifi_mac]
-        print(f"[aggregator-cancel] Tarefa para o MAC {wifi_mac} foi cancelada externamente.")
+        logger.info(f"[aggregator-cancel] Tarefa para o MAC {wifi_mac} foi cancelada externamente.")
         return True
     
-    print(f"[aggregator-cancel] Nenhuma tarefa pendente encontrada para o MAC {wifi_mac}.")
+    logger.info(f"[aggregator-cancel] Nenhuma tarefa pendente encontrada para o MAC {wifi_mac}.")
     return False
 
 
 # --- Seção: Loop Principal do Agregador ---
 # Esta função roda continuamente em segundo plano, orquestrando todo o processo.
 async def main_aggregator_loop():
-    print(f"[aggregator] Agregador com lógica de status iniciada. Loop a cada {AGGREGATOR_LOOP_INTERVAL_SEC}s.")
+    logger.info(f"[aggregator] Agregador com lógica de status iniciada. Loop a cada {AGGREGATOR_LOOP_INTERVAL_SEC}s.")
     last_heartbeat_time = time.time()
     heartbeat_interval_sec = 3600
     
@@ -365,7 +368,7 @@ async def main_aggregator_loop():
         
         # Log periódico para saber que o processo está vivo.
         if time.time() - last_heartbeat_time > heartbeat_interval_sec:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Aggregator Heartbeat: Processo ativo.")
+            logger.info(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Aggregator Heartbeat: Processo ativo.")
             last_heartbeat_time = time.time()
 
         if not _buffer:
@@ -381,7 +384,7 @@ async def main_aggregator_loop():
             if "cama" in evt:
                 events_by_beacon[evt["cama"]].append(evt)
         
-        print(f"\n[aggregator] Processando {len(events_to_process)} eventos para {len(events_by_beacon)} beacons...")
+        logger.info(f"\n[aggregator] Processando {len(events_to_process)} eventos para {len(events_by_beacon)} beacons...")
         # Chama a função de processamento para cada grupo de eventos.
         for beacon_mac, events in events_by_beacon.items():
             asyncio.create_task(_process_events_batch(events))

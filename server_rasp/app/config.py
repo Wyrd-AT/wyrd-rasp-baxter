@@ -27,7 +27,7 @@ def load_configuration():
     # ele é criado com seções e valores padrão, garantindo que a aplicação
     # sempre tenha os parâmetros necessários para funcionar na primeira execução.
     if not os.path.exists(CONFIG_FILE):
-        print(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão completos.")
+        logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão completos.")
         
         # Parâmetros de rede para o servidor FastAPI e o scan de presença.
         config['Network'] = {
