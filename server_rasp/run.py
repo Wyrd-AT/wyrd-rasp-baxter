@@ -4,6 +4,8 @@ import sys
 import os
 import logging
 
+logger = logging.getLogger(__name__)
+
 # Importa as configurações. Esta importação já depende do sys.path corrigido.
 from app.config import settings
 

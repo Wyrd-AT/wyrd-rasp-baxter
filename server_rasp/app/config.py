@@ -13,6 +13,9 @@ Funções Chave no Fluxo:
 import configparser
 import os
 
+import logging
+logger = logging.getLogger(__name__)
+
 CONFIG_FILE = 'config.ini'
 
 def load_configuration():
