@@ -825,66 +825,67 @@ def download_embarcados_csv(db: Session = Depends(get_db)):
 
 @app.get("/events/download", name="download_events_csv")
 def download_events_csv(
-    # 1. A função já aceita corretamente todos os parâmetros de filtro
+    # 1. A função agora aceita o filtro de ação
     db: Session = Depends(get_db),
     filter_cama: Optional[str] = Query(None),
     filter_quarto: Optional[str] = Query(None),
     filter_status: Optional[str] = Query(None),
+    filter_action: Optional[str] = Query(None), # <-- PARÂMETRO ADICIONADO
     time_filter: Optional[str] = Query(None)
 ):
     try:
-        # 2. A lógica de mapeamento para enriquecer os dados continua a mesma
         embarcados_map = {emb.id_esp: {"quarto": emb.quarto} for emb in db.query(Embarcado).all()}
         beacon_to_bed_name_map = {bed.mac_beacon: bed.nome_cama for bed in db.query(Bed).filter(Bed.mac_beacon.isnot(None)).all()}
 
-        # 3. CORREÇÃO: Aplicamos a mesma lógica de filtragem de `list_events`
         query = db.query(ReceivedEvent)
 
+        # Aplica todos os filtros, incluindo o de ação
         if filter_cama:
             query = query.filter(ReceivedEvent.cama == filter_cama)
-            
         if time_filter:
             now = datetime.now(timezone.utc)
             if time_filter == 'daily':
-                start_date = now - timedelta(days=1)
-                query = query.filter(ReceivedEvent.data_on >= start_date)
-            # --- LÓGICA QUE ESTAVA FALTANDO ---
+                query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
             elif time_filter == 'weekly':
-                start_date = now - timedelta(weeks=1)
-                query = query.filter(ReceivedEvent.data_on >= start_date)
+                query = query.filter(ReceivedEvent.data_on >= now - timedelta(weeks=1))
             elif time_filter == 'monthly':
-                start_date = now - timedelta(days=30)
-                query = query.filter(ReceivedEvent.data_on >= start_date)
-            # ------------------------------------
-
+                query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=30))
         if filter_quarto:
             esps_no_quarto = [id_esp for id_esp, data in embarcados_map.items() if data["quarto"] and filter_quarto.lower() in data["quarto"].lower()]
             query = query.filter(ReceivedEvent.esp_id.in_(esps_no_quarto)) if esps_no_quarto else query.filter(False)
-
         if filter_status:
             query = query.filter(ReceivedEvent.status == filter_status)
+        
+        # --- LÓGICA DE FILTRO ADICIONADA AQUI ---
+        if filter_action:
+            query = query.filter(ReceivedEvent.action == filter_action)
 
-        # A busca no banco agora é feita na query JÁ FILTRADA
         events = query.order_by(ReceivedEvent.data_on).all()
 
-        # 4. A lógica de geração do CSV continua a mesma
         def iter_csv():
             buf = StringIO()
             writer = csv.writer(buf)
 
-            writer.writerow(["Data/Hora", "Nome da Cama", "Quarto", "Status", "RSSI", "Wi-Fi"])
+            # 2. Adicionada a coluna "Ação" ao cabeçalho
+            writer.writerow(["Data/Hora", "Nome da Cama", "Quarto", "Ação", "Status", "RSSI", "Wi-Fi"])
             yield buf.getvalue()
             buf.seek(0); buf.truncate(0)
+
+            # Mapa para traduzir a ação para um texto mais amigável
+            action_map = {"GET": "Conectar", "OUT": "Desconectar", "WARNING": "Alerta"}
 
             for e in events:
                 emb_data = embarcados_map.get(e.esp_id, {})
                 quarto = emb_data.get("quarto", "")
                 nome_cama = beacon_to_bed_name_map.get(e.cama, e.cama)
+                # 3. Adicionado o valor da ação (traduzido) a cada linha
+                acao_traduzida = action_map.get(e.action, e.action)
 
                 writer.writerow([
                     e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
                     nome_cama,
                     quarto,
+                    acao_traduzida, # <-- COLUNA ADICIONADA
                     e.status,
                     e.rssi,
                     e.wifi
@@ -893,6 +894,12 @@ def download_events_csv(
                 buf.seek(0); buf.truncate(0)
     finally:
         db.close()
+
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
+    )
 
     return StreamingResponse(
         iter_csv(),

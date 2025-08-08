@@ -29,7 +29,11 @@
 
 // --- Identificador Fixo ---
 // Este ID deve ser único para cada placa ESP32.
-const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
+const char* idESP = "WRD00000002"; // <-- MUDE CONFORME A ESP
+
+bool isInitialized = false; // Flag para saber se a configuração inicial foi bem-sucedida
+unsigned long lastInitAttemptMillis = 0; // Temporizador para a tentativa de reinicialização
+const unsigned long INIT_RETRY_INTERVAL_MS = 30000; // Tenta a cada 30 segundos
 
 // --- Tópicos MQTT ---
 // Tópico público onde o servidor publica a lista de MACs de beacons de camas disponíveis.
@@ -103,6 +107,7 @@ int potentialTargetsCount = 0;
 void lerConfiguracoes();
 void salvarConfiguracoes();
 void saveConfigCallback();
+void runRssiTest();
 void checkInitialState();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
 String obterDataAtualISO8601();
@@ -194,7 +199,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     DeserializationError error = deserializeJson(doc, payload, length);
 
     if (error) {
-        Serial.printf("Falha ao decodificar JSON: "));
+        Serial.print(F("Falha ao decodificar JSON: "));
         Serial.println(error.c_str());
         return;
     }
@@ -244,9 +249,35 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
         else if (strcmp(type, "command") == 0) {
             JsonObject data = doc["data"];
             const char* command_name = data["name"];
+
+            if (strcmp(command_name, "RSSI_TEST") == 0) {
+                Serial.println(">>> Comando 'RSSI_TEST' recebido! Iniciando teste...");
+                runRssiTest(); // Chama a nova função de teste
+            }
+
+            // Lógica de RESET (implementada no passo anterior)
             if (strcmp(command_name, "RESET_STATE") == 0) {
-                Serial.println(">>> Comando 'RESET_STATE' recebido! Limpando estado.");
-                lockedBed = {}; // Ação: reseta a struct para o estado inicial.
+                Serial.println(">>> Comando 'RESET_STATE' recebido!");
+                if (lockedBed.confirmada) {
+                    Serial.printf("  - Notificando saída da cama travada: %s\n", lockedBed.mac.c_str());
+                    enviarEventoHTTP(lockedBed.mac.c_str(), "OUT", -100, 0); 
+                }
+                Serial.println(">>> Estado local limpo.");
+                lockedBed = {};
+
+                Serial.println(">>> Forçando resincronização com o servidor...");
+                checkInitialState(); // Pede a configuração (RSSI, cama pré-assignada, etc.)
+                
+                if (mqttClient.connected()) {
+                    mqttClient.disconnect();
+                }
+            }
+
+            // NOVO: Lógica para o comando REBOOT
+            if (strcmp(command_name, "REBOOT") == 0) {
+                Serial.println(">>> Comando 'REBOOT' recebido! Reiniciando em 3 segundos...");
+                delay(3000); // Pequena pausa para garantir o envio do log
+                ESP.restart();
             }
         }
         return;
@@ -339,7 +370,7 @@ void setup() {
         }
         if (triggerFound) break;
         delay(500);
-        Serial.logger.info(".");
+        Serial.print(".");
     }
     Serial.println();
     WiFi.scanDelete();
@@ -382,7 +413,7 @@ void setup() {
     // Se não, inicia em modo de operação normal.
     else {
         Serial.println("\nHotspot de configuração não encontrado. Iniciando em modo de operação normal.");
-        Serial.logger.info("Conectando à rede Wi-Fi salva...");
+        Serial.print("Conectando à rede Wi-Fi salva...");
         WiFi.begin();
 
         unsigned long wifiStartTime = millis();
@@ -392,12 +423,12 @@ void setup() {
                 delay(3000);
                 ESP.restart();
             }
-            Serial.logger.info(".");
+            Serial.print(".");
             delay(500);
         }
 
         Serial.println("\nWi-Fi conectado com sucesso!");
-        Serial.logger.info("IP: ");
+        Serial.print("IP: ");
         Serial.println(WiFi.localIP());
 
         syncTimeFromServer();
@@ -412,12 +443,41 @@ void setup() {
         
         // Pergunta ao servidor qual era seu último estado conhecido.
         checkInitialState();
+        reconnect_mqtt(); 
+        
+        if (mqttClient.connected()) {
+            Serial.println(">>> Conexão MQTT inicial bem-sucedida. Operação normal.");
+            isInitialized = true; // Se tudo correu bem, marcamos como inicializado
+        } else {
+            Serial.println("AVISO: Falha na conexão MQTT inicial. A ESP tentará novamente em segundo plano.");
+            isInitialized = false; // Se falhou, marcamos para tentar de novo no loop
+        }
     }
 }
 
 // O loop principal da aplicação.
 void loop() {
     unsigned long agora = millis(); // Usamos uma variável local
+
+    if (!isInitialized) {
+        if (agora - lastInitAttemptMillis > INIT_RETRY_INTERVAL_MS) {
+            Serial.println(">>> A inicialização ainda não foi concluída. Tentando sincronizar novamente...");
+            
+            syncTimeFromServer(); 
+            reconnect_mqtt(); // Tenta reconectar ao MQTT e subscrever aos tópicos
+            checkInitialState();
+            
+            // Se agora estiver tudo OK, marca como inicializado
+            if (mqttClient.connected()) {
+                Serial.println(">>> Sincronização bem-sucedida! Operação normal retomada.");
+                isInitialized = true;
+            }
+            
+            lastInitAttemptMillis = agora; // Atualiza o temporizador da tentativa
+        }
+        delay(1000); // Pequena pausa para não sobrecarregar
+        return; 
+    }
 
     // +++ INÍCIO DA LÓGICA DE HEARTBEAT +++
     if (agora - lastHeartbeatMillis > HEARTBEAT_INTERVAL_MS) {
@@ -587,6 +647,70 @@ void processarLogicaCama() {
 // =================== FUNÇÕES AUXILIARES ==========================
 // =================================================================
 
+void runRssiTest() {
+    Serial.println(">>> Iniciando teste de RSSI com dados em memória...");
+    
+    // Prepara o documento JSON para o relatório
+    StaticJsonDocument<1024> doc;
+    doc["esp_id"] = idESP;
+    JsonArray report = doc.createNestedArray("report");
+
+    // 1. Verifica se há uma cama travada e a reporta
+    if (lockedBed.confirmada && lockedBed.isFull) {
+        JsonObject obj = report.createNestedObject();
+        obj["mac"] = lockedBed.mac;
+        
+        int soma = 0;
+        for (int i = 0; i < RSSI_HISTORY_SIZE; i++) {
+            soma += lockedBed.rssiHistory[i];
+        }
+        obj["rssi"] = soma / RSSI_HISTORY_SIZE;
+        obj["status"] = "Travado"; // Adiciona um status para clareza
+    }
+
+    // 2. Itera sobre os alvos potenciais e reporta os que têm leituras
+    Serial.printf("  - Reportando %d alvos potenciais...\n", potentialTargetsCount);
+    for (int i = 0; i < potentialTargetsCount; i++) {
+        TargetBed &target = potentialTargets[i];
+        // Só reporta se já tivermos um buffer de leituras completo
+        if (target.isFull) {
+            JsonObject obj = report.createNestedObject();
+            obj["mac"] = target.mac;
+            
+            int soma = 0;
+            for (int j = 0; j < RSSI_HISTORY_SIZE; j++) {
+                soma += target.rssiHistory[j];
+            }
+            obj["rssi"] = soma / RSSI_HISTORY_SIZE;
+            obj["status"] = "Disponível";
+        }
+    }
+    
+    String payload;
+    serializeJson(doc, payload);
+    
+    // A lógica de envio do POST para o servidor continua exatamente a mesma
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/rssi-report"; 
+        
+        http.begin(serverUrl);
+        http.addHeader("Content-Type", "application/json");
+        
+        Serial.println(">>> Enviando relatório de teste de RSSI via HTTP POST...");
+        int httpResponseCode = http.POST(payload);
+        
+        if (httpResponseCode > 0) {
+            Serial.printf(">>> Resposta do servidor: %d\n", httpResponseCode);
+        } else {
+            Serial.printf("ERRO no envio do POST: %s\n", http.errorToString(httpResponseCode).c_str());
+        }
+        http.end();
+    } else {
+        Serial.println("ERRO: Não foi possível enviar o relatório. Wi-Fi desconectado.");
+    }
+}
+
 void checkInitialState() {
     Serial.println("Verificando estado inicial e configurações com o servidor...");
     HTTPClient http;
@@ -690,7 +814,7 @@ bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi) {
 
 void reconnect_mqtt() {
     while (!mqttClient.connected()) {
-        Serial.logger.info("Tentando conectar ao Broker MQTT...");
+        Serial.print("Tentando conectar ao Broker MQTT...");
         if (mqttClient.connect(idESP)) {
             Serial.println(" conectado!");
             mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
@@ -702,8 +826,8 @@ void reconnect_mqtt() {
             }
             checkInitialState();
         } else {
-            Serial.logger.info(" falhou, rc=");
-            Serial.logger.info(mqttClient.state());
+            Serial.print(" falhou, rc=");
+            Serial.print(mqttClient.state());
             Serial.println(" tentando novamente em 5 segundos");
             delay(5000);
         }
