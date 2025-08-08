@@ -18,54 +18,60 @@
     </div>
 
     <script>
-    // Ativa os ícones da biblioteca Feather
-
-    // --- Script da Sidebar e Overlay ---
-    const sidebar = document.getElementById('sidebar');
-    const toggleButton = document.getElementById('sidebar-toggle');
-    const overlay = document.getElementById('overlay'); // Pega o elemento do overlay
-
-    function toggleSidebar() {
-        sidebar.classList.toggle('expanded');
-        overlay.classList.toggle('active'); // Ativa/desativa o overlay junto com a sidebar
-    }
-
-    if (toggleButton && sidebar && overlay) {
-        // Abre/Fecha ao clicar no botão do menu
-        toggleButton.addEventListener('click', toggleSidebar);
-
-        // Fecha a sidebar se o usuário clicar no overlay (fundo escuro)
-        overlay.addEventListener('click', toggleSidebar);
-    }
-    
-    // --- Script de Interatividade da Tabela (do passo anterior) ---
+    // --- SCRIPT UNIFICADO PARA TODA A APLICAÇÃO ---
     document.addEventListener('DOMContentLoaded', function() {
-        // ... (o código da tabela que adicionamos antes continua aqui, sem alterações)
-        const table = document.querySelector('.data-table');
-        if (!table) return; 
+        
+        // --- LÓGICA 1: Sidebar e Overlay ---
+        const sidebar = document.getElementById('sidebar');
+        const toggleButton = document.getElementById('sidebar-toggle');
+        const overlay = document.getElementById('overlay');
 
-        const editBtn = document.querySelector('.toolbar-actions .icon-btn[title="Editar"]');
-        const deleteBtn = document.querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
-        const modal = document.getElementById('time-filter-modal');
-        const btn = document.getElementById('time-filter-btn');
-        const closeBtn = document.getElementById('close-modal-btn');
-            
-        if (modal && btn && closeBtn) {
-            // Abre o modal
-            btn.onclick = function() {
-                modal.style.display = "block";
-            }
-            // Fecha o modal pelo botão 'x'
-            closeBtn.onclick = function() {
-                modal.style.display = "none";
-            }
-            // Fecha o modal se clicar fora dele
-            window.onclick = function(event) {
-                if (event.target == modal) {
-                    modal.style.display = "none";
-                }
-            }
+        function toggleSidebar() {
+            sidebar.classList.toggle('expanded');
+            overlay.classList.toggle('active');
         }
+
+        if (toggleButton && sidebar && overlay) {
+            toggleButton.addEventListener('click', toggleSidebar);
+            overlay.addEventListener('click', toggleSidebar);
+        }
+
+        // --- LÓGICA 2: Conexão WebSocket Global ---
+        let myClientId = null;
+        function conectarWebSocket() {
+            const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
+
+            socket.onopen = function(event) {
+                console.log("SUCESSO: Conexão WebSocket estabelecida.");
+            };
+
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "CONNECTION_INFO") {
+                        myClientId = data.client_id;
+                        console.log("ID de cliente recebido:", myClientId);
+                        // Disponibiliza o ID globalmente para outros scripts
+                        window.myClientId = myClientId; 
+                        return; 
+                    }
+                    window.dispatchEvent(new CustomEvent('websocket_message', { detail: data }));
+                } catch (e) { /* Ignora */ }
+            };
+
+            socket.onclose = function(event) {
+                console.warn("AVISO: Conexão WebSocket perdida. Tentando reconectar em 5s...");
+                setTimeout(conectarWebSocket, 5000);
+            };
+        }
+        conectarWebSocket(); // Inicia a conexão
+
+        // --- LÓGICA 3: Interatividade da Tabela (Editar/Apagar) ---
+        const table = document.querySelector('.data-table');
+        if (table) {
+            const editBtn = document.querySelector('.toolbar-actions .icon-btn[title="Editar"]');
+            const deleteBtn = document.querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
             let selectedRow = null;
 
             table.addEventListener('click', (event) => {
@@ -75,7 +81,6 @@
                 if (selectedRow) {
                     selectedRow.style.backgroundColor = '';
                 }
-
                 row.style.backgroundColor = '#e0eafc'; 
                 selectedRow = row;
             });
@@ -93,6 +98,7 @@
                     if (pageTitle.includes('camas')) {
                         editUrl = `/beds/${itemId}/edit`;
                     } else if (pageTitle.includes('embarcados')) {
+                        // Para embarcados, o ID é o id_esp, que já está no data-id
                         editUrl = `/embarcados/${itemId}/edit`;
                     }
                     
@@ -108,7 +114,6 @@
                         alert('Por favor, selecione um item na tabela para apagar.');
                         return;
                     }
-
                     if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
                         const itemId = selectedRow.dataset.id;
                         const pageTitle = document.querySelector('h1').textContent.toLowerCase();
@@ -126,7 +131,11 @@
                     }
                 });
             }
-        });
-</script>
-    </body>
+        }
+    });
+    </script>
+    
+    {% block scripts %}{% endblock %}
+
+</body>
 </html>

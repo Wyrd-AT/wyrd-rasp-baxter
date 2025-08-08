@@ -36,6 +36,9 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import WebSocket, WebSocketDisconnect
+from .connection_manager import manager
+from .dispatcher import dispatch_event
 from typing import Optional, Dict
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
@@ -77,6 +80,8 @@ from .config import settings
 from sqladmin import Admin, ModelView
 from .nmap_scan import get_mac_to_ip_map_async
 
+pending_rssi_requests: Dict[str, str] = {}
+
 # Função utilitária para buscar as configurações globais do banco (RSSI, etc.).
 # Inclui valores padrão para o caso de o banco ainda não ter sido configurado.
 def get_global_settings(db: Session) -> dict:
@@ -90,8 +95,6 @@ def get_global_settings(db: Session) -> dict:
     return {**defaults, **db_settings}
 
 print("[main] Módulo carregado")
-
-_esps_em_quarentena = set()
 
 # Inicializa o banco (cria tabelas se não existirem) e a aplicação FastAPI.
 init_db()
@@ -109,8 +112,18 @@ async def on_startup():
     asyncio.create_task(main_aggregator_loop()) # Inicia o cérebro do sistema.
     asyncio.create_task(check_esp_liveness())
     asyncio.create_task(monitor_connected_beds())
-    mqtt_client.init_mqtt_client(_esps_em_quarentena)
-    start_cleanup_scheduler() # Inicia a limpeza periódica de eventos antigos.
+    mqtt_client.init_mqtt_client()
+    start_cleanup_scheduler() 
+    await asyncio.sleep(5) 
+    
+    print("[main] Startup: Enviando comando de sincronização para todas as ESPs.")    
+    command_payload = {"command": "fetch_config"}
+    mqtt_client.client.publish(
+        topic=settings.get("command_topic"), 
+        payload=json.dumps(command_payload),
+        qos=1 
+    )
+    print("[main] Startup: Comando de sincronização enviado com sucesso.")
 
 # Função que remove eventos antigos do banco de dados.
 def purge_old_events():
@@ -127,6 +140,7 @@ async def monitor_connected_beds():
     """
     Tarefa de background que verifica a liveness das camas, IGNORANDO as que
     já estão em estado pendente e agindo apenas após múltiplas falhas.
+    AGORA TAMBÉM ENVIA UM EVENTO DE WARNING ANTES DE RESETAR.
     """
     print(f"[MONITOR] Guardião de camas ativas iniciado. Verificando a cada {MONITOR_INTERVAL_SEC}s.")
     while True:
@@ -138,45 +152,76 @@ async def monitor_connected_beds():
             if not active_beds:
                 continue
 
-            print(f"[MONITOR] Verificando a liveness de {len(active_beds)} cama(s) ativa(s)...")
-
-            # --- LÓGICA DE SINCRONIZAÇÃO (A CORREÇÃO) ---
-            # 1. Pergunta ao aggregator quais camas ele já está a tratar
+            #print(f"[MONITOR] Verificando a liveness de {len(active_beds)} cama(s) ativa(s)...")
             pending_macs = get_pending_macs()
-            if pending_macs:
-                print(f"[MONITOR] Ignorando verificação para {len(pending_macs)} cama(s) que já estão em estado pendente: {pending_macs}")
 
             for bed in active_beds:
-                # 2. Se a cama já está na lista de pendentes, o Guardião não interfere.
                 if bed.mac_address in pending_macs:
-                    print(f"[MONITOR] Cama '{bed.nome_cama}' está PENDENTE. Monitor não irá agir.")
-                    continue # Pula para a próxima cama
+                    continue 
 
                 is_still_present = await check_presence(bed.mac_address)
 
-                # --- LÓGICA DE PACIÊNCIA ADICIONADA ---
                 if not is_still_present:
                     _monitor_failure_counts[bed.mac_address] += 1
                     print(f"[MONITOR] AVISO: Cama '{bed.nome_cama}' falhou na verificação. Contagem de falhas: {_monitor_failure_counts[bed.mac_address]}")
 
-                    # Só toma uma atitude após 3 falhas seguidas
+                    # Se atingir 3 falhas, toma uma atitude
                     if _monitor_failure_counts[bed.mac_address] >= 3:
-                        print(f"[MONITOR] ALERTA: A cama '{bed.nome_cama}' está offline de forma consistente. Forçando reset.")
+                        print(f"[MONITOR] ALERTA: A cama '{bed.nome_cama}' está offline de forma consistente. A notificar e forçar reset.")
+                        
+                        # --- INÍCIO DA NOVA LÓGICA DE WARNING ---
+                        
+                        # 1. Prepara os dados para o evento de alerta
+                        quarto_da_cama = bed.quarto
+                        nome_da_cama = bed.nome_cama
+                        br_timezone = timezone(timedelta(hours=-3))
+                        timestamp_agora = datetime.now(br_timezone)
+
+                        # 2. Cria um novo evento de WARNING no histórico
+                        warning_event = ReceivedEvent(
+                            esp_id="MONITOR", # Identifica que o alerta veio do sistema
+                            cama=bed.mac_beacon,
+                            action="WARNING",
+                            status="OK",
+                            status_detail=f"Cama '{nome_da_cama}' desapareceu da rede enquanto estava associada ao quarto '{quarto_da_cama}'.",
+                            data_on=timestamp_agora,
+                            raw={"reason": "Liveness check failed by monitor"}
+                        )
+                        db.add(warning_event)
+                        db.commit()
+
+                        # 3. Despacha o alerta para o sistema final (Connecta)
+                        warning_payload = {
+                            "quarto": quarto_da_cama,
+                            "cama": nome_da_cama, 
+                            "status": "WARNING",
+                            "dataOn": timestamp_agora.isoformat()
+                        }
+                        # Usamos 'run_in_executor' porque dispatch_event é síncrono
+                        loop = asyncio.get_running_loop()
+                        await loop.run_in_executor(None, dispatch_event, warning_payload)
+                        print(f"[MONITOR] Evento de WARNING para a cama '{nome_da_cama}' enviado com sucesso.")
+
+                        # --- FIM DA NOVA LÓGICA DE WARNING ---
+
+                        # 4. Procede com a ação corretiva original
                         embarcado = db.query(Embarcado).filter(Embarcado.quarto == bed.quarto).first()
                         if embarcado:
                             synchronize_and_reset_esp(esp_id=embarcado.id_esp)
                         else:
+                            # Se não houver ESP, apenas desassocia a cama
                             update_bed_assignment(bed_id=bed.id, new_room=None)
+                        
                         # Zera a contagem após tomar a atitude
                         del _monitor_failure_counts[bed.mac_address]
                 else:
-                    # Se a cama responder, zera a sua contagem de falhas
                     if bed.mac_address in _monitor_failure_counts:
                         print(f"[MONITOR] Cama '{bed.nome_cama}' voltou a ficar online. Resetando contador de falhas.")
                         del _monitor_failure_counts[bed.mac_address]
 
         except Exception as e:
             print(f"[MONITOR] Erro durante a verificação de camas ativas: {e}")
+            db.rollback() # Garante que o DB não fica em estado inconsistente em caso de erro
         finally:
             db.close()
 
@@ -184,7 +229,8 @@ ESP_TIMEOUT_SEC = 150 # 2.5 minutos. Se uma ESP não der sinal de vida neste tem
 
 async def check_esp_liveness():
     """
-    Tarefa de background que verifica na base de dados por ESPs offline.
+    Tarefa de background que verifica na base de dados por ESPs offline,
+    usando o campo 'status_rede' para uma quarentena persistente.
     """
     print(f"[LIVENESS] Verificador de ESPs ativas iniciado. Timeout: {ESP_TIMEOUT_SEC}s.")
     while True:
@@ -195,22 +241,25 @@ async def check_esp_liveness():
             now_utc = datetime.now(timezone.utc)
             cutoff_time = now_utc - timedelta(seconds=ESP_TIMEOUT_SEC)
 
-            esps_vistos = db.query(Embarcado).filter(Embarcado.last_seen != None).all()
+            # A consulta agora busca apenas os ESPs que o sistema considera 'online'.
+            esps_a_verificar = db.query(Embarcado).filter(
+                Embarcado.last_seen != None,
+                Embarcado.status_rede == 'online'
+            ).all()
 
-            for emb in esps_vistos:
-                # +++ ALTERAÇÃO 1: Ignora ESPs que já estão em quarentena +++
-                if emb.id_esp in _esps_em_quarentena:
-                    continue
-
+            for emb in esps_a_verificar:
                 last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
                 if last_seen_utc < cutoff_time:
+                    # Liberta a cama associada (lógica existente).
                     release_bed_for_offline_esp(db, emb.id_esp)
-
-                    # +++ ALTERAÇÃO 2: Em vez de apagar, coloca em quarentena +++
-                    print(f"[LIVENESS] ESP {emb.id_esp} colocada em quarentena.")
-                    _esps_em_quarentena.add(emb.id_esp)
-
-            # O commit já não é necessário aqui, pois não alteramos o DB diretamente
+                    
+                    # Em vez de adicionar a um set, atualizamos o estado no banco.
+                    emb.status_rede = 'offline'
+                    print(f"[LIVENESS] ESP {emb.id_esp} marcada como 'offline' na base de dados.")
+            
+            # Um único commit no final para salvar todas as alterações de status.
+            db.commit()
+        
         except Exception as e:
             print(f"[LIVENESS] Erro durante a verificação de ESPs: {e}")
             db.rollback()
@@ -380,18 +429,26 @@ def get_assigned_bed_for_esp(esp_id: str, db: Session = Depends(get_db)):
 @app.get("/esp/{esp_id}/config", name="get_config_for_esp")
 def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
-    settings = get_global_settings(db)
+    global_settings = get_global_settings(db)
 
-    trigger_mqtt_update_on_bed_change()
-    if not embarcado:
-        return {
-            "mac_beacon": None, "rssi_threshold": int(settings.get("rssi_threshold")),
-            "inercia_chegada": int(settings.get("inercia_chegada")), "inercia_saida": int(settings.get("inercia_saida")),
-        }
-    bed = db.query(Bed).filter(Bed.quarto == embarcado.quarto).first()
+    # Inicia com o valor global como padrão
+    final_rssi_threshold = int(global_settings.get("rssi_threshold"))
+
+    if embarcado:
+        # Se o embarcado tiver um valor individual definido, usa-o
+        if embarcado.rssi_threshold is not None:
+            final_rssi_threshold = embarcado.rssi_threshold
+            print(f"INFO: Usando RSSI individual ({final_rssi_threshold}) para a ESP '{esp_id}'.")
+        else:
+            print(f"INFO: Usando RSSI global ({final_rssi_threshold}) para a ESP '{esp_id}'.")
+
+    bed = db.query(Bed).filter(Bed.quarto == embarcado.quarto).first() if embarcado else None
+    
     return {
-        "mac_beacon": bed.mac_beacon if bed else None, "rssi_threshold": int(settings.get("rssi_threshold")),
-        "inercia_chegada": int(settings.get("inercia_chegada")), "inercia_saida": int(settings.get("inercia_saida")),
+        "mac_beacon": bed.mac_beacon if bed else None,
+        "rssi_threshold": final_rssi_threshold,
+        "inercia_chegada": int(global_settings.get("inercia_chegada")),
+        "inercia_saida": int(global_settings.get("inercia_saida")),
     }
 
 
@@ -588,8 +645,9 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         "request": request, "embarcados": embarcados, "form_action": request.url_for("create_embarcado_html"), "embarcado": None, "search": search, "global_settings": global_settings})
 
 @app.post("/embarcados", name="create_embarcado_html")
-def create_embarcado_html(request: Request, id_esp: str = Form(...), quarto: str = Form(...), db: Session = Depends(get_db)):
-    emb = Embarcado(id_esp=id_esp, quarto=quarto)
+def create_embarcado_html(request: Request, id_esp: str = Form(...), quarto: str = Form(...), rssi_threshold: Optional[str] = Form(None), db: Session = Depends(get_db)):
+    rssi_value = int(rssi_threshold) if rssi_threshold else None
+    emb = Embarcado(id_esp=id_esp, quarto=quarto, rssi_threshold=rssi_value)
     db.add(emb)
     db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
@@ -602,10 +660,12 @@ def edit_embarcado(request: Request, id_esp: str, db: Session = Depends(get_db))
     return templates.TemplateResponse("embarcados_list.html", {"request": request, "embarcados": embarcados, "form_action": request.url_for("update_embarcado", id_esp=id_esp), "embarcado": emb, "search": None, "global_settings": global_settings})
 
 @app.post("/embarcados/{id_esp}/edit", name="update_embarcado")
-def update_embarcado_html(request: Request, id_esp: str, quarto: str = Form(...), db: Session = Depends(get_db)):
+def update_embarcado_html(request: Request, id_esp: str, quarto: str = Form(...), rssi_threshold: Optional[str] = Form(None), db: Session = Depends(get_db)):
     emb = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
-    emb.quarto = quarto
-    db.commit()
+    if emb:
+        emb.quarto = quarto
+        emb.rssi_threshold = int(rssi_threshold) if rssi_threshold else None
+        db.commit()
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.get("/embarcados/{id_esp}/delete", name="delete_embarcado")
@@ -634,6 +694,87 @@ def reset_esp_state(request: Request, esp_id: str, db: Session = Depends(get_db)
     services.synchronize_and_reset_esp(esp_id=esp_id)
     time.sleep(1)
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+@app.post("/embarcados/{esp_id}/test_rssi", name="test_rssi_esp")
+async def test_rssi_esp(esp_id: str, data: Dict):
+    """
+    Recebe um pedido do frontend, guarda quem pediu e envia o comando para a ESP.
+    """
+    client_id = data.get("client_id")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="client_id é obrigatório.")
+
+    print(f"[main] Pedido de Teste RSSI para ESP '{esp_id}' pelo cliente '{client_id}'.")
+    
+    pending_rssi_requests[esp_id] = client_id
+    
+    mqtt_client.publish_to_esp_channel(
+        esp_id=esp_id,
+        message_type="command",
+        data={"name": "RSSI_TEST"}
+    )
+    
+    return {"status": "comando enviado"}
+
+@app.post("/rssi-report", status_code=204)
+async def receive_rssi_report(report_data: Dict):
+    """
+    Recebe um relatório de RSSI de uma ESP e o retransmite para o cliente
+    que o solicitou via WebSocket.
+    """
+    esp_id = report_data.get("esp_id")
+    if not esp_id:
+        return # Ignora relatórios malformados
+
+    # Verifica se há algum cliente à espera deste relatório
+    client_id = pending_rssi_requests.pop(esp_id, None)
+    
+    if client_id:
+        print(f"Relatório da ESP '{esp_id}' recebido. Enviando para o cliente '{client_id}'.")
+        
+        # Monta a mensagem para o WebSocket
+        websocket_message = {
+            "type": "RSSI_REPORT",
+            "esp_id": esp_id,
+            "report": report_data.get("report", [])
+        }
+        await manager.send_to_client(client_id, json.dumps(websocket_message))
+    else:
+        print(f"AVISO: Relatório da ESP '{esp_id}' recebido, mas nenhum cliente estava à espera.")
+
+@app.post("/embarcados/{esp_id}/reboot", name="reboot_esp")
+def reboot_esp(request: Request, esp_id: str):
+    """
+    Envia um comando MQTT para forçar o reinício de uma ESP específica.
+    """
+    print(f"[main] Recebido pedido de REBOOT para a ESP: {esp_id}")
+    
+    command_payload = {
+        "type": "command",
+        "data": {"name": "REBOOT"}
+    }
+    
+    mqtt_client.publish_to_esp_channel(
+        esp_id=esp_id,
+        message_type="command",
+        data={"name": "REBOOT"}
+    )
+    
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    client_id = await manager.connect(websocket)
+    print(f"[WebSocket] Nova conexão, cliente ID: {client_id}")
+    try:
+        # Envia o ID de cliente para o browser, para que ele saiba o seu "nome"
+        await websocket.send_text(json.dumps({"type": "CONNECTION_INFO", "client_id": client_id}))
+        while True:
+            # Mantém a conexão viva, à espera de mensagens (neste caso, não esperamos nenhuma)
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(client_id)
+        print(f"[WebSocket] Cliente {client_id} desconectado.")
 
 @app.post("/settings/update", name="update_settings")
 def update_settings(request: Request, db: Session = Depends(get_db), rssi_threshold: str = Form(...), inercia_chegada: str = Form(...), inercia_saida: str = Form(...)):

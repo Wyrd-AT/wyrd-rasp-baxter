@@ -3,13 +3,20 @@
     <form action="{{ form_action }}" method="post">
         <div class="form-group">
             <label for="id_esp">ID do Embarcado</label>
-            <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required
-                {% if embarcado %}readonly{% endif %}>
+            <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         <div class="form-group">
             <label for="quarto">Quarto</label>
             <input type="text" id="quarto" name="quarto" value="{{ embarcado.quarto if embarcado else '' }}" placeholder="Informe o quarto" required>
         </div>
+        
+        <div class="form-group">
+            <label for="rssi_threshold">RSSI Mínimo Individual (dBm)</label>
+            <input type="number" id="rssi_threshold" name="rssi_threshold"
+                   value="{{ embarcado.rssi_threshold if embarcado and embarcado.rssi_threshold is not none else '' }}"
+                   placeholder="Deixe em branco para usar o global">
+        </div>
+
         <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if embarcado else 'Salvar' }}</button>
     </form>
 </div>

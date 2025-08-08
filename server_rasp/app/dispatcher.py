@@ -29,11 +29,12 @@ def exponential_backoff(attempt):
 # A função 'dispatch_event' é o coração deste módulo.
 # Ela recebe um evento, monta o payload JSON no formato esperado pelo
 # sistema de destino, e tenta enviá-lo via socket TCP.
-def dispatch_event(evt):
-    # 1. Montagem do Payload:
-    # Filtra e organiza os dados do evento em um dicionário que será
-    # convertido para JSON. Um caractere de nova linha (\n) é adicionado
-    # ao final, um requisito comum para delimitadores de mensagem em sockets.
+def dispatch_event(evt) -> bool: # Adicionamos a anotação de retorno -> bool
+    """
+    Envia um evento para o sistema final e retorna True em caso de sucesso
+    ou False em caso de falha final após todas as tentativas.
+    """
+    # ... (a montagem do payload continua igual)
     payload = {
         "quarto": evt.get("quarto"),
         "cama":   evt.get("cama"),
@@ -44,28 +45,19 @@ def dispatch_event(evt):
     msg = json.dumps(payload) + "\n"
     print(f"[dispatch_event] Payload montado: {payload}")
 
-    # 2. Loop de Tentativas de Envio:
-    # Tenta enviar a mensagem até 5 vezes. Se a conexão falhar,
-    # ele usa a função 'exponential_backoff' para esperar antes de tentar
-    # novamente. Se todas as 5 tentativas falharem, a mensagem é descartada
-    # e um log de falha é registrado.
     attempt = 0
     while attempt < 5:
         try:
             attempt += 1
-            print(f"[dispatch_event] Tentativa {attempt} de conexão em {settings.get('final_ip')}:{settings.get('final_port')}...")
-            # Tenta criar uma conexão de socket com o IP e Porta definidos no config.ini.
-            with socket.create_connection((settings.get("final_ip"), settings.get("final_port")), timeout=5) as sock:
-                # Se a conexão for bem-sucedida, envia a mensagem (codificada em bytes).
+            print(f"[dispatch_event] Tentativa {attempt} de conexão...")
+            with socket.create_connection((settings.get("final_ip"), int(settings.get("final_port"))), timeout=5) as sock:
                 sock.sendall(msg.encode())
-                print(f"[dispatch_event] Payload enviado com sucesso na tentativa {attempt}.")
-            break # Sai do loop se o envio for bem-sucedido.
+                print(f"[dispatch_event] Payload enviado com sucesso.")
+                return True # SUCESSO: Retorna True
         except (socket.timeout, socket.error) as e:
-            # Se a conexão falhar (timeout ou outro erro de socket).
             wait = exponential_backoff(attempt)
-            print(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s para retry.")
-            time.sleep(wait) # Espera o tempo calculado antes da próxima tentativa.
+            print(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s.")
+            time.sleep(wait)
     else:
-        # Este 'else' pertence ao 'while'. Ele só é executado se o loop terminar
-        # sem um 'break', ou seja, se todas as tentativas falharem.
-        print(f"[dispatch_event] Falha após {attempt} tentativas. Payload descartado.")
+        print(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
+        return False # FALHA FINAL: Retorna False

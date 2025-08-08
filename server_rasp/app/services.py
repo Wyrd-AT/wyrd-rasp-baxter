@@ -95,19 +95,7 @@ def synchronize_and_reset_esp(esp_id: str):
             data={"name": "RESET_STATE"}
         )
 
-        # Passo 2: Sincroniza o lado do servidor.
-        if embarcado and embarcado.quarto:
-            # Procura no banco se existe alguma cama atualmente associada
-            # ao quarto desta ESP.
-            bed_in_room = db.query(Bed).filter(Bed.quarto == embarcado.quarto).first()
-            
-            if bed_in_room:
-                # Se encontrou uma cama, a desassocia do quarto.
-                print(f"[SERVICE] Cama '{bed_in_room.nome_cama}' encontrada. Desassociando do quarto '{embarcado.quarto}'.")
-                # Reutiliza a função 'update_bed_assignment', que já cuida
-                # de tudo (DB + MQTT).
-                update_bed_assignment(bed_id=bed_in_room.id, new_room=None)
-        trigger_mqtt_update_on_bed_change()
+        print(f"[SERVICE] Comando RESET_STATE enviado para a ESP: {esp_id}. O servidor aguardará o evento 'OUT'.")
     
     finally:
         db.close()

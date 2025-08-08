@@ -60,6 +60,8 @@ class Embarcado(Base):
     id_esp = Column(String, unique=True, nullable=False, index=True)
     quarto = Column(String, nullable=False)
     last_seen = Column(DateTime(timezone=True), nullable=True)
+    status_rede = Column(String, default="offline", nullable=False)
+    rssi_threshold = Column(Integer, nullable=True)
 
 
 # Tabela 'received_events': Funciona como um log completo, armazenando cada

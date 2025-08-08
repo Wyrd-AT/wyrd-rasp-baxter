@@ -113,7 +113,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .filters-toolbar .filter-btn { -webkit-appearance: none; appearance: none; background: white url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1em; padding-right: 2rem; }
 
 .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
-.modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 40%; max-width: 400px; border-radius: 8px; }
+.modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 60%; max-width: 600px; border-radius: 8px; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 1rem; }
 .close-btn { color: #aaa; font-size: 28px; font-weight: bold; background: none; border: none; cursor: pointer; }
 .close-btn:hover, .close-btn:focus { color: black; }
@@ -330,4 +330,68 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
   font-weight: 500;
   src: url('../fonts/lexend-deca-v24-latin-500.woff2') format('woff2'),
        url('../fonts/lexend-deca-v24-latin-500.woff') format('woff');
+}
+
+/* O contentor que irá posicionar o menu */
+.actions-menu-container {
+    position: relative;
+    display: inline-block;
+}
+
+/* O botão de três pontos */
+.actions-menu-trigger {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    font-size: 20px;
+    line-height: 1;
+    border-radius: 4px;
+}
+
+.actions-menu-trigger:hover {
+    background-color: #f0f2f5;
+}
+
+/* O menu suspenso (escondido por defeito) */
+.actions-dropdown {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background-color: white;
+    min-width: 160px;
+    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+    z-index: 1;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+/* Classe para mostrar o menu via JavaScript */
+.actions-dropdown.show {
+    display: block;
+}
+
+/* Estilo para cada item do menu */
+.actions-dropdown form {
+    margin: 0;
+}
+
+.actions-dropdown .menu-item-btn {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+}
+
+.actions-dropdown .menu-item-btn:hover {
+    background-color: #f0f2f5;
 }

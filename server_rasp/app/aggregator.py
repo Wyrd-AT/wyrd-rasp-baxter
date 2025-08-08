@@ -110,11 +110,6 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
                     print("[aggregator-retry] Wi-Fi confirmado. Aguardando 5s para estabilização do serviço...")
                     delay_wifi_to_server = int(settings.get("delay_wifi_to_server", 5))
                     await asyncio.sleep(delay_wifi_to_server)
-                    _update_event_status(
-                        original_event_id, 
-                        status="Resolvido", 
-                        detail=f"Cama '{bed.nome_cama}' associada e confirmada no quarto '{bed.quarto}' via nova tentativa."
-                    )
 
                     br_timezone = timezone(timedelta(hours=-3))
                     timestamp_agora_br = datetime.now(br_timezone)
@@ -123,8 +118,24 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
                         "quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET",
                         "dataOn": timestamp_agora_br.isoformat(),
                     }
-                    await loop.run_in_executor(None, dispatch_event, dispatch_payload)
-                break # Encerra a tarefa de retry.
+
+                    success = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+
+                    if success:
+                        # Se o envio foi bem-sucedido, marca como "Resolvido"
+                        _update_event_status(
+                            original_event_id, 
+                            status="Resolvido", 
+                            detail=f"Cama '{bed.nome_cama}' associada, confirmada e enviada com sucesso."
+                        )
+                    else:
+                        # Se falhou, marca como "Erro"
+                        _update_event_status(
+                            original_event_id,
+                            status="Erro",
+                            detail="A presença do Wi-Fi foi confirmada, mas a comunicação com o servidor final falhou."
+                        )
+                    break
             finally:
                 db.close()
         
@@ -300,8 +311,20 @@ async def _process_events_batch(events: list):
             br_timezone = timezone(timedelta(hours=-3))
             timestamp_agora_br = datetime.now(br_timezone)
             dispatch_payload = {"quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET", "dataOn": timestamp_agora_br.isoformat(), "wifi": best_event.get("wifi")}
-            await loop.run_in_executor(None, dispatch_event, dispatch_payload)
-            _update_event_status(event_id, "OK", f"Cama '{bed.nome_cama}' associada e confirmada no quarto '{emb.quarto}'.")
+            success = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+
+            if success:
+                # Se o envio foi bem-sucedido, marca como "OK"
+                _update_event_status(
+                    event_id, "OK", 
+                    f"Cama '{bed.nome_cama}' associada, confirmada e enviada com sucesso."
+                )
+            else:
+                # Se falhou, marca como "Erro"
+                _update_event_status(
+                    event_id, "Erro",
+                    "A cama foi associada e o Wi-Fi confirmado, mas a comunicação com o servidor final falhou."
+                )
         else:
             _update_event_status(event_id, "Pendente", f"Cama associada ao quarto '{emb.quarto}', aguardando confirmação do Wi-Fi.")
             if bed.mac_address not in _pending_mac_checks:
