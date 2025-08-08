@@ -434,7 +434,15 @@ def get_assigned_bed_for_esp(esp_id: str, db: Session = Depends(get_db)):
     return {"mac_beacon": bed.mac_beacon}
 
 @app.get("/esp/{esp_id}/config", name="get_config_for_esp")
-def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
+def get_config_for_esp(esp_id: str, db: Session = Depends(get_db), ip: Optional[str] = Query(None), hostname: Optional[str] = Query(None)):
+    log_message = f"INFO: ESP '{esp_id}'"
+    if hostname:
+        log_message += f" (hostname: {hostname})"
+    if ip:
+        log_message += f" (IP: {ip})"
+    log_message += " solicitou sua configuracao."
+    
+    logger.info(log_message)
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
     global_settings = get_global_settings(db)
 
