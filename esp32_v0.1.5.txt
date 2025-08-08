@@ -297,11 +297,11 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
                 lockedBed = {};
 
                 Serial.println(">>> Forçando resincronização com o servidor...");
-                checkInitialState(); // Pede a configuração (RSSI, cama pré-assignada, etc.)
                 
                 if (mqttClient.connected()) {
                     mqttClient.disconnect();
                 }
+                delay(2000);
             }
 
             // NOVO: Lógica para o comando REBOOT
