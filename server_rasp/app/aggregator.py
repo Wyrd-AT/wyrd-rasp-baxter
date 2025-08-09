@@ -25,6 +25,7 @@ import asyncio
 import time 
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
+from typing import Optional 
 
 # Importa os módulos necessários para interagir com o resto do sistema.
 from .dispatcher import dispatch_event
@@ -72,7 +73,7 @@ def _update_event_status(event_id: int, status: str, detail: str):
 # Esta tarefa assíncrona é disparada quando uma cama é detectada por um ESP,
 # mas o seu módulo Wi-Fi ainda não está visível na rede. Ela fica tentando
 # encontrar o Wi-Fi em intervalos regulares.
-async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id: int, esp_id: str):
+async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id: int, esp_id: str, wifi_signal: Optional[int]):
     logger.info(f"[aggregator-retry] Iniciada tarefa para Beacon '{beacon_mac}' (MAC Wi-Fi: {wifi_mac}).")
     
     start_time = datetime.now(timezone.utc)
@@ -119,7 +120,8 @@ async def retry_presence_task(wifi_mac: str, beacon_mac: str, original_event_id:
 
                     dispatch_payload = {
                         "quarto": bed.quarto, "cama": bed.nome_cama, "status": "GET",
-                        "dataOn": timestamp_agora_br.isoformat(),
+                        "dataOn": timestamp_agora_br.isoformat(), 
+                        "wifi": wifi_signal
                     }
 
                     success = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
@@ -331,12 +333,14 @@ async def _process_events_batch(events: list):
         else:
             _update_event_status(event_id, "Pendente", f"Cama associada ao quarto '{emb.quarto}', aguardando confirmação do Wi-Fi.")
             if bed.mac_address not in _pending_mac_checks:
+                wifi_signal = best_event.get("wifi")
                 task = asyncio.create_task(
                     retry_presence_task(
                         wifi_mac=bed.mac_address, 
                         beacon_mac=beacon_mac, 
                         original_event_id=event_id,
-                        esp_id=best_event['esp_id']
+                        esp_id=best_event['esp_id'],
+                        wifi_signal=wifi_signal 
                     )
                 )
                 _pending_mac_checks[bed.mac_address] = task
