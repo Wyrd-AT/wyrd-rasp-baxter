@@ -40,7 +40,10 @@ const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
 bool isInitialized = false; // Flag para saber se a configuração inicial foi bem-sucedida
 unsigned long lastInitAttemptMillis = 0; // Temporizador para a tentativa de reinicialização
 const unsigned long INIT_RETRY_INTERVAL_MS = 30000; // Tenta a cada 30 segundos
-const unsigned long AUSENCIA_TIMEOUT_MS = 10000;  // ex: 20 s
+const unsigned long AUSENCIA_TIMEOUT_MS = 10000;  // ex: 20 
+
+unsigned long lastWiFiAttempt = 0;  // Armazena o tempo da última tentativa de reconectar ao Wi-Fi
+const unsigned long WIFI_RETRY_MS = 10000;
 
 unsigned long lastMqttAttempt = 0;
 unsigned long mqttBackoffMs = 2000; 
@@ -457,9 +460,9 @@ void loop() {
             if (!mqttClient.connected()) {
                 if (millis() - lastMqttAttempt >= mqttBackoffMs) {
                     if (mqttClient.connect(idESP)) {
-                        mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
+                        mqttClient.subscribe(MQTT_ASSET_LIST_TOPIC);
                         mqttClient.subscribe(MQTT_COMMAND_TOPIC);
-                        mqttClient.subscribe(MQTT_INDIVIDUAL_TOPIC.c_str());
+                        mqttClient.subscribe(MQTT_INDIVIDUAL_COMMAND_TOPIC.c_str());
                         mqttBackoffMs = 2000; // Reset backoff
                     } else {
                         mqttBackoffMs = min(mqttBackoffMs * 2, 60000UL);  // Aumenta o backoff exponencialmente até 60s
@@ -499,9 +502,9 @@ void loop() {
     if (!mqttClient.connected()) {
         if (millis() - lastMqttAttempt >= mqttBackoffMs) {
             if (mqttClient.connect(idESP)) {
-                mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
+                mqttClient.subscribe(MQTT_ASSET_LIST_TOPIC);
                 mqttClient.subscribe(MQTT_COMMAND_TOPIC);
-                mqttClient.subscribe(MQTT_INDIVIDUAL_TOPIC.c_str());
+                mqttClient.subscribe(MQTT_INDIVIDUAL_COMMAND_TOPIC.c_str());
                 mqttBackoffMs = 2000; // Reset backoff
             } else {
                 mqttBackoffMs = min(mqttBackoffMs * 2, 60000UL);  // Aumenta o backoff exponencialmente até 60s
