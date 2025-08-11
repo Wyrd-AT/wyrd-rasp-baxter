@@ -51,7 +51,7 @@ logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 HISTORY_RETENTION_DAYS = 7
 EVENT_PAGE_SIZE = 25
 CLEANUP_INTERVAL_SEC = 3600
-NUM_FIXED_ROOMS = 6
+NUM_FIXED_ROOMS = 9
 
 PERIODIC_PUBLISH_INTERVAL_SEC = 1200 # 20 minutos (20 * 60)
 
@@ -484,57 +484,73 @@ def view_planta(request: Request, db: Session = Depends(get_db)):
 def get_planta_dados(db: Session = Depends(get_db)):
     """
     Endpoint de API que fornece os dados de ocupação dos quartos,
-    incluindo o status do embarcado e detalhes de cada ativo.
+    AGORA COM SUMÁRIOS consolidados por andar (Térreo e Mezanino).
     """
-    # Carregamos os quartos com os seus ativos e embarcados associados de uma só vez
-    quartos = db.query(Quarto).options(
+    # --- LÓGICA DE MAPEAMENTO DOS ANDARES ---
+    # Defina aqui quais IDs de quarto pertencem a cada andar.
+    # Lembre-se que os IDs começam em 1.
+    QUARTOS_TERREO_IDS = [1, 2, 3, 4, 5, 6, 7, 8]
+    QUARTOS_MEZANINO_IDS = [9]
+    # ----------------------------------------
+
+    quartos_db = db.query(Quarto).options(
         joinedload(Quarto.assets),
         joinedload(Quarto.embarcados)
     ).order_by(Quarto.id).all()
     
-    dados_quartos = []
     now_utc = datetime.now(timezone.utc)
+    fuso_local = timezone(timedelta(hours=-3))
+    
+    # Estrutura para consolidar os dados
+    dados_andares = {
+        "terreo": {"quartos": [], "sumario": {"quartos_online": 0, "total_ativos": 0}},
+        "mezanino": {"quartos": [], "sumario": {"quartos_online": 0, "total_ativos": 0}}
+    }
 
-    for quarto in quartos:
-        # 1. Determinar o status do embarcado
+    for quarto in quartos_db:
+        # 1. Determina o status do embarcado
         status_embarcado = "Offline"
-        if quarto.embarcados: # Verifica se existe um embarcado associado
-            embarcado = quarto.embarcados[0] # Pega o primeiro (deve ser apenas um)
+        if quarto.embarcados:
+            embarcado = quarto.embarcados[0]
             if embarcado.last_seen:
                 last_seen_utc = embarcado.last_seen.replace(tzinfo=timezone.utc)
                 if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
                     status_embarcado = "Online"
         
-        # 2. Obter detalhes de cada ativo individualmente
+        # 2. Obtém detalhes dos ativos
         ativos_detalhados = []
         for asset in quarto.assets:
-            # Para cada ativo, busca o seu último evento de entrada bem sucedido
             ultimo_evento = db.query(ReceivedEvent).filter(
                 ReceivedEvent.ativo == asset.mac_beacon,
                 ReceivedEvent.action == 'GET',
                 ReceivedEvent.status.in_(['OK', 'Confirmado'])
             ).order_by(desc(ReceivedEvent.data_on)).first()
             
-            horario = "N/A"
-            if ultimo_evento:
-                # Usamos um fuso horário para formatar a hora local corretamente
-                fuso_local = timezone(timedelta(hours=-3))
-                horario = ultimo_evento.data_on.astimezone(fuso_local).strftime("%H:%M:%S")
+            horario = ultimo_evento.data_on.astimezone(fuso_local).strftime("%H:%M:%S") if ultimo_evento else "N/A"
+            ativos_detalhados.append({"nome": asset.nome_ativo, "horario_entrada": horario})
 
-            ativos_detalhados.append({
-                "nome": asset.nome_ativo,
-                "horario_entrada": horario
-            })
-
-        dados_quartos.append({
+        quarto_data = {
             "id_quarto": f"quarto-{quarto.id}",
             "nome_quarto": quarto.nome,
             "numero_ativos": len(quarto.assets),
-            "status_embarcado": status_embarcado, # <-- NOVO DADO
-            "ativos": ativos_detalhados          # <-- NOVA ESTRUTURA DE DADOS
-        })
+            "status_embarcado": status_embarcado,
+            "ativos": ativos_detalhados
+        }
+
+        # 3. Adiciona o quarto e atualiza o sumário do andar correto
+        if quarto.id in QUARTOS_TERREO_IDS:
+            dados_andares["terreo"]["quartos"].append(quarto_data)
+            dados_andares["terreo"]["sumario"]["total_ativos"] += len(ativos_detalhados)
+            if status_embarcado == "Online":
+                dados_andares["terreo"]["sumario"]["quartos_online"] += 1
         
-    return JSONResponse(content=dados_quartos)
+        elif quarto.id in QUARTOS_MEZANINO_IDS:
+            dados_andares["mezanino"]["quartos"].append(quarto_data)
+            dados_andares["mezanino"]["sumario"]["total_ativos"] += len(ativos_detalhados)
+            if status_embarcado == "Online":
+                dados_andares["mezanino"]["sumario"]["quartos_online"] += 1
+                
+    return JSONResponse(content=dados_andares)
 
 # ===================================================================
 # SEÇÃO 2: CRUD PARA QUARTOS

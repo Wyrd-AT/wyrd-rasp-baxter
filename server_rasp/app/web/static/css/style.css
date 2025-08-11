@@ -103,7 +103,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .overlay.active { opacity: 1; visibility: visible; }
 
 /* --- Cabeçalho do Conteúdo --- */
-.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; flex-shrink: 0; }
+.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; flex-shrink: 0; }
 .content-header h1 { font-size: 28px; position: relative; }
 .content-header h1::after { content: ''; position: absolute; bottom: -1.5rem; left: 0; width: 100px; height: 4px; background-color: var(--primary-color); }
 .btn-primary { background-color: var(--button-primary-bg); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 16px; font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none; }
@@ -563,4 +563,108 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .rssi-weak {
     color: #dc3545; /* Vermelho */
     font-weight: bold;
+}
+
+/* ================================================== */
+/* == ESTILOS ATUALIZADOS PARA A PLANTA LADO A LADO == */
+/* ================================================== */
+
+/* Remove o estilo antigo do grid */
+.planta-grid-container {
+    display: none;
+}
+
+/* Novo wrapper para as duas plantas */
+.plantas-wrapper {
+    display: flex;
+    flex-wrap: wrap; /* Permite que quebre a linha em telas menores se necessário */
+    gap: 2rem; /* Espaço entre as duas plantas */
+    align-items: flex-start;
+}
+
+/* Estilo para cada bloco de planta (título + container) */
+.planta-bloco {
+    flex: 1; /* Faz com que cada bloco ocupe o espaço disponível */
+    min-width: 400px; /* Largura mínima para cada planta */
+    display: flex;
+    flex-direction: column;
+}
+
+.planta-titulo {
+    font-family: 'Lexend', sans-serif;
+    font-size: 1.2rem;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+
+.planta-container {
+    position: relative;
+    width: 100%;
+    /* Usamos aspect-ratio para manter a proporção da imagem */
+    aspect-ratio: 14 / 12; /* Ajuste essa proporção se a sua imagem for diferente */
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+/* Define a imagem de fundo para cada planta específica */
+#planta-terreo {
+    background-image: url('../maps/terreo.svg');
+}
+
+#planta-mezanino {
+    background-image: url('../maps/mezanino.svg');
+}
+
+.planta-sumario {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    margin-bottom: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* ========================================================== */
+/* == ESTILOS PARA O PONTO DE STATUS COM NÚMERO DE ATIVOS == */
+/* ========================================================== */
+
+/* Modificamos o estilo do ponto para centralizar o conteúdo (o número) */
+.ponto-quarto-status {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 28px; /* Um pouco maior para caber o número confortavelmente */
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    cursor: help;
+    transition: all 0.3s ease;
+    
+    /* [NOVO] Transforma o ponto em um container flex para fácil centralização */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.ponto-quarto-status:hover {
+    transform: translate(-50%, -50%) scale(1.2);
+    z-index: 10;
+}
+
+/* [NOVO] Estilo para o número dentro do ponto */
+.ponto-numero-ativos {
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1; /* Garante que o número não tenha altura de linha extra */
+    text-shadow: 0 0 2px rgba(0,0,0,0.5); /* Sombra de texto leve para legibilidade */
 }
