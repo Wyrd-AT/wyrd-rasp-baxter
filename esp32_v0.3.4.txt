@@ -24,7 +24,7 @@
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* idESP = "WRD00000006"; // <-- MUDE CONFORME A ESP
+const char* idESP = "WRD00000002"; // <-- MUDE CONFORME A ESP
 
 // --- Tópicos MQTT ---
 const char* MQTT_ASSET_LIST_TOPIC = "wyrd/rtls/assets/available";
@@ -41,6 +41,10 @@ bool isInitialized = false; // Flag para saber se a configuração inicial foi b
 unsigned long lastInitAttemptMillis = 0; // Temporizador para a tentativa de reinicialização
 const unsigned long INIT_RETRY_INTERVAL_MS = 30000; // Tenta a cada 30 segundos
 const unsigned long AUSENCIA_TIMEOUT_MS = 10000;  // ex: 20 s
+
+unsigned long lastMqttAttempt = 0;
+unsigned long mqttBackoffMs = 2000; 
+unsigned long lastOnline = millis();
 
 // --- Constantes de Heartbeat ---
 #define HEARTBEAT_INTERVAL_MS 60000 // 60 segundos
@@ -404,6 +408,10 @@ void setup() {
         }
         LOGLN("Wi-Fi conectado!");
 
+        WiFi.onEvent(WiFiEvent);
+        WiFi.setAutoReconnect(true);
+        WiFi.persistent(false);
+
         syncTimeFromServer();
         BLEDevice::init("");
         BLEScan* pBLEScan = BLEDevice::getScan();
@@ -426,6 +434,17 @@ void setup() {
 void loop() {
     unsigned long agora = millis(); // Usar uma variável local 'agora'
 
+    // Tenta reconectar ao Wi-Fi, se necessário
+    if (WiFi.status() != WL_CONNECTED) {
+        if (agora - lastWiFiAttempt >= WIFI_RETRY_MS) {  // Verifica se passou o intervalo de tentativas
+            WiFi.reconnect();  // Tenta reconectar ao Wi-Fi
+            lastWiFiAttempt = agora;
+        }
+        delay(100);  // Espera um pouco antes de tentar novamente
+        return;  // Não faz mais nada se não estiver no Wi-Fi
+    }
+
+    // --- Inicialização e sincronização (verificação de status de inicialização) ---
     if (!isInitialized) {
         if (agora - lastInitAttemptMillis > INIT_RETRY_INTERVAL_MS) {
             LOGLN(">>> A inicialização ainda não foi concluída. Tentando sincronizar novamente...");
@@ -434,9 +453,21 @@ void loop() {
             syncTimeFromServer();
             checkInitialState();
             
-            // Tenta reconectar ao MQTT e subscrever aos tópicos
+            // Tenta reconectar ao MQTT e subscrever aos tópicos de forma não-bloqueante
             if (!mqttClient.connected()) {
-                reconnect_mqtt();
+                if (millis() - lastMqttAttempt >= mqttBackoffMs) {
+                    if (mqttClient.connect(idESP)) {
+                        mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
+                        mqttClient.subscribe(MQTT_COMMAND_TOPIC);
+                        mqttClient.subscribe(MQTT_INDIVIDUAL_TOPIC.c_str());
+                        mqttBackoffMs = 2000; // Reset backoff
+                    } else {
+                        mqttBackoffMs = min(mqttBackoffMs * 2, 60000UL);  // Aumenta o backoff exponencialmente até 60s
+                    }
+                    lastMqttAttempt = millis();
+                }
+            } else {
+                mqttClient.loop();  // Continua o loop MQTT
             }
             
             // Se agora estiver tudo OK, marca como inicializado
@@ -449,29 +480,47 @@ void loop() {
         }
     }
 
-    // --- LÓGICA DE HEARTBEAT ADICIONADA ---
+    // --- Lógica de Heartbeat para monitoramento de vida do dispositivo ---
     if (agora - lastHeartbeatMillis > HEARTBEAT_INTERVAL_MS) {
         if (mqttClient.connected()) {
-            // Envia uma mensagem vazia. O tópico já diz quem somos e que estamos vivos.
             mqttClient.publish(MQTT_HEARTBEAT_TOPIC.c_str(), ""); 
             LOGLN(">>> Heartbeat enviado.");
         }
         lastHeartbeatMillis = agora;
     }
 
+    // --- Cooldown de emergência (evita reconexões em loop muito rápido) ---
     if (inEmergencyCooldown && (millis() - emergencyCooldownStart > EMERGENCY_COOLDOWN_MS)) {
         LOGLN(">>> Cooldown de emergência finalizado.");
         inEmergencyCooldown = false;
     }
 
+    // --- Reconexão MQTT (não-bloqueante) ---
     if (!mqttClient.connected()) {
-        reconnect_mqtt();
+        if (millis() - lastMqttAttempt >= mqttBackoffMs) {
+            if (mqttClient.connect(idESP)) {
+                mqttClient.subscribe(MQTT_BED_LIST_TOPIC);
+                mqttClient.subscribe(MQTT_COMMAND_TOPIC);
+                mqttClient.subscribe(MQTT_INDIVIDUAL_TOPIC.c_str());
+                mqttBackoffMs = 2000; // Reset backoff
+            } else {
+                mqttBackoffMs = min(mqttBackoffMs * 2, 60000UL);  // Aumenta o backoff exponencialmente até 60s
+            }
+            lastMqttAttempt = millis();
+        }
+    } else {
+        mqttClient.loop();  // Continua o loop MQTT
     }
-    mqttClient.loop();
+
+    // --- BLEScan ---
     BLEDevice::getScan()->start(BEACON_SCAN_TIME, false);
+
+    // --- Processamento da lógica do ativo ---
     processarLogicaAtivo();
-    delay(500);
+    
+    delay(500);  // Intervalo para não sobrecarregar o loop
 }
+
 
 
 // Função auxiliar para remover um ativo da lista de travados
@@ -583,6 +632,15 @@ void processarLogicaAtivo() {
 }
 
 // =================== FUNÇÕES AUXILIARES ===================
+void WiFiEvent(WiFiEvent_t event) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+        lastMqttAttempt = 0;  // Reseta o tempo de tentativa do MQTT quando o Wi-Fi se desconectar
+    }
+    if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+        lastWiFiAttempt = 0;  // Reseta o tempo de tentativa do Wi-Fi quando ele se reconectar
+    }
+}
+
 void runRssiTest() {
     LOGLN(">>> Iniciando teste de RSSI com dados em memória...");
 
@@ -625,6 +683,8 @@ void runRssiTest() {
 
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
+        http.setTimeout(3000); // Timeout de 3 segundos para evitar bloqueios
+        http.setReuse(false);
         String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/rssi-report";
         
         http.begin(serverUrl);
@@ -646,6 +706,8 @@ void runRssiTest() {
 
 void checkInitialState() {
     HTTPClient http;
+    http.setTimeout(3000); // Timeout de 3 segundos para evitar bloqueios
+    http.setReuse(false);
     String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/esp/" + String(idESP) + "/config";
     LOGF("Buscando configuração inicial em: %s\n", serverUrl.c_str());
 
@@ -693,6 +755,8 @@ void checkInitialState() {
 bool enviarEventoHTTP(const char* mac, const char* status, int rssi, int wifi, uint32_t transacao_id) {
     if (WiFi.status() != WL_CONNECTED) return false;
     HTTPClient http;
+    http.setTimeout(3000); // Timeout de 3 segundos para evitar bloqueios
+    http.setReuse(false);
     String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/event";
     if (!http.begin(serverUrl)) return false;
     http.addHeader("Content-Type", "application/json");
@@ -733,6 +797,8 @@ void reconnect_mqtt() {
 void syncTimeFromServer() {
     LOGLN("Tentando sincronizar o tempo com o servidor local...");
     HTTPClient http;
+    http.setTimeout(3000); // Timeout de 3 segundos para evitar bloqueios
+    http.setReuse(false);
     String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/api/time";
 
     if (http.begin(serverUrl)) {
