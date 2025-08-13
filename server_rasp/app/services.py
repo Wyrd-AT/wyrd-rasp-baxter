@@ -46,7 +46,6 @@ async def update_asset_assignment(
         asset.quarto_id = new_quarto_id
         
         await manager.broadcast("ATUALIZAR_ESTADO")
-        mqtt_client.schedule_asset_list_update()
         
         db.commit() # Commit único para o evento e a mudança de estado do ativo
         
@@ -112,9 +111,3 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str, background_ta
     except Exception as e:
         db.rollback()
         logger.error("[LIVENESS] ERRO ao libertar ativos da ESP %s: %s", esp_id, e, exc_info=True)
-
-
-def trigger_mqtt_update_on_asset_change():
-    """Dispara a publicação da lista de ativos quando um é criado/deletado/alterado."""
-    logger.info("[SERVICE] Estrutura de ativos alterada. Disparando atualização MQTT da lista.")
-    mqtt_client.publish_available_assets()

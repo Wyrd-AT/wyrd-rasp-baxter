@@ -39,9 +39,9 @@ from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
     ReceivedEvent, GlobalSetting, init_db
 )
-from .services import trigger_mqtt_update_on_asset_change, synchronize_and_reset_esp, release_assets_for_offline_esp
+from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
 from . import mqtt_client
-from .aggregator import main_aggregator_loop, enqueue_event
+from .aggregator import main_aggregator_loop
 from .config import settings
 from .auth import authenticate_admin
 
@@ -52,8 +52,6 @@ HISTORY_RETENTION_DAYS = 7
 EVENT_PAGE_SIZE = 25
 CLEANUP_INTERVAL_SEC = 3600
 NUM_FIXED_ROOMS = 6
-
-PERIODIC_PUBLISH_INTERVAL_SEC = 1200 # 20 minutos (20 * 60)
 
 pending_rssi_requests = {} 
 
@@ -159,29 +157,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-async def periodic_asset_list_publish():
-    """
-    Tarefa de background que publica periodicamente a lista completa de ativos
-    disponíveis como uma medida de reconciliação de estado.
-    """
-    while True:
-        # Espera pelo intervalo definido
-        await asyncio.sleep(PERIODIC_PUBLISH_INTERVAL_SEC)
-
-        logger.info("[PERIODIC PUBLISH] Publicando a lista de ativos disponíveis como rotina de reconciliação.")
-        try:
-            # Chama a função que já existe no mqtt_client
-            mqtt_client.publish_available_assets()
-        except Exception as e:
-            logger.error("[PERIODIC PUBLISH] Falha ao publicar a lista de ativos: %s", e, exc_info=True)
-
-# --- Listener de Eventos do Banco ---
-# @event.listens_for(Asset, 'after_insert')
-# @event.listens_for(Asset, 'after_delete')
-# @event.listens_for(Asset, 'after_update')
-# def structural_asset_change_listener(mapper, connection, target):
-#     trigger_mqtt_update_on_asset_change()
 
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
@@ -339,30 +314,6 @@ def update_settings(request: Request, db: Session = Depends(get_db), rssi_thresh
     mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-@app.post("/event", status_code=status.HTTP_202_ACCEPTED)
-async def receive_event(event_data: Dict, db: Session = Depends(get_db)):
-    logger.info(f"[main] Evento HTTP recebido: {event_data}")
-    required_keys = ["esp_id", "ativo", "status", "data_on"]
-    if not all(key in event_data for key in required_keys):
-        raise HTTPException(status_code=400, detail="Payload do evento incompleto.")
-    try:
-        db_event = ReceivedEvent(
-            esp_id=event_data.get("esp_id"), ativo=event_data.get("ativo"), action=event_data.get("status"),
-            status="Enfileirado", status_detail="Aguardando processamento pelo agregador",
-            rssi=event_data.get("RSSI"), wifi=event_data.get("wifi"),
-            data_on=datetime.fromisoformat(event_data.get("data_on").replace("Z", "+00:00")),
-            raw=event_data
-        )
-        db.add(db_event)
-        db.commit()
-        db.refresh(db_event)
-        await enqueue_event({**event_data, "event_id": db_event.id})
-        return {"status": "success", "message": "Evento recebido e enfileirado"}
-    except Exception as e:
-        db.rollback()
-        logger.error(f"[main-db] ERRO CRÍTICO ao salvar evento recebido: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao processar e salvar o evento: {e}")
-
 LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
@@ -420,53 +371,31 @@ def get_global_settings(db: Session) -> dict:
     db_settings = {s.key: s.value for s in settings_from_db}
     return {**defaults, **db_settings}
 
-@app.get("/esp/{esp_id}/config", name="get_config")
-def get_config_for_esp(esp_id: str, db: Session = Depends(get_db)):
+@app.get("/api/esp/handshake", name="esp_handshake")
+def esp_handshake(
+    request: Request,
+    db: Session = Depends(get_db),
+    id_esp: str = Query(...),
+    mac: str = Query(...),
+    ip: str = Query("N/A"),
+    fw: str = Query("N/A")
+):
     """
-    Retorna a configuração inicial para uma ESP específica.
-    - Lista de MACs de ativos que já estão no seu quarto.
-    - Configurações globais de sensibilidade.
+    Endpoint único para a ESP se anunciar e obter a sua configuração de operação.
     """
-    logger.info(f"INFO: ESP '{esp_id}' solicitou sua configuração inicial.")
-    
-    # Busca as configurações globais primeiro
-    settings = get_global_settings(db)
-    
-    # Encontra o embarcado e seu quarto
-    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
+    logger.info(f"HANDSHAKE recebido da ESP: {id_esp} (MAC: {mac}, IP: {ip}, FW: {fw})")
 
+    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
     if embarcado:
-        embarcado.last_seen = datetime.now(timezone.utc)
-        #
-        if embarcado.status_rede == 'offline':
-            embarcado.status_rede = 'online'
-            logger.info(f"INFO: Status da ESP '{esp_id}' atualizado para 'online' devido a um novo pedido de configuração.")
+        pass
 
-        db.commit()
+    all_assets = db.query(Asset.mac_beacon).filter(Asset.mac_beacon.isnot(None)).all()
+    whitelist = [m for m, in all_assets]
 
-    final_rssi_threshold = int(settings.get("rssi_threshold"))
-
-    
-    macs_no_quarto = []
-    if embarcado:
-        # --- LÓGICA MULTI-ATIVO IMPLEMENTADA ---
-        # Busca TODOS os ativos que estão no mesmo quarto que o embarcado.
-        if embarcado.rssi_threshold is not None:
-            final_rssi_threshold = embarcado.rssi_threshold
-            logger.info(f"INFO: Usando RSSI individual ({final_rssi_threshold}) para a ESP '{esp_id}'.")
-        else:
-            logger.info(f"INFO: Usando RSSI global ({final_rssi_threshold}) para a ESP '{esp_id}'.")
-        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
-        macs_no_quarto = [b.mac_beacon for b in assets_no_quarto]
-        logger.info(f"INFO: Para ESP '{esp_id}', encontrados {len(macs_no_quarto)} ativos no quarto ID {embarcado.quarto_id}: {macs_no_quarto}")
-    else:
-        logger.info(f"AVISO: ESP com ID '{esp_id}' não cadastrado no sistema.")
+    logger.info(f"Enviando configuração para {id_esp}: {len(whitelist)} ativos na whitelist.")
 
     return {
-        "macs_beacons": macs_no_quarto, # Retorna a lista de MACs
-        "rssi_threshold": final_rssi_threshold, # <-- Envia o valor final
-        "inercia_chegada": int(settings.get("inercia_chegada")),
-        "inercia_saida": int(settings.get("inercia_saida")),
+        "whitelist": whitelist
     }
 
 @app.get("/planta", name="view_planta")
@@ -482,7 +411,6 @@ def get_planta_dados(db: Session = Depends(get_db)):
     Endpoint de API que fornece os dados de ocupação dos quartos,
     incluindo o status do embarcado e detalhes de cada ativo.
     """
-    # Carregamos os quartos com os seus ativos e embarcados associados de uma só vez
     quartos = db.query(Quarto).options(
         joinedload(Quarto.assets),
         joinedload(Quarto.embarcados)
@@ -492,7 +420,6 @@ def get_planta_dados(db: Session = Depends(get_db)):
     now_utc = datetime.now(timezone.utc)
 
     for quarto in quartos:
-        # 1. Determinar o status do embarcado
         status_embarcado = "Offline"
         if quarto.embarcados: # Verifica se existe um embarcado associado
             embarcado = quarto.embarcados[0] # Pega o primeiro (deve ser apenas um)
@@ -727,7 +654,7 @@ def list_assets(request: Request, search: Optional[str] = Query(None), db: Sessi
     })
 
 @app.post("/assets", name="create_asset")
-def create_asset(request: Request, background_tasks: BackgroundTasks, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
     asset = Asset(nome_ativo=nome_ativo, mac_beacon=mac_beacon.lower())
     try:
         db.add(asset)
@@ -750,7 +677,7 @@ def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     })
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")
-def update_asset(request: Request, background_tasks: BackgroundTasks, asset_id: int, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+def update_asset(request: Request, asset_id: int, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
     asset = db.query(Asset).get(asset_id)
     if asset:
         # --- LÓGICA DE VERIFICAÇÃO ADICIONADA ---
@@ -764,28 +691,12 @@ def update_asset(request: Request, background_tasks: BackgroundTasks, asset_id: 
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 @app.get("/assets/{asset_id}/delete", name="delete_asset")
-def delete_asset(request: Request, background_tasks: BackgroundTasks, asset_id: int, db: Session = Depends(get_db)):
+def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     asset = db.query(Asset).get(asset_id)
     if asset:
         db.delete(asset)
         db.commit()
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
-
-@app.get("/api/assets/whitelist", name="get_asset_whitelist")
-def get_asset_whitelist(db: Session = Depends(get_db)):
-    """
-    Endpoint para que as ESPs possam obter a lista completa de MACs de beacons
-    de todos os ativos cadastrados no sistema.
-    """
-    try:
-        all_assets = db.query(Asset.mac_beacon).filter(Asset.mac_beacon.isnot(None)).all()
-        mac_list = [mac for mac, in all_assets]
-        
-        logger.info(f"[API] Whitelist de {len(mac_list)} ativos solicitada com sucesso.")
-        return mac_list
-    except Exception as e:
-        logger.error(f"[API] ERRO CRÍTICO ao gerar a whitelist de ativos: {e}")
-        raise HTTPException(status_code=500, detail="Erro interno ao buscar a lista de ativos.")
 
 # ===================================================================
 # SEÇÃO 5: HISTÓRICO DE EVENTOS E DOWNLOADS
@@ -957,19 +868,20 @@ async def on_startup():
     logger.info("[main] Startup: Iniciando serviços em background.")
     asyncio.create_task(main_aggregator_loop())
     asyncio.create_task(check_esp_liveness(BackgroundTasks())) 
-    asyncio.create_task(periodic_asset_list_publish())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
+
     await asyncio.sleep(5) 
     
-    print("[main] Startup: Enviando comando de sincronização para todas as ESPs.")    
-    command_payload = {"command": "fetch_config"}
+    logger.info("[main] Startup: Enviando comando de reconfiguração para todas as ESPs.")    
+    command_payload = {"command": "fetch_config"} 
+    
     mqtt_client.client.publish(
         topic=settings.get("mqtt_esp_command_topic"), 
         payload=json.dumps(command_payload),
         qos=1 
     )
-    print("[main] Startup: Comando de sincronização enviado com sucesso.")
+    logger.info("[main] Startup: Comando de sincronização enviado.")
 
 if __name__ == "__main__":
     uvicorn.run(
