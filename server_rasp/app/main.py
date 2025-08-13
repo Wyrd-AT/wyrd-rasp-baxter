@@ -186,10 +186,6 @@ async def periodic_asset_list_publish():
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
 
-async def run_asset_list_update():
-    """Função async wrapper para ser usada como tarefa em background."""
-    mqtt_client.schedule_asset_list_update()
-
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     client_id = await manager.connect(websocket)
@@ -736,9 +732,6 @@ def create_asset(request: Request, background_tasks: BackgroundTasks, nome_ativo
     try:
         db.add(asset)
         db.commit()
-        # --- CORREÇÃO ADICIONADA ---
-        # Notifica o sistema que a lista de ativos mudou.
-        background_tasks.add_task(run_asset_list_update)
     except IntegrityError:
         db.rollback()
         logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
@@ -767,12 +760,6 @@ def update_asset(request: Request, background_tasks: BackgroundTasks, asset_id: 
         asset.nome_ativo = nome_ativo
         asset.mac_beacon = mac_beacon.lower()
         db.commit()
-
-        # --- CORREÇÃO ADICIONADA ---
-        # Só dispara a atualização se o MAC realmente mudou.
-        if mac_mudou:
-            background_tasks.add_task(run_asset_list_update)
-
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
@@ -782,11 +769,23 @@ def delete_asset(request: Request, background_tasks: BackgroundTasks, asset_id: 
     if asset:
         db.delete(asset)
         db.commit()
-        # --- CORREÇÃO ADICIONADA ---
-        # Notifica o sistema que um ativo foi removido.
-        background_tasks.add_task(run_asset_list_update)
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
+@app.get("/api/assets/whitelist", name="get_asset_whitelist")
+def get_asset_whitelist(db: Session = Depends(get_db)):
+    """
+    Endpoint para que as ESPs possam obter a lista completa de MACs de beacons
+    de todos os ativos cadastrados no sistema.
+    """
+    try:
+        all_assets = db.query(Asset.mac_beacon).filter(Asset.mac_beacon.isnot(None)).all()
+        mac_list = [mac for mac, in all_assets]
+        
+        logger.info(f"[API] Whitelist de {len(mac_list)} ativos solicitada com sucesso.")
+        return mac_list
+    except Exception as e:
+        logger.error(f"[API] ERRO CRÍTICO ao gerar a whitelist de ativos: {e}")
+        raise HTTPException(status_code=500, detail="Erro interno ao buscar a lista de ativos.")
 
 # ===================================================================
 # SEÇÃO 5: HISTÓRICO DE EVENTOS E DOWNLOADS

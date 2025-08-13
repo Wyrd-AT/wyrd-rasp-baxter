@@ -1,51 +1,57 @@
-# services.py (Versão final para multi-ativo)
+# services.py (Versão RTLS Final com Histórico de Eventos)
 from sqlalchemy.orm import Session, joinedload
-from .models import Asset, Embarcado, Quarto
+from .models import Asset, Embarcado, Quarto, ReceivedEvent # Importamos ReceivedEvent
 from . import mqtt_client
-import asyncio
 from .connection_manager import manager
-from fastapi import BackgroundTasks
+from datetime import datetime, timezone
 import logging
+
 logger = logging.getLogger(__name__)
 
-async def update_asset_assignment(db: Session, asset_id: int, new_quarto_id: int | None):
+async def update_asset_assignment(
+    db: Session, 
+    asset_id: int, 
+    new_quarto_id: int | None,
+    # --- NOVOS PARÂMETROS PARA O HISTÓRICO ---
+    source_esp_id: str,
+    rssi: int | None = None,
+    details: str = ""
+):
     """
-    Função central para associar um ATIVO a um novo QUARTO (ou a nenhum).
-    As operações são envoltas em uma transação para garantir atomicidade.
+    Função central para associar um ATIVO a um novo QUARTO.
+    Agora também é responsável por criar o registo de histórico associado.
     """
     asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
-    if not asset:
-        logger.warning("Tentativa de atualizar ativo com ID %s, que não foi encontrado.", asset_id)
-        return
+    if not asset: return
 
-    quarto_anterior = asset.quarto
-    quarto_anterior_id = quarto_anterior.id if quarto_anterior else None
-    
-    # Se não houve mudança, não faz nada
-    if quarto_anterior_id == new_quarto_id:
-        logger.info("Ativo '%s' já está no quarto correto (ID: %s). Nenhuma ação necessária.", asset.nome_ativo, new_quarto_id)
-        return
+    quarto_anterior_id = asset.quarto_id
+    if quarto_anterior_id == new_quarto_id: return
 
     try:
-        # 1. Altera o estado no objeto Python
+        action = "GET" if new_quarto_id is not None else "OUT"
+        
+        event = ReceivedEvent(
+            esp_id=source_esp_id,
+            ativo=asset.mac_beacon,
+            action=action,
+            status="OK",
+            status_detail=details,
+            rssi=rssi,
+            data_on=datetime.now(timezone.utc),
+            raw={"source": "aggregator"}
+        )
+        db.add(event)
+        # --- FIM DO BLOCO DE HISTÓRICO ---
+
         asset.quarto_id = new_quarto_id
         
-        # 2. Notifica os sistemas externos (WebSocket e MQTT)
-        logger.info("Transmitindo atualização de estado para os clientes WebSocket.")
         await manager.broadcast("ATUALIZAR_ESTADO")
-        
-        logger.info("Agendando publicação da lista de ativos disponíveis via MQTT.")
         mqtt_client.schedule_asset_list_update()
-
-        # 3. Se TUDO acima funcionou, faz o commit final na base de dados
-        db.commit()
-        logger.info("Ativo '%s' movido com sucesso do quarto ID '%s' para '%s'. Transação concluída.", 
-                    asset.nome_ativo, quarto_anterior_id, new_quarto_id)
-
+        
+        db.commit() # Commit único para o evento e a mudança de estado do ativo
+        
     except Exception as e:
-        # 4. Se QUALQUER passo falhou, desfaz a alteração e loga o erro
-        logger.error("ERRO na transação de atualização do ativo %s: %s. Desfazendo alterações.",
-                     asset_id, e, exc_info=True)
+        logger.error(f"ERRO na transação de atualização do ativo {asset_id}: {e}", exc_info=True)
         db.rollback()
 
 
@@ -102,11 +108,6 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str, background_ta
         
         # Notifica o frontend
         await manager.broadcast("ATUALIZAR_ESTADO")
-        
-        # --- ALTERAÇÃO PRINCIPAL AQUI ---
-        # Chamamos diretamente a função que agenda a publicação, sem intermediários.
-        logger.info("[LIVENESS] Agendando atualização da lista de ativos disponíveis via MQTT...")
-        mqtt_client.schedule_asset_list_update()
 
     except Exception as e:
         db.rollback()
