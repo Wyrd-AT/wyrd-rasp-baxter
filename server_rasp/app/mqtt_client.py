@@ -33,8 +33,8 @@ def on_message(client, userdata, msg):
     """
     topic_parts = msg.topic.split('/')
     
-    if len(topic_parts) == 5 and topic_parts[3] == "scan_data":
-        esp_id = topic_parts[2]
+    if len(topic_parts) == 5 and topic_parts[4] == "scan_data":
+        esp_id = topic_parts[3]
         try:
             payload = json.loads(msg.payload)
             scan_data_queue.put_nowait({"esp_id": esp_id, "payload": payload})
@@ -63,7 +63,7 @@ def on_connect(client, userdata, flags, rc):
         # --- ALTERADO: Subscrição principal agora é para os dados de scan ---
         client.subscribe("wyrd/rtls/esp/+/scan_data", qos=0)
         logger.info("[MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'")
-        
+
     else:
         logger.error(f"[MQTT] Falha ao conectar, código de retorno: {rc}")
 

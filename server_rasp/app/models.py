@@ -54,6 +54,7 @@ class ReceivedEvent(Base):
     id            = Column(Integer, primary_key=True, index=True)
     esp_id        = Column(String, nullable=False, index=True)
     ativo        = Column(String, nullable=False, index=True)
+    quarto_nome   = Column(String, nullable=True) 
     action        = Column(String, nullable=False, index=True)    
     status        = Column(String, nullable=True, index=True)
     status_detail = Column(String, nullable=True)   

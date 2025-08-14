@@ -2,7 +2,8 @@
 
 import asyncio
 import logging 
-from .logging_config import setup_logging 
+from .logging_config import setup_logging
+from . import aggregator 
 
 setup_logging() 
 
@@ -300,8 +301,19 @@ def reboot_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/settings/update", name="update_settings")
-def update_settings(request: Request, db: Session = Depends(get_db), rssi_threshold: str = Form(...), inercia_chegada: str = Form(...), inercia_saida: str = Form(...)):
-    settings_data = {"rssi_threshold": rssi_threshold, "inercia_chegada": inercia_chegada, "inercia_saida": inercia_saida}
+def update_settings(
+    request: Request, db: Session = Depends(get_db), 
+    rssi_threshold: str = Form(...),
+    conflict_margin_db: str = Form(...),
+    inercia_entrada: str = Form(...), # Novo
+    inercia_saida: str = Form(...)   # Novo
+):
+    settings_data = {
+        "rssi_threshold": rssi_threshold,
+        "conflict_margin_db": conflict_margin_db,
+        "inercia_entrada": inercia_entrada,
+        "inercia_saida": inercia_saida,
+    }
     for key, value in settings_data.items():
         setting = db.query(GlobalSetting).filter(GlobalSetting.key == key).first()
         if not setting:
@@ -309,16 +321,16 @@ def update_settings(request: Request, db: Session = Depends(get_db), rssi_thresh
             db.add(setting)
         setting.value = value
     db.commit()
-    logger.info("[main] Configurações globais salvas. Enviando comando de atualização para todas as ESPs.")
-    command_payload = {"command": "fetch_config"}
-    mqtt_client.client.publish(settings.get("mqtt_esp_command_topic"), json.dumps(command_payload))
+    aggregator.flag_for_reload()
+    logger.info(f"[main] Configurações globais do motor RTLS salvas: {settings_data}")
+    # Já não é preciso enviar comando para as ESPs, o servidor agora gere isto.
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
 
-async def check_esp_liveness(background_tasks: BackgroundTasks = Depends()):
+async def check_esp_liveness():
     """
     Tarefa de background que verifica na base de dados por ESPs offline.
     Usa o campo 'status_rede' para um estado de quarentena persistente.
@@ -349,11 +361,8 @@ async def check_esp_liveness(background_tasks: BackgroundTasks = Depends()):
                 logger.warning("[LIVENESS] ESPs considerados offline nesta verificação: %s", [e.id_esp for e in esps_que_ficaram_offline])
                 
                 for emb in esps_que_ficaram_offline:
-                    # Liberta os ativos associados, como antes
-                    await release_assets_for_offline_esp(db, emb.id_esp, background_tasks)
+                    await release_assets_for_offline_esp(db, emb.id_esp)
                     
-                    # 2. Em vez de adicionar a um set, atualizamos o estado no banco de dados.
-                    #    Isto torna a quarentena persistente.
                     emb.status_rede = 'offline'
                 
                 # 3. Commit final para salvar todas as alterações de status na base de dados.
@@ -418,6 +427,7 @@ def get_planta_dados(db: Session = Depends(get_db)):
     
     dados_quartos = []
     now_utc = datetime.now(timezone.utc)
+    sao_paulo_tz = timezone(timedelta(hours=-3))
 
     for quarto in quartos:
         status_embarcado = "Offline"
@@ -441,9 +451,8 @@ def get_planta_dados(db: Session = Depends(get_db)):
             horario = "N/A"
             if ultimo_evento:
                 # Usamos um fuso horário para formatar a hora local corretamente
-                fuso_local = timezone(timedelta(hours=-3))
-                horario = ultimo_evento.data_on.astimezone(fuso_local).strftime("%H:%M:%S")
-
+                horario_local = ultimo_evento.data_on.astimezone(sao_paulo_tz)
+                horario = horario_local.strftime("%H:%M:%S")
             ativos_detalhados.append({
                 "nome": asset.nome_ativo,
                 "horario_entrada": horario
@@ -507,6 +516,7 @@ def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: S
     if quarto:
         quarto.nome = nome
         db.commit()
+        aggregator.flag_for_reload() 
     return RedirectResponse(request.url_for("list_quartos"), status_code=303)
 
 
@@ -572,6 +582,7 @@ def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int =
         db.add(novo_embarcado)
         db.commit()
         db.refresh(novo_embarcado)
+        aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
 
         logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. A disparar reset automático.")
         command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
@@ -594,6 +605,8 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
             Embarcado.quarto_id.isnot(None)
         ).all()
     }
+
+    aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
     
     # 2. Busca os quartos que não estão na lista de atribuídos.
     available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
@@ -621,6 +634,7 @@ def update_embarcado(request: Request, embarcado_id: int, quarto_id: int = Form(
         emb.quarto_id = quarto_id
         emb.rssi_threshold = rssi_value # Salva o valor correto
         db.commit()
+        aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
 
         logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. A disparar reset automático.")
         command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
@@ -633,6 +647,8 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
     if emb:
         db.delete(emb)
         db.commit()
+        aggregator.flag_for_reload() 
+
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 
@@ -659,6 +675,7 @@ def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str 
     try:
         db.add(asset)
         db.commit()
+        aggregator.flag_for_reload()
     except IntegrityError:
         db.rollback()
         logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
@@ -687,6 +704,7 @@ def update_asset(request: Request, asset_id: int, nome_ativo: str = Form(...), m
         asset.nome_ativo = nome_ativo
         asset.mac_beacon = mac_beacon.lower()
         db.commit()
+        aggregator.flag_for_reload() 
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
@@ -696,6 +714,7 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
     if asset:
         db.delete(asset)
         db.commit()
+        aggregator.flag_for_reload()
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 # ===================================================================
@@ -708,14 +727,16 @@ def list_events(
     filter_action: Optional[str] = Query(None), filter_status: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None), db: Session = Depends(get_db)
 ):
-    embarcados_map = {emb.id_esp: emb.quarto.nome for emb in db.query(Embarcado).options(joinedload(Embarcado.quarto)).all() if emb.quarto}
-    beacon_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
+    # O mapa de embarcados já não é necessário aqui, a lógica fica mais simples
+    asset_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
 
     query = db.query(ReceivedEvent)
+    
+    # A lógica de filtro por quarto agora funciona com o novo campo!
+    if filter_quarto: 
+        query = query.filter(ReceivedEvent.quarto_nome == filter_quarto)
+    
     if filter_ativo: query = query.filter(ReceivedEvent.ativo == filter_ativo)
-    if filter_quarto:
-        esps_ids = [id for id, nome in embarcados_map.items() if nome == filter_quarto]
-        query = query.filter(ReceivedEvent.esp_id.in_(esps_ids)) if esps_ids else query.filter(False)
     if filter_action: query = query.filter(ReceivedEvent.action == filter_action)
     if filter_status: query = query.filter(ReceivedEvent.status == filter_status)
     if time_filter:
@@ -727,10 +748,16 @@ def list_events(
     total = query.count()
     events = query.order_by(ReceivedEvent.data_on.desc()).offset((page - 1) * EVENT_PAGE_SIZE).limit(EVENT_PAGE_SIZE).all()
 
+    sao_paulo_tz = timezone(timedelta(hours=-3))
     for e in events:
-        e.data_str = e.data_on.strftime("%d/%m/%Y"); e.hora_str = e.data_on.strftime("%H:%M:%S")
-        e.quarto = embarcados_map.get(e.esp_id, "Desconhecido")
-        e.nome_ativo = beacon_map.get(e.ativo, e.ativo)
+        e.nome_ativo = asset_map.get(e.ativo, e.ativo)
+        
+        e.quarto = e.quarto_nome if e.quarto_nome else "N/A"
+
+        data_utc = e.data_on.replace(tzinfo=timezone.utc)
+        data_local = data_utc.astimezone(sao_paulo_tz)
+        e.data_str = data_local.strftime("%d/%m/%Y")
+        e.hora_str = data_local.strftime("%H:%M:%S")
 
     return templates.TemplateResponse("events_list.html", {
         "request": request, "events": events, "page": page, "has_next": total > page * EVENT_PAGE_SIZE,
@@ -867,7 +894,7 @@ def start_cleanup_scheduler():
 async def on_startup():
     logger.info("[main] Startup: Iniciando serviços em background.")
     asyncio.create_task(main_aggregator_loop())
-    asyncio.create_task(check_esp_liveness(BackgroundTasks())) 
+    asyncio.create_task(check_esp_liveness()) 
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 

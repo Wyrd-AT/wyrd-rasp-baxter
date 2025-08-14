@@ -12,15 +12,10 @@ async def update_asset_assignment(
     db: Session, 
     asset_id: int, 
     new_quarto_id: int | None,
-    # --- NOVOS PARÂMETROS PARA O HISTÓRICO ---
     source_esp_id: str,
     rssi: int | None = None,
     details: str = ""
 ):
-    """
-    Função central para associar um ATIVO a um novo QUARTO.
-    Agora também é responsável por criar o registo de histórico associado.
-    """
     asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
     if not asset: return
 
@@ -28,26 +23,38 @@ async def update_asset_assignment(
     if quarto_anterior_id == new_quarto_id: return
 
     try:
-        action = "GET" if new_quarto_id is not None else "OUT"
-        
+        nome_quarto_evento = None
+        action = "GET"  # Ação padrão é ENTRADA
+
+        if new_quarto_id is not None:
+            novo_quarto = db.query(Quarto).get(new_quarto_id)
+            if novo_quarto:
+                nome_quarto_evento = novo_quarto.nome
+        else:
+            
+            action = "OUT"
+            if asset.quarto: 
+                nome_quarto_evento = asset.quarto.nome # Captura o nome ANTES de o desassociar.
+        # ====================================================================
+
         event = ReceivedEvent(
             esp_id=source_esp_id,
             ativo=asset.mac_beacon,
+            quarto_nome=nome_quarto_evento, 
             action=action,
             status="OK",
             status_detail=details,
             rssi=rssi,
             data_on=datetime.now(timezone.utc),
-            raw={"source": "aggregator"}
+            raw={"source": "aggregator", "old_quarto_id": quarto_anterior_id}
         )
         db.add(event)
-        # --- FIM DO BLOCO DE HISTÓRICO ---
 
         asset.quarto_id = new_quarto_id
         
         await manager.broadcast("ATUALIZAR_ESTADO")
         
-        db.commit() # Commit único para o evento e a mudança de estado do ativo
+        db.commit()
         
     except Exception as e:
         logger.error(f"ERRO na transação de atualização do ativo {asset_id}: {e}", exc_info=True)
@@ -76,7 +83,7 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     except Exception as e:
         logger.error(f"[SERVICE] ERRO durante o envio do comando de reset para ESP ID '{embarcado_id}': {e}")
 
-async def release_assets_for_offline_esp(db: Session, esp_id: str, background_tasks: BackgroundTasks):
+async def release_assets_for_offline_esp(db: Session, esp_id: str):
     """
     Liberta todos os ativos associados a uma ESP que ficou offline.
     """

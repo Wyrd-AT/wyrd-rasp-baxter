@@ -84,18 +84,26 @@
         <div class="form-card" style="margin-top: 2rem;">
             <h3>Configurações Globais de Sensibilidade</h3>
             <form action="{{ url_for('update_settings') }}" method="post">
-                <div class="settings-grid">
+                {# Mudei para 2 colunas para ficar mais organizado #}
+                <div class="settings-grid" style="grid-template-columns: repeat(2, 1fr);"> 
                     <div class="form-group">
                         <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
-                        <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" placeholder="-60" required>
+                        <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
                     </div>
+                    
+                    {# === CAMPO ADICIONADO AQUI === #}
                     <div class="form-group">
-                        <label for="inercia_chegada">Inércia de Chegada (ms)</label>
-                        <input type="number" name="inercia_chegada" value="{{ global_settings.inercia_chegada }}" placeholder="500" required>
+                        <label for="conflict_margin_db">Margem de Conflito (dB)</label>
+                        <input type="number" name="conflict_margin_db" value="{{ global_settings.conflict_margin_db }}" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="inercia_entrada">Inércia de Entrada (ms)</label>
+                        <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
                     </div>
                     <div class="form-group">
                         <label for="inercia_saida">Inércia de Saída (ms)</label>
-                        <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" placeholder="15000" required>
+                        <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
                     </div>
                 </div>
                 <button type="submit" class="btn-primary form-btn">Salvar Configurações Globais</button>
