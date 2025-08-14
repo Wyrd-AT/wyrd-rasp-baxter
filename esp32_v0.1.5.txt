@@ -558,6 +558,7 @@ void setup() {
 
 // O loop principal da aplicação.
 void loop() {
+    checkWiFiConnection();
     ArduinoOTA.handle(); // Verifica pedidos de atualização da IDE
     server.handleClient(); 
     unsigned long agora = millis(); // Usamos uma variável local
@@ -945,7 +946,35 @@ void reconnect_mqtt() {
         }
     }
 }
+#define MAX_WIFI_RETRIES 5  // Número máximo de tentativas de reconexão
+unsigned long lastWifiRetryTime = 0;  // Marca o tempo da última tentativa
+int wifiRetryCount = 0;  // Contador de tentativas de reconexão
 
+void checkWiFiConnection() {
+    // Verifica se a ESP32 está conectada ao Wi-Fi
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Wi-Fi desconectado. Tentando reconectar...");
+
+        // Verifica se passou tempo suficiente para tentar reconectar novamente
+        if (millis() - lastWifiRetryTime > 10000) {  // 10 segundos entre tentativas
+            wifiRetryCount++;  // Incrementa a contagem de tentativas
+            Serial.printf("Tentativa %d de %d...\n", wifiRetryCount, MAX_WIFI_RETRIES);
+
+            WiFi.begin();  // Tenta reconectar ao Wi-Fi
+
+            // Se não conseguir conectar após o número máximo de tentativas, reinicia o dispositivo
+            if (wifiRetryCount >= MAX_WIFI_RETRIES) {
+                Serial.println("Falha em conectar após várias tentativas. Reiniciando ESP32...");
+                ESP.restart();  // Reinicia o ESP32
+            }
+
+            lastWifiRetryTime = millis();  // Atualiza o tempo da última tentativa
+        }
+    } else {
+        // Se já estiver conectado ao Wi-Fi, reseta o contador de tentativas
+        wifiRetryCount = 0;
+    }
+}
 String obterDataAtualISO8601() {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
