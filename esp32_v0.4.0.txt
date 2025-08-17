@@ -24,7 +24,7 @@
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* idESP = "WRD00000001"; // <-- MUDE CONFORME A ESP
+const char* idESP = "WRD00000002"; // <-- MUDE CONFORME A ESP
 const char* FIRMWARE_VERSION = "0.4.0";
 
 // --- Tópicos MQTT ---
@@ -39,7 +39,7 @@ const char* TRIGGER_HOTSPOT_PASSWORD = "rtlsconfig";
 const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
 
 // --- Constantes de Operação ---
-#define BEACON_SCAN_DURATION_SEC 1.5
+#define BEACON_SCAN_DURATION_SEC 2.5
 #define MAX_BEACONS_PER_SCAN 50
 #define MAX_WHITELIST_SIZE 100
 const unsigned long CONFIG_UPDATE_INTERVAL_MS = 300000; // 5 minutos
@@ -285,6 +285,7 @@ void setup() {
     pBLEScan->setActiveScan(true);
 
     mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+    mqttClient.setKeepAlive(60);
     mqttClient.setCallback(mqtt_callback);
 }
 
