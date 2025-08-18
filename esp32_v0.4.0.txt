@@ -1,5 +1,5 @@
 // ===================================================================================
-// = RTLS - FIRMWARE v0.4.1 (RTLS Edition) =
+// = RTLS - FIRMWARE v0.4.0 (RTLS Edition) =
 // = Otimizado com reforço de WiFi no loop e código limpo. =
 // ===================================================================================
 
@@ -24,14 +24,14 @@
 #include <ArduinoJson.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* idESP = "WRD00000002"; // <-- MUDE CONFORME A ESP
+const char* idESP = "WRD00000002";
 const char* FIRMWARE_VERSION = "0.4.0";
 
 // --- Tópicos MQTT ---
 const char* MQTT_COMMAND_TOPIC = "wyrd/rtls/esp/all/command";
 String MQTT_SCAN_DATA_TOPIC = "";
 String MQTT_INDIVIDUAL_COMMAND_TOPIC = "";
-String MQTT_STATUS_TOPIC = ""; // Para o LWT
+String MQTT_STATUS_TOPIC = ""; 
 
 // --- Gatilho para Modo de Configuração ---
 String TRIGGER_HOTSPOT_SSID = "";
@@ -42,8 +42,8 @@ const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
 #define BEACON_SCAN_DURATION_SEC 2.5
 #define MAX_BEACONS_PER_SCAN 50
 #define MAX_WHITELIST_SIZE 100
-const unsigned long CONFIG_UPDATE_INTERVAL_MS = 300000; // 5 minutos
-const unsigned long MQTT_REBOOT_TIMEOUT_MS = 600000;    // 10 minutos
+const unsigned long CONFIG_UPDATE_INTERVAL_MS = 600000; 
+const unsigned long MQTT_REBOOT_TIMEOUT_MS = 600000;    
 
 // --- Configurações de Rede ---
 char SERVER_IP[16]          = "10.0.0.124";
@@ -52,6 +52,8 @@ char MQTT_BROKER_HOST[16]   = "10.0.0.124";
 char MQTT_BROKER_PORT_STR[6]= "1883";
 uint16_t SERVER_PORT        = 8080;
 uint16_t MQTT_BROKER_PORT   = 1883;
+char BACKUP_SSID[33] = "";   
+char BACKUP_PASS[65] = "";
 
 // ============ OBJETOS GLOBAIS E ESTRUTURAS DE DADOS ============
 WiFiClient wifiClient;
@@ -74,7 +76,6 @@ void lerConfiguracoes();
 void salvarConfiguracoes();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
 void syncTimeFromServer();
-void runRssiTest();
 void reconnect_mqtt();
 void publishScanData();
 
@@ -85,6 +86,10 @@ void lerConfiguracoes() {
     String saved_server_port = preferences.getString("server_port", "8080");
     String saved_mqtt_host = preferences.getString("mqtt_host", "10.0.0.124");
     String saved_mqtt_port = preferences.getString("mqtt_port", "1883");
+
+    preferences.getString("backup_ssid", BACKUP_SSID, sizeof(BACKUP_SSID));
+    preferences.getString("backup_pass", BACKUP_PASS, sizeof(BACKUP_PASS));
+
     strcpy(SERVER_IP, saved_server_ip.c_str());
     strcpy(SERVER_PORT_STR, saved_server_port.c_str());
     strcpy(MQTT_BROKER_HOST, saved_mqtt_host.c_str());
@@ -100,6 +105,9 @@ void salvarConfiguracoes() {
     preferences.putString("server_port", SERVER_PORT_STR);
     preferences.putString("mqtt_host", MQTT_BROKER_HOST);
     preferences.putString("mqtt_port", MQTT_BROKER_PORT_STR);
+
+    preferences.putString("backup_ssid", BACKUP_SSID);
+    preferences.putString("backup_pass", BACKUP_PASS);
     preferences.end();
 }
 
@@ -115,7 +123,7 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
                 foundBeacons[beacon_count].mac = foundMac;
                 foundBeacons[beacon_count].rssi = advertisedDevice.getRSSI();
                 beacon_count++;
-                return; // Encontrou, pode parar de procurar na lista
+                return; 
             }
         }
     }
@@ -144,8 +152,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
             delay(3000);
             ESP.restart();
         } else if (command == "RSSI_TEST") {
-            LOGLN(">>> Comando 'RSSI_TEST' recebido!");
-            runRssiTest();
+            LOGLN(">>> Comando 'RSSI_TEST' recebido! Não existe mais");
         } else if (command == "FETCH_CONFIG" || command == "fetch_config") {
             LOGLN(">>> Comando de reconfiguração recebido!");
             if (get_configuration_from_server()){
@@ -170,7 +177,7 @@ void publishScanData() {
         beaconObj["rssi"] = foundBeacons[i].rssi;
     }
 
-    String payload;
+    String payload; payload.reserve(4096); 
     serializeJson(doc, payload);
 
     if (mqttClient.publish(MQTT_SCAN_DATA_TOPIC.c_str(), payload.c_str(), false)) {
@@ -178,6 +185,50 @@ void publishScanData() {
     } else {
         LOGLN("Falha ao enfileirar mensagem MQTT para publicação.");
     }
+}
+
+// ================ WIFI COM BACKUP ============================
+
+bool waitForWifi(uint32_t timeout_ms) {
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeout_ms) {
+        delay(250);
+        yield();
+    }
+    return WiFi.status() == WL_CONNECTED;
+}
+
+bool connectWifiSaved(uint32_t timeout_ms) {
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin();
+    LOGLN("Conectando ao Wi-Fi (credenciais salvas)...");
+    return waitForWifi(timeout_ms);
+}
+
+bool connectWifiBackup(uint32_t timeout_ms) {
+    if (BACKUP_SSID[0] == '\0') {
+        LOGLN("SSID de backup não configurado.");
+        return false;
+    }
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_STA);
+    LOGLN("Tentando SSID de backup...");
+    WiFi.begin(BACKUP_SSID, BACKUP_PASS[0] ? BACKUP_PASS : nullptr);
+    return waitForWifi(timeout_ms);
+}
+
+/** Tenta principal e depois backup */
+bool connectWifiWithFallback(uint32_t main_timeout_ms = 20000, uint32_t backup_timeout_ms = 20000) {
+    if (connectWifiSaved(main_timeout_ms)) {
+        LOGLN("Wi-Fi conectado (principal).");
+        return true;
+    }
+    if (connectWifiBackup(backup_timeout_ms)) {
+        LOGLN("Wi-Fi conectado (backup).");
+        return true;
+    }
+    return false;
 }
 
 // =================== SETUP E LOOP PRINCIPAL ===================
@@ -219,6 +270,8 @@ void setup() {
         LOGLN("Hotspot encontrado! Iniciando Portal de Configuração...");
         WiFiManager wm;
         wm.setConfigPortalTimeout(180);
+        WiFiManagerParameter custom_backup_ssid("backup_ssid", "SSID Backup", BACKUP_SSID, 33);
+        WiFiManagerParameter custom_backup_pass("backup_pass", "Senha Backup",          BACKUP_PASS, 65);
         WiFiManagerParameter custom_server_ip("server_ip", "IP Servidor HTTP", SERVER_IP, 16);
         WiFiManagerParameter custom_server_port("server_port", "Porta Servidor HTTP", SERVER_PORT_STR, 6);
         WiFiManagerParameter custom_mqtt_host("mqtt_host", "IP Broker MQTT", MQTT_BROKER_HOST, 16);
@@ -227,6 +280,8 @@ void setup() {
         wm.addParameter(&custom_server_port);
         wm.addParameter(&custom_mqtt_host);
         wm.addParameter(&custom_mqtt_port);
+        wm.addParameter(&custom_backup_ssid);
+        wm.addParameter(&custom_backup_pass);
 
         String portalAPName = "CONFIG_RTLS_" + String(idESP);
         if (wm.startConfigPortal(portalAPName.c_str())) {
@@ -234,6 +289,8 @@ void setup() {
             strcpy(SERVER_PORT_STR, custom_server_port.getValue());
             strcpy(MQTT_BROKER_HOST, custom_mqtt_host.getValue());
             strcpy(MQTT_BROKER_PORT_STR, custom_mqtt_port.getValue());
+            strcpy(BACKUP_SSID, custom_backup_ssid.getValue());
+            strcpy(BACKUP_PASS, custom_backup_pass.getValue());
             SERVER_PORT = atoi(SERVER_PORT_STR);
             MQTT_BROKER_PORT = atoi(MQTT_BROKER_PORT_STR);
             salvarConfiguracoes();
@@ -247,20 +304,14 @@ void setup() {
         }
     } else {
         LOGLN("Iniciando em modo de operação normal.");
-        WiFi.begin();
-        
-        unsigned long startWifiTime = millis();
-        while (WiFi.status() != WL_CONNECTED) {
-            if (millis() - startWifiTime > 20000) {
-                LOGLN("Falha ao conectar Wi-Fi. Reiniciando...");
-                delay(1000); ESP.restart();
-            }
+        if (!connectWifiWithFallback(20000, 20000)) {
+            LOGLN("Falha ao conectar Wi-Fi (principal e backup). Reiniciando...");
+            delay(1000); ESP.restart();
         }
     }
     
     LOGLN("Wi-Fi Conectado!");
 
-    // O resto do setup só acontece se não entramos no modo portal.
     syncTimeFromServer();
 
     delay(500);
@@ -270,14 +321,14 @@ void setup() {
         LOGLN("Tentando handshake novamente em 5 segundos...");
         delay(5000);
 
-        if (millis() - startHandshakeTime > 60000) { // Timeout de 1 minuto
+        if (millis() - startHandshakeTime > 60000) { 
             LOGLN("!!! Falha ao obter configuração do servidor por 1 minuto. Reiniciando. !!!");
             delay(1000);
             ESP.restart();
         }
     }
 
-    lastConfigUpdateTime = millis(); // Marca a hora da última config bem-sucedida
+    lastConfigUpdateTime = millis(); 
 
     BLEDevice::init("");
     BLEScan* pBLEScan = BLEDevice::getScan();
@@ -286,20 +337,15 @@ void setup() {
 
     mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
     mqttClient.setKeepAlive(60);
+    mqttClient.setBufferSize(4096);
     mqttClient.setCallback(mqtt_callback);
 }
 
 void loop() {
 
     if (WiFi.status() != WL_CONNECTED) {
-        LOGLN("Conexão Wi-Fi perdida. Tentando reconectar...");
-        WiFi.disconnect();
-        WiFi.reconnect();
-        unsigned long startAttemptTime = millis();
-        while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000) {
-            delay(500);
-        }
-        if (WiFi.status() != WL_CONNECTED) {
+        LOGLN("Conexão Wi-Fi perdida. Tentando reconectar (principal/backup)...");
+        if (!connectWifiWithFallback(10000, 10000)) {
             LOGLN("Falha ao reconectar Wi-Fi. Reiniciando ESP...");
             delay(1000);
             ESP.restart();
@@ -337,7 +383,7 @@ void loop() {
         publishScanData(); 
     }
 
-    delay(500); // Mantém um ciclo de aproximadamente 2 segundos
+    delay(500); 
 }
 
 // =================== FUNÇÕES AUXILIARES ===================
@@ -353,10 +399,11 @@ bool get_configuration_from_server() {
 
     bool success = false;
     if (http.begin(serverUrl)) {
+        http.setTimeout(4000);
         int httpCode = http.GET();
         if (httpCode == 200) {
             DynamicJsonDocument doc(4096);
-            deserializeJson(doc, http.getString());
+            deserializeJson(doc, http.getStream());
             JsonArray whitelistArray = doc["whitelist"].as<JsonArray>();
             
             whitelist_count = 0; 
@@ -366,7 +413,7 @@ bool get_configuration_from_server() {
                 }
             }
             LOGF("Handshake bem-sucedido. Whitelist com %d ativos recebida.\n", whitelist_count);
-            success = true; // SUCESSO!
+            success = true; 
         } else {
             LOGF("Falha no handshake. Código HTTP: %d\n", httpCode);
         }
@@ -375,44 +422,6 @@ bool get_configuration_from_server() {
         LOGLN("Falha ao iniciar conexão HTTP para handshake.");
     }
     return success;
-}
-
-
-void runRssiTest() {
-    LOGLN(">>> Iniciando teste de RSSI de varredura única (5 segundos)...");
-    beacon_count = 0;
-    BLEDevice::getScan()->start(5, false);
-
-    LOGF("  - Scan de teste concluído. %d beacons encontrados.\n", beacon_count);
-
-    StaticJsonDocument<4096> doc;
-    doc["esp_id"] = idESP;
-    JsonArray report = doc.createNestedArray("report");
-
-    for (int i = 0; i < beacon_count; i++) {
-        JsonObject obj = report.createNestedObject();
-        obj["mac"] = foundBeacons[i].mac;
-        obj["rssi"] = foundBeacons[i].rssi;
-    }
-
-    String payload;
-    serializeJson(doc, payload);
-
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        String serverUrl = "http://" + String(SERVER_IP) + ":" + String(SERVER_PORT_STR) + "/rssi-report";
-        http.begin(serverUrl);
-        http.addHeader("Content-Type", "application/json");
-        int httpResponseCode = http.POST(payload);
-        if (httpResponseCode > 0) {
-            LOGF(">>> Relatório enviado. Resposta do servidor: %d\n", httpResponseCode);
-        } else {
-            LOGF("ERRO no envio do POST: %s\n", http.errorToString(httpResponseCode).c_str());
-        }
-        http.end();
-    } else {
-        LOGLN("ERRO: Não foi possível enviar o relatório. Wi-Fi desconectado.");
-    }
 }
 
 void reconnect_mqtt() {
