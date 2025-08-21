@@ -52,7 +52,7 @@ logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 HISTORY_RETENTION_DAYS = 7
 EVENT_PAGE_SIZE = 25
 CLEANUP_INTERVAL_SEC = 3600
-NUM_FIXED_ROOMS = 6
+NUM_FIXED_ROOMS = 5
 
 pending_rssi_requests = {} 
 
@@ -418,56 +418,61 @@ def view_planta(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/planta/dados", name="get_planta_dados")
 def get_planta_dados(db: Session = Depends(get_db)):
     """
-    Endpoint de API que fornece os dados de ocupação dos quartos,
-    incluindo o status do embarcado e detalhes de cada ativo.
+    Endpoint de API que fornece os dados de ocupação dos quartos
+    E um sumário com os totais.
     """
-    quartos = db.query(Quarto).options(
+    quartos_db = db.query(Quarto).options(
         joinedload(Quarto.assets),
         joinedload(Quarto.embarcados)
     ).order_by(Quarto.id).all()
     
-    dados_quartos = []
+    # Prepara as estruturas de dados
+    lista_quartos_data = []
+    sumario = {"quartos_online": 0, "total_ativos": 0}
+
     now_utc = datetime.now(timezone.utc)
     sao_paulo_tz = timezone(timedelta(hours=-3))
 
-    for quarto in quartos:
+    for quarto in quartos_db:
         status_embarcado = "Offline"
-        if quarto.embarcados: # Verifica se existe um embarcado associado
-            embarcado = quarto.embarcados[0] # Pega o primeiro (deve ser apenas um)
+        if quarto.embarcados:
+            embarcado = quarto.embarcados[0]
             if embarcado.last_seen:
                 last_seen_utc = embarcado.last_seen.replace(tzinfo=timezone.utc)
                 if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
                     status_embarcado = "Online"
         
-        # 2. Obter detalhes de cada ativo individualmente
+        # Atualiza o sumário
+        if status_embarcado == "Online":
+            sumario["quartos_online"] += 1
+        sumario["total_ativos"] += len(quarto.assets)
+
+        # Prepara os detalhes dos ativos (código inalterado)
         ativos_detalhados = []
         for asset in quarto.assets:
-            # Para cada ativo, busca o seu último evento de entrada bem sucedido
             ultimo_evento = db.query(ReceivedEvent).filter(
                 ReceivedEvent.ativo == asset.mac_beacon,
                 ReceivedEvent.action == 'GET',
                 ReceivedEvent.status.in_(['OK', 'Confirmado'])
             ).order_by(desc(ReceivedEvent.data_on)).first()
-            
             horario = "N/A"
             if ultimo_evento:
-                # Usamos um fuso horário para formatar a hora local corretamente
-                horario_local = ultimo_evento.data_on.astimezone(sao_paulo_tz)
-                horario = horario_local.strftime("%H:%M:%S")
-            ativos_detalhados.append({
-                "nome": asset.nome_ativo,
-                "horario_entrada": horario
-            })
+                horario = ultimo_evento.data_on.astimezone(sao_paulo_tz).strftime("%H:%M:%S")
+            ativos_detalhados.append({"nome": asset.nome_ativo, "horario_entrada": horario})
 
-        dados_quartos.append({
+        lista_quartos_data.append({
             "id_quarto": f"quarto-{quarto.id}",
             "nome_quarto": quarto.nome,
             "numero_ativos": len(quarto.assets),
-            "status_embarcado": status_embarcado, # <-- NOVO DADO
-            "ativos": ativos_detalhados          # <-- NOVA ESTRUTURA DE DADOS
+            "status_embarcado": status_embarcado,
+            "ativos": ativos_detalhados
         })
-        
-    return JSONResponse(content=dados_quartos)
+    
+    # Devolve o novo formato de JSON
+    return JSONResponse(content={
+        "quartos": lista_quartos_data,
+        "sumario": sumario
+    })
 
 # ===================================================================
 # SEÇÃO 2: CRUD PARA QUARTOS

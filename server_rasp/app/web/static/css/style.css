@@ -103,7 +103,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .overlay.active { opacity: 1; visibility: visible; }
 
 /* --- Cabeçalho do Conteúdo --- */
-.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; flex-shrink: 0; }
+.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; flex-shrink: 0; }
 .content-header h1 { font-size: 28px; position: relative; }
 .content-header h1::after { content: ''; position: absolute; bottom: -1.5rem; left: 0; width: 100px; height: 4px; background-color: var(--primary-color); }
 .btn-primary { background-color: var(--button-primary-bg); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 16px; font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none; }
@@ -563,4 +563,80 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .rssi-weak {
     color: #dc3545; /* Vermelho */
     font-weight: bold;
+}
+
+/* ================================================== */
+/* == ESTILOS ATUALIZADOS PARA A PLANTA LADO A LADO == */
+/* ================================================== */
+
+/* Remove os estilos antigos da planta em blocos, se existirem */
+.plantas-wrapper, .planta-bloco {
+    display: none;
+}
+
+.planta-sumario {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    margin-top: 1rem; /* Espaço entre a planta e o sumário */
+    max-width: 1600px; /* Mesma largura máxima da planta */
+    margin-left: auto;
+    margin-right: auto;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* Estilo principal para o contentor da planta */
+.planta-container-unica {
+    position: relative; /* Essencial para posicionar os pontos dentro dele */
+    width: 100%;
+    max-width: 1600px; /* Defina uma largura máxima para a planta */
+    margin: 2rem auto; /* Centraliza o contentor na página */
+    
+    /* Mantenha a proporção da sua imagem (ex: 16:9, 4:3, etc.) */
+    aspect-ratio: 1080 / 400; 
+
+    /* AQUI ESTÁ A MAGIA: Defina a imagem de fundo */
+    /* Assumindo que a imagem está em /static/maps/planta_completa.svg */
+    background-image: url('../maps/ff.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+}
+
+/* Estilo para os pontos (baseado no código Bbraun) */
+.ponto-quarto-status {
+    position: absolute; /* Essencial para flutuar sobre a imagem */
+    transform: translate(-50%, -50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    cursor: help;
+    transition: all 0.3s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 5;
+}
+
+.ponto-quarto-status:hover {
+    transform: translate(-50%, -50%) scale(1.2);
+    z-index: 10;
+}
+
+/* Estilo para o número dentro do ponto (baseado no código Bbraun) */
+.ponto-numero-ativos {
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    text-shadow: 0 0 2px rgba(0,0,0,0.5);
 }
