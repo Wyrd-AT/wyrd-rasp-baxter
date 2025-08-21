@@ -25,7 +25,7 @@
 #include <esp_task_wdt.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* idESP = "WRD00000001";
+const char* idESP = "WRD00000002";
 
 const char* FIRMWARE_VERSION = "0.4.0";
 
@@ -114,6 +114,7 @@ void salvarConfiguracoes() {
     preferences.putString("backup_pass", BACKUP_PASS);
     preferences.end();
 }
+
 
 // =================== LÓGICA DE COMUNICAÇÃO ===================
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
@@ -304,8 +305,11 @@ void setup() {
     }
     WiFi.scanDelete();
 
-    if (triggerFound) {
-        LOGLN("Hotspot encontrado! Iniciando Portal de Configuração...");
+        if (triggerFound) {
+            LOGLN("Hotspot encontrado! Iniciando Portal de Configuração...");
+
+        esp_task_wdt_delete(NULL); 
+
         WiFiManager wm;
         wm.setConfigPortalTimeout(180);
         WiFiManagerParameter custom_backup_ssid("backup_ssid", "SSID Backup", BACKUP_SSID, 33);
@@ -340,6 +344,8 @@ void setup() {
             delay(3000);
             ESP.restart();
         }
+
+        esp_task_wdt_add(NULL);
     } else {
         LOGLN("Iniciando em modo de operação normal.");
         if (!connectWifiWithFallback(20000, 20000)) {
