@@ -22,14 +22,16 @@
 #include <PubSubClient.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <esp_task_wdt.h>
 
 // ============ CONFIGURAÇÕES GLOBAIS ============
-const char* idESP = "WRD00000002";
+const char* idESP = "WRD00000001";
+
 const char* FIRMWARE_VERSION = "0.4.0";
 
 // --- Tópicos MQTT ---
 const char* MQTT_COMMAND_TOPIC = "wyrd/rtls/esp/all/command";
-String MQTT_SCAN_DATA_TOPIC = "";
+char mqtt_scan_data_topic[64];
 String MQTT_INDIVIDUAL_COMMAND_TOPIC = "";
 String MQTT_STATUS_TOPIC = ""; 
 
@@ -42,6 +44,7 @@ const unsigned long TRIGGER_SCAN_TIMEOUT = 5000;
 #define BEACON_SCAN_DURATION_SEC 2.5
 #define MAX_BEACONS_PER_SCAN 50
 #define MAX_WHITELIST_SIZE 100
+#define WDT_TIMEOUT_MS 15000 
 const unsigned long CONFIG_UPDATE_INTERVAL_MS = 600000; 
 const unsigned long MQTT_REBOOT_TIMEOUT_MS = 600000;    
 
@@ -78,6 +81,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length);
 void syncTimeFromServer();
 void reconnect_mqtt();
 void publishScanData();
+bool get_configuration_from_server();
 
 // =================== LÓGICA DE CONFIGURAÇÃO ===================
 void lerConfiguracoes() {
@@ -135,8 +139,13 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     String topicStr = String(topic);
 
     if (topicStr == MQTT_INDIVIDUAL_COMMAND_TOPIC || topicStr == MQTT_COMMAND_TOPIC) {
-        StaticJsonDocument<256> doc;
-        deserializeJson(doc, payload, length);
+        StaticJsonDocument<512> doc; // Mais seguro
+        DeserializationError error = deserializeJson(doc, payload, length);
+
+        if (error) {
+            LOGF("!!! ERRO: Falha ao deserializar JSON de comando: %s\n", error.c_str());
+            return;
+        }
 
         String command;
         if (doc.containsKey("command")) {
@@ -157,14 +166,14 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
             LOGLN(">>> Comando de reconfiguração recebido!");
             if (get_configuration_from_server()){
                 lastConfigUpdateTime = millis();
-            } 
+            }
         }
         return;
     }
 }
 
 void publishScanData() {
-    if (beacon_count == 0 || !mqttClient.connected()) {
+    if (!mqttClient.connected()) {
         return;
     }
 
@@ -180,7 +189,7 @@ void publishScanData() {
     String payload; payload.reserve(4096); 
     serializeJson(doc, payload);
 
-    if (mqttClient.publish(MQTT_SCAN_DATA_TOPIC.c_str(), payload.c_str(), false)) {
+    if (mqttClient.publish(mqtt_scan_data_topic, payload.c_str(), false)) {
         LOGF("Publicando %d beacons via MQTT...\n", beacon_count);
     } else {
         LOGLN("Falha ao enfileirar mensagem MQTT para publicação.");
@@ -192,6 +201,7 @@ void publishScanData() {
 bool waitForWifi(uint32_t timeout_ms) {
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeout_ms) {
+        esp_task_wdt_reset();
         delay(250);
         yield();
     }
@@ -231,18 +241,46 @@ bool connectWifiWithFallback(uint32_t main_timeout_ms = 20000, uint32_t backup_t
     return false;
 }
 
-// =================== SETUP E LOOP PRINCIPAL ===================
+// =================== SETUP E LOOP PRINCIPAL ===================if (mqttClient.publish(mqtt_scan_data_topic, payload.c_str(), false)) {
 void setup() {
     Serial.begin(115200);
     
+    LOGF("Configurando Watchdog Timer para %d ms...\n", WDT_TIMEOUT_MS);
+
+    esp_err_t status_result = esp_task_wdt_status(NULL);
+
+    if (status_result == ESP_OK) {
+        LOGLN("Watchdog já estava ativo para esta tarefa. Nenhuma ação necessária.");
+    } else {
+        LOGLN("Watchdog inativo. A inicializar e adicionar a tarefa...");
+
+        esp_task_wdt_deinit(); 
+
+        esp_task_wdt_config_t wdt_config = {
+            .timeout_ms = WDT_TIMEOUT_MS,
+            .idle_core_mask = (1 << 0) | (1 << 1),
+            .trigger_panic = true
+        };
+
+        esp_err_t init_result = esp_task_wdt_init(&wdt_config);
+        if (init_result != ESP_OK) {
+            LOGF("!!! ERRO ao inicializar o Watchdog: %s\n", esp_err_to_name(init_result));
+        }
+
+        esp_err_t add_result = esp_task_wdt_add(NULL);
+        if (add_result != ESP_OK) {
+            LOGF("!!! ERRO ao adicionar a tarefa ao Watchdog: %s\n", esp_err_to_name(add_result));
+        }
+    }
+    
     lerConfiguracoes();
 
-    MQTT_SCAN_DATA_TOPIC = "wyrd/rtls/esp/" + String(idESP) + "/scan_data";
+    snprintf(mqtt_scan_data_topic, sizeof(mqtt_scan_data_topic), "wyrd/rtls/esp/%s/scan_data", idESP);
     MQTT_INDIVIDUAL_COMMAND_TOPIC = "wyrd/rtls/esp/" + String(idESP) + "/command";
     TRIGGER_HOTSPOT_SSID = "RTLS_" + String(idESP);
 
     LOGLN("\n=================================");
-    LOGLN("= EMBARCADO RTLS v0.4.1         =");
+    LOGLN("= EMBARCADO RTLS v0.4.0         =");
     LOGLN("= MODO: SENSOR COLABORATIVO     =");
     LOGLN("=================================");
 
@@ -318,6 +356,7 @@ void setup() {
 
     unsigned long startHandshakeTime = millis();
     while (!get_configuration_from_server()) {
+        esp_task_wdt_reset();
         LOGLN("Tentando handshake novamente em 5 segundos...");
         delay(5000);
 
@@ -340,6 +379,9 @@ void setup() {
     mqttClient.setBufferSize(4096);
     mqttClient.setCallback(mqtt_callback);
 }
+
+unsigned long lastScanTime = 0;
+const unsigned long scanInterval = 500;
 
 void loop() {
 
@@ -378,12 +420,14 @@ void loop() {
                 lastConfigUpdateTime = millis();
             } 
         }
-        beacon_count = 0;
-        BLEDevice::getScan()->start(BEACON_SCAN_DURATION_SEC, false);
-        publishScanData(); 
+        if (millis() - lastScanTime > scanInterval) {
+            beacon_count = 0;
+            BLEDevice::getScan()->start(BEACON_SCAN_DURATION_SEC, false);
+            publishScanData(); // Usando QoS 1
+            lastScanTime = millis();
+        } 
     }
-
-    delay(500); 
+    esp_task_wdt_reset();
 }
 
 // =================== FUNÇÕES AUXILIARES ===================
