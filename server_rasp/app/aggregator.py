@@ -3,7 +3,7 @@ import asyncio
 import time
 import json
 from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting
-from .services import update_asset_assignment
+from .services import batch_update_asset_assignments
 from .mqtt_client import scan_data_queue
 import logging
 
@@ -24,23 +24,19 @@ _config = {
     "conflict_margin_db": 5,
     "inertia_entrada_ms": 3000,
     "inertia_saida_ms": 10000,
-    # --- NOVO PARÂMETRO PARA A MÉDIA MÓVEL EXPONENCIAL ---
-    # Valores maiores: mais rápido, menos suave. Valores menores: mais lento, mais suave.
-    # 0.4 é um bom ponto de partida.
     "ema_alpha": 0.4 
 }
 
 class AssetState:
     def __init__(self, mac):
         self.mac = mac
-        # O 'readings' agora também vai guardar o valor suavizado (ema_rssi)
         self.readings = {}
+        self.last_known_ema = {}
         self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000}
         self.candidate_quarto_id = None
         self.candidate_since = None
         self.disappeared_since = None
         self.weak_signal_since = None
-        self.rssi_at_assignment = -1000
 
     def update_reading(self, esp_id, rssi, timestamp):
         """
@@ -55,6 +51,9 @@ class AssetState:
 
         # Guarda o valor bruto (rssi) e o valor suavizado (ema_rssi)
         self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema}
+        
+        self.last_known_ema[esp_id] = new_ema
+
         self.disappeared_since = None
 
     def cleanup_old_readings(self):
@@ -81,28 +80,33 @@ async def _consume_scan_data_queue():
 async def _processar_localizacoes():
     if not _esp_map or not _asset_map: return
 
+    # 1. Cria uma lista vazia para colecionar as mudanças do ciclo atual.
+    changes_to_commit = []
+
     db = SessionLocal()
     try:
         for mac, state in list(_asset_realtime_state.items()):
             asset_id, quarto_id_atual = _asset_map.get(mac, (None, None))
             if not asset_id: continue
 
+            # --- Lógica de SAÍDA POR TIMEOUT ---
             if not state.cleanup_old_readings():
                 if quarto_id_atual is not None:
                     if state.disappeared_since is None: state.disappeared_since = time.time()
                     if (time.time() - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
-                        logger.info(f"EVENTO OUT (TIMEOUT): Ativo {mac} removido do Quarto {quarto_id_atual} por desaparecimento.")
-                        details = f"Ativo desapareceu (Inércia Saída: {_config['inertia_saida_ms']}ms)"
-                        last_esp = state.last_strongest_signal.get("esp_id") or "server_timeout"
-                        await update_asset_assignment(db, asset_id, None, last_esp, state.last_strongest_signal.get("rssi", -1000), details)
+                        logger.info(f"EVENTO OUT (TIMEOUT): Ativo {mac} marcado para remoção do Quarto {quarto_id_atual}.")
+                        # Adiciona a mudança à lista, em vez de chamar o serviço
+                        changes_to_commit.append({
+                            "asset_id": asset_id, "new_quarto_id": None,
+                            "source_esp_id": state.last_strongest_signal.get("esp_id") or "server_timeout",
+                            "rssi": state.last_strongest_signal.get("rssi", -1000),
+                            "details": f"Ativo desapareceu (Inércia Saída: {_config['inertia_saida_ms']}ms)"
+                        })
                         if mac in _asset_map: _asset_map[mac] = (asset_id, None)
-                        state.rssi_at_assignment = -1000
                         del _asset_realtime_state[mac]
                 else:
                     del _asset_realtime_state[mac]
                 continue
-            
-            # --- LÓGICA AGORA USA O VALOR SUAVIZADO (EMA) ---
             
             # Encontra o candidato mais forte baseado na EMA
             strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None}
@@ -128,11 +132,15 @@ async def _processar_localizacoes():
             if quarto_id_atual is not None and not candidate_quarto_id:
                 if state.weak_signal_since is None: state.weak_signal_since = time.time()
                 elif (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
-                    logger.info(f"EVENTO OUT (SINAL FRACO): Ativo {mac} removido do Quarto {quarto_id_atual} após inércia.")
-                    details = f"Sinal (EMA) permaneceu fraco por {_config['inertia_saida_ms']}ms"
-                    await update_asset_assignment(db, asset_id, None, state.last_strongest_signal['esp_id'], state.last_strongest_signal['rssi'], details)
+                    logger.info(f"EVENTO OUT (SINAL FRACO): Ativo {mac} marcado para remoção do Quarto {quarto_id_atual}.")
+                    # Adiciona a mudança à lista
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": state.last_strongest_signal['esp_id'],
+                        "rssi": state.last_strongest_signal['rssi'],
+                        "details": f"Sinal (EMA) permaneceu fraco por {_config['inertia_saida_ms']}ms"
+                    })
                     if mac in _asset_map: _asset_map[mac] = (asset_id, None)
-                    state.rssi_at_assignment = -1000
                     state.weak_signal_since = None
                     continue
             elif state.weak_signal_since is not None: state.weak_signal_since = None
@@ -144,10 +152,16 @@ async def _processar_localizacoes():
 
             if candidate_quarto_id != state.candidate_quarto_id:
                 if quarto_id_atual is not None and candidate_quarto_id is not None:
-                    rssi_atual_ao_vivo = next((r["ema_rssi"] for e, r in state.readings.items() if _esp_map.get(e, (None,None))[0] == quarto_id_atual), None)
-                    rssi_para_comparacao = rssi_atual_ao_vivo if rssi_atual_ao_vivo is not None else state.rssi_at_assignment
+                    esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
                     
-                    # A checagem de conflito também usa a EMA
+                    leituras_ao_vivo = [r["ema_rssi"] for e, r in state.readings.items() if e in esps_no_quarto_atual]
+                    
+                    if leituras_ao_vivo:
+                        rssi_para_comparacao = max(leituras_ao_vivo)
+                    else:
+                        emas_conhecidos = [ema for esp, ema in state.last_known_ema.items() if esp in esps_no_quarto_atual]
+                        rssi_para_comparacao = max(emas_conhecidos) if emas_conhecidos else -1000
+                    
                     if strongest_candidate["ema_rssi"] < (rssi_para_comparacao + _config["conflict_margin_db"]):
                         #logger.info(f"CONFLITO: Ativo {mac}: Troca de Q{quarto_id_atual} para Q{candidate_quarto_id} NEGADA. Sinal EMA Cand: {strongest_candidate['ema_rssi']:.1f}dBm vs Base Atual: {rssi_para_comparacao:.1f}dBm + Margem: {_config['conflict_margin_db']}dBm")
                         continue
@@ -158,13 +172,19 @@ async def _processar_localizacoes():
             if state.candidate_since and state.candidate_quarto_id is not None:
                 if (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
                     if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
-                        logger.info(f"EVENTO IN: Ativo {mac} confirmado no Quarto {state.candidate_quarto_id} após inércia (EMA: {strongest_candidate['ema_rssi']:.1f}dBm).")
-                        details = f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f})"
-                        await update_asset_assignment(db, asset_id, state.candidate_quarto_id, strongest_candidate['esp_id'], strongest_candidate['rssi'], details)
+                        logger.info(f"EVENTO IN: Ativo {mac} confirmado no Quarto {state.candidate_quarto_id}.")
+                        # Adiciona a mudança à lista
+                        changes_to_commit.append({
+                            "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
+                            "source_esp_id": strongest_candidate['esp_id'],
+                            "rssi": strongest_candidate['rssi'],
+                            "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f})"
+                        })
                         if mac in _asset_map: _asset_map[mac] = (asset_id, state.candidate_quarto_id)
-                        # A memória de assignação também guarda a EMA, que foi a base da decisão
-                        state.rssi_at_assignment = strongest_candidate['ema_rssi']
                         state.candidate_since = None
+        
+        if changes_to_commit:
+            await batch_update_asset_assignments(db, changes_to_commit)
     finally:
         db.close()
 

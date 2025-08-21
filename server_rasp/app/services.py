@@ -8,56 +8,63 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def update_asset_assignment(
-    db: Session, 
-    asset_id: int, 
-    new_quarto_id: int | None,
-    source_esp_id: str,
-    rssi: int | None = None,
-    details: str = ""
-):
-    asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
-    if not asset: return
-
-    quarto_anterior_id = asset.quarto_id
-    if quarto_anterior_id == new_quarto_id: return
+async def batch_update_asset_assignments(db: Session, changes: list):
+    """
+    Processa uma lista de mudanças de localização de ativos numa única transação.
+    """
+    if not changes:
+        return
 
     try:
-        nome_quarto_evento = None
-        action = "GET"  # Ação padrão é ENTRADA
-
-        if new_quarto_id is not None:
-            novo_quarto = db.query(Quarto).get(new_quarto_id)
-            if novo_quarto:
-                nome_quarto_evento = novo_quarto.nome
-        else:
+        # Itera sobre a lista de mudanças para preparar os objetos para o commit
+        for change in changes:
+            asset_id = change["asset_id"]
+            new_quarto_id = change["new_quarto_id"]
             
-            action = "OUT"
-            if asset.quarto: 
-                nome_quarto_evento = asset.quarto.nome # Captura o nome ANTES de o desassociar.
-        # ====================================================================
+            asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
+            if not asset:
+                continue
 
-        event = ReceivedEvent(
-            esp_id=source_esp_id,
-            ativo=asset.mac_beacon,
-            quarto_nome=nome_quarto_evento, 
-            action=action,
-            status="OK",
-            status_detail=details,
-            rssi=rssi,
-            data_on=datetime.now(timezone.utc),
-            raw={"source": "aggregator", "old_quarto_id": quarto_anterior_id}
-        )
-        db.add(event)
+            quarto_anterior_id = asset.quarto_id
+            nome_quarto_evento = None
+            action = "GET"
 
-        asset.quarto_id = new_quarto_id
-        
-        await manager.broadcast("ATUALIZAR_ESTADO")
-        
+            if new_quarto_id is not None:
+                # Busca o nome do novo quarto (otimização: poderia ser pré-carregado)
+                novo_quarto = db.query(Quarto).get(new_quarto_id)
+                if novo_quarto:
+                    nome_quarto_evento = novo_quarto.nome
+            else:
+                action = "OUT"
+                if asset.quarto:
+                    nome_quarto_evento = asset.quarto.nome
+            
+            # Cria o registo do evento
+            event = ReceivedEvent(
+                esp_id=change["source_esp_id"],
+                ativo=asset.mac_beacon,
+                quarto_nome=nome_quarto_evento,
+                action=action,
+                status="OK",
+                status_detail=change["details"],
+                rssi=change["rssi"],
+                data_on=datetime.now(timezone.utc),
+                raw={"source": "aggregator_batch", "old_quarto_id": quarto_anterior_id}
+            )
+            db.add(event)
+
+            # Atualiza o ativo
+            asset.quarto_id = new_quarto_id
+
+        # 1. Tenta salvar TODAS as mudanças de uma só vez.
         db.commit()
         
+        # 2. Se o commit foi bem-sucedido, envia UMA ÚNICA notificação.
+        logger.info(f"Lote de {len(changes)} mudanças processado e salvo com sucesso.")
+        await manager.broadcast("ATUALIZAR_ESTADO")
+
     except Exception as e:
-        logger.error(f"ERRO na transação de atualização do ativo {asset_id}: {e}", exc_info=True)
+        logger.error(f"ERRO na transação de atualização em lote: {e}", exc_info=True)
         db.rollback()
 
 

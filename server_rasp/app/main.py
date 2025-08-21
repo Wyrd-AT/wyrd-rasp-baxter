@@ -66,6 +66,7 @@ static_path = os.path.join(base_path, "web/static")
 
 init_db()
 
+
 class AdminAuth(AuthenticationBackend):
     async def login(self, request: StarletteRequest) -> bool:
         form = await request.form()
@@ -890,11 +891,31 @@ def start_cleanup_scheduler():
             purge_old_events()
     threading.Thread(target=loop, daemon=True).start()
 
+running_tasks = {} # Dicionário global para guardar as nossas tarefas
+
+async def check_background_tasks_health():
+    """Tarefa de background que monitoriza as outras tarefas."""
+    while True:
+        await asyncio.sleep(60) # A cada minuto
+        for name, task in running_tasks.items():
+            if task.done() and not task.cancelled():
+                # A tarefa terminou, mas não foi cancelada! Provavelmente falhou.
+                try:
+                    # Chamar task.result() vai levantar a exceção que causou a falha
+                    task.result()
+                except Exception as e:
+                    logger.critical(
+                        f"[HEALTH CHECK] A TAREFA CRÍTICA '{name}' FALHOU: {e}",
+                        exc_info=True
+                    )
+                    # Ação a tomar: Poderíamos tentar reiniciar a tarefa ou o servidor.
+
 @app.on_event("startup")
 async def on_startup():
     logger.info("[main] Startup: Iniciando serviços em background.")
-    asyncio.create_task(main_aggregator_loop())
-    asyncio.create_task(check_esp_liveness()) 
+    running_tasks["aggregator"] = asyncio.create_task(main_aggregator_loop())
+    running_tasks["liveness_check"] = asyncio.create_task(check_esp_liveness())
+    running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 
