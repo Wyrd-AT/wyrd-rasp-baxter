@@ -26,8 +26,8 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>NOME DO ATIVO</th>
-                    <th>MAC BEACON</th>
+                    <th>NOME DA CAMA</th>
+                    <th>MAC WI-FI</th> <th>MAC BEACON</th>
                     <th>QUARTO ATUAL</th>
                 </tr>
             </thead>
@@ -35,7 +35,7 @@
                 {% for asset in assets %}
                 <tr class="selectable-row" data-id="{{ asset.id }}">
                     <td>{{ asset.nome_ativo }}</td>
-                    <td>{{ asset.mac_beacon }}</td>
+                    <td>{{ asset.mac_address or '---' }}</td> <td>{{ asset.mac_beacon }}</td>
                     <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
                 </tr>
                 {% endfor %}

@@ -1,22 +1,25 @@
-# services.py (Versão RTLS Final com Histórico de Eventos)
+# services.py (Versão Híbrida Final)
 from sqlalchemy.orm import Session, joinedload
-from .models import Asset, Embarcado, Quarto, ReceivedEvent # Importamos ReceivedEvent
+from .models import Asset, Embarcado, Quarto, ReceivedEvent
 from . import mqtt_client
 from .connection_manager import manager
 from datetime import datetime, timezone
 import logging
+from .dispatcher import dispatch_event
+import asyncio
 
 logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
-    Processa uma lista de mudanças de localização de ativos numa única transação.
+    Processa uma lista de mudanças de localização de ativos numa única transação,
+    e agora também despacha os eventos confirmados para o servidor final.
     """
     if not changes:
         return
 
     try:
-        # Itera sobre a lista de mudanças para preparar os objetos para o commit
+        # A primeira parte da função permanece idêntica: preparar os dados para o commit.
         for change in changes:
             asset_id = change["asset_id"]
             new_quarto_id = change["new_quarto_id"]
@@ -26,11 +29,10 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 continue
 
             quarto_anterior_id = asset.quarto_id
-            nome_quarto_evento = None
+            nome_quarto_evento = "N/A" # Default
             action = "GET"
 
             if new_quarto_id is not None:
-                # Busca o nome do novo quarto (otimização: poderia ser pré-carregado)
                 novo_quarto = db.query(Quarto).get(new_quarto_id)
                 if novo_quarto:
                     nome_quarto_evento = novo_quarto.nome
@@ -39,7 +41,11 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 if asset.quarto:
                     nome_quarto_evento = asset.quarto.nome
             
-            # Cria o registo do evento
+            # Adiciona o nome do ativo ao dicionário `change` para uso posterior no dispatcher
+            change["nome_ativo"] = asset.nome_ativo
+            change["quarto_nome"] = nome_quarto_evento
+            change["action"] = action
+            
             event = ReceivedEvent(
                 esp_id=change["source_esp_id"],
                 ativo=asset.mac_beacon,
@@ -52,15 +58,33 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 raw={"source": "aggregator_batch", "old_quarto_id": quarto_anterior_id}
             )
             db.add(event)
-
-            # Atualiza o ativo
             asset.quarto_id = new_quarto_id
 
-        # 1. Tenta salvar TODAS as mudanças de uma só vez.
+        # 2. Salva TODAS as mudanças de uma só vez.
         db.commit()
         
-        # 2. Se o commit foi bem-sucedido, envia UMA ÚNICA notificação.
-        logger.info(f"Lote de {len(changes)} mudanças processado e salvo com sucesso.")
+        # <<< INÍCIO DA LÓGICA DE DESPACHO INTEGRADA >>>
+        
+        logger.info(f"Lote de {len(changes)} mudanças salvo. A preparar para despacho para o servidor final...")
+        loop = asyncio.get_running_loop()
+
+        for change in changes:
+            # Apenas despacha eventos de entrada ('GET'), conforme o requisito.
+            if change.get("action") == "GET":
+                dispatch_payload = {
+                    "quarto": change.get("quarto_nome"),
+                    "cama":   change.get("nome_ativo"),
+                    "status": "GET",
+                    "dataOn": datetime.now(timezone.utc).isoformat(),
+                    "wifi": change.get("wifi_signal") # Assumindo que o agregador pode passar este dado
+                }
+
+                logger.info(f"A despachar evento confirmado para o servidor final: {dispatch_payload}")
+                await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+
+
+        # 3. Notifica a interface web em tempo real (funcionalidade original mantida).
+        logger.info(f"Lote de {len(changes)} mudanças processado. A notificar frontend.")
         await manager.broadcast("ATUALIZAR_ESTADO")
 
     except Exception as e:
@@ -71,8 +95,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
 def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     """
     Serviço simplificado para forçar um ESP a um estado limpo.
-    Apenas envia o comando de reset. O ESP será responsável
-    por notificar a saída dos ativos que ele possui.
+    (Funcionalidade original mantida)
     """
     try:
         embarcado = db.query(Embarcado).get(embarcado_id)
@@ -93,9 +116,9 @@ def synchronize_and_reset_esp(db: Session, embarcado_id: int):
 async def release_assets_for_offline_esp(db: Session, esp_id: str):
     """
     Liberta todos os ativos associados a uma ESP que ficou offline.
+    (Funcionalidade original mantida)
     """
     try:
-        # Encontra o embarcado e o seu quarto
         embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
         if not embarcado or not embarcado.quarto_id:
             logger.info("[LIVENESS] ESP %s offline, mas não foi encontrado ou não tinha quarto associado.", esp_id)
@@ -105,7 +128,6 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str):
         quarto_nome = embarcado.quarto.nome
         logger.warning("[LIVENESS] ESP %s (Quarto: %s) ficou offline. Libertando seus ativos...", esp_id, quarto_nome)
 
-        # Encontra todos os ativos naquele quarto e os desassocia
         assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id).all()
         
         if not assets_no_quarto:
@@ -119,7 +141,6 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str):
         db.commit()
         logger.info("[LIVENESS] %d ativos do quarto %s foram libertados.", len(assets_no_quarto), quarto_nome)
         
-        # Notifica o frontend
         await manager.broadcast("ATUALIZAR_ESTADO")
 
     except Exception as e:

@@ -1,59 +1,66 @@
-# dispatcher.py (versão final e assíncrona)
-import logging
-logger = logging.getLogger(__name__)
-import requests
+# ==============================================================================
+# ARQUIVO: dispatcher.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Envia o resultado final de um evento para o sistema externo (Connecta).
+
+Funções Chave no Fluxo:
+- `dispatch_event(evt)`: Recebe os dados de um evento resolvido (ex: "Cama X
+  no Quarto Y"), formata em JSON e envia via socket TCP, com tentativas
+  automáticas em caso de falha.
+"""
+
+import socket
 import json
-import asyncio # <--- IMPORTAMOS A BIBLIOTECA ASYNCIO
+import time
 from .config import settings
 
-def _exponential_backoff(attempt: int) -> int:
-    """Calcula o tempo de espera, dobrando a cada tentativa até um máximo de 60s."""
-    return min(2 ** attempt, 60)
+import logging
+logger = logging.getLogger(__name__)
 
-# --- ALTERAÇÃO AQUI: A função agora é 'async def' ---
-async def dispatch_event_to_rtls(tipo_evento: str, event_data: dict) -> bool:
+# --- Seção: Estratégia de Nova Tentativa (Exponential Backoff) ---
+# Esta função auxiliar implementa uma estratégia de "backoff exponencial".
+# A cada nova tentativa de conexão falha, ela calcula um tempo de espera
+# que aumenta exponencialmente (2^1, 2^2, 2^3...), até um limite máximo.
+# Isso evita sobrecarregar o serviço de destino com tentativas muito rápidas.
+def exponential_backoff(attempt):
+    # O tempo de espera dobra a cada tentativa, mas não passa de 30 segundos.
+    return min(2 ** attempt, 30)
+
+# --- Seção: Função Principal de Despacho ---
+# A função 'dispatch_event' é o coração deste módulo.
+# Ela recebe um evento, monta o payload JSON no formato esperado pelo
+# sistema de destino, e tenta enviá-lo via socket TCP.
+def dispatch_event(evt) -> bool: # Adicionamos a anotação de retorno -> bool
     """
-    Envia um evento formatado para a Rtls de forma assíncrona.
-    Retorna True em caso de sucesso (status 202) e False em caso de falha final.
+    Envia um evento para o sistema final e retorna True em caso de sucesso
+    ou False em caso de falha final após todas as tentativas.
     """
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-Key": settings.get("rtls_api_key")
+    # ... (a montagem do payload continua igual)
+    payload = {
+        "quarto": evt.get("quarto"),
+        "cama":   evt.get("cama"),
+        "status": evt.get("status"),
+        "dataOn": evt.get("dataOn"),
+        "wifi":   evt.get("wifi")
     }
-    payload = { "tipoEvento": tipo_evento, "eventData": event_data }
-    logger.info(f"[DISPATCHER] Preparando para enviar para Rtls: {payload}")
+    msg = json.dumps(payload) + "\n"
+    logger.info(f"[dispatch_event] Payload montado: {payload}")
 
-    max_attempts = 5
-    for attempt in range(1, max_attempts + 1):
-        logger.info(f"[DISPATCHER] Tentativa {attempt}/{max_attempts}...")
+    attempt = 0
+    while attempt < 5:
         try:
-            # NOTA: requests é uma biblioteca síncrona. O ideal seria usar httpx ou aiohttp.
-            # Mas para não adicionar novas dependências, a chamada síncrona aqui é rápida
-            # e o principal ganho de performance vem do asyncio.sleep.
-            response = requests.post(
-                settings.get("rtls_webhook_url"),
-                headers=headers,
-                json=payload,
-                timeout=10
-            )
-            if response.status_code == 200:
-                logger.info(f"[DISPATCHER] Sucesso! Evento '{tipo_evento}' aceito pela Rtls.")
-                return True
-
-            if 400 <= response.status_code < 500:
-                logger.info(f"[DISPATCHER] ERRO CLIENTE! Status: {response.status_code}. Abortando.")
-                return False
-
-            logger.info(f"[DISPATCHER] ERRO SERVIDOR! Status: {response.status_code}. Tentando novamente...")
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"[DISPATCHER] ERRO DE CONEXÃO: {e}. Tentando novamente...")
-
-        if attempt < max_attempts:
-            wait_time = _exponential_backoff(attempt)
-            logger.info(f"[DISPATCHAER] Aguardando {wait_time}s de forma não-bloqueante.")
-            # --- ALTERAÇÃO AQUI: Usamos await asyncio.sleep() ---
-            await asyncio.sleep(wait_time)
-
-    logger.info(f"[DISPATCHER] FALHA FINAL! Evento '{tipo_evento}' descartado após {max_attempts} tentativas.")
-    return False
+            attempt += 1
+            logger.info(f"[dispatch_event] Tentativa {attempt} de conexão...")
+            with socket.create_connection((settings.get("final_ip"), int(settings.get("final_port"))), timeout=5) as sock:
+                sock.sendall(msg.encode())
+                logger.info(f"[dispatch_event] Payload enviado com sucesso.")
+                return True # SUCESSO: Retorna True
+        except (socket.timeout, socket.error) as e:
+            wait = exponential_backoff(attempt)
+            logger.info(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s.")
+            time.sleep(wait)
+    else:
+        logger.info(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
+        return False # FALHA FINAL: Retorna False

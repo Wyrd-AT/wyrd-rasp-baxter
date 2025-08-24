@@ -5,7 +5,7 @@ from sqlalchemy.ext.declarative import declarative_base
 import logging
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite:///./base_wh_ff.db"
+DATABASE_URL = "sqlite:///./base_wh_baxter.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -31,9 +31,10 @@ class GlobalSetting(Base):
 
 class Asset(Base):
     __tablename__ = "assets"
-    id          = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True)
     nome_ativo = Column(String, nullable=False, unique=True)
-    mac_beacon  = Column(String, unique=True, nullable=False, index=True)
+    mac_beacon = Column(String, unique=True, nullable=False, index=True)
+    mac_address = Column(String, unique=True, nullable=True, index=True) 
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
     quarto = relationship("Quarto", back_populates="assets")
 
