@@ -38,6 +38,9 @@ class AssetState:
         self.candidate_since = None
         self.disappeared_since = None
         self.weak_signal_since = None
+        self.pending_wifi_check_since = None  
+        self.pending_quarto_id = None   
+        self.pending_event_details = {} 
 
     def update_reading(self, esp_id, rssi, timestamp):
         """
@@ -67,14 +70,19 @@ class AssetState:
 
 def clear_asset_candidate_state(mac_beacon_to_clear: str):
     """
-    Função externa para limpar o estado de candidato de um ativo específico,
-    efetivamente cancelando uma operação pendente.
+    Função externa para limpar o estado de candidato OU pendente de um ativo,
+    cancelando uma operação em andamento.
     """
     if mac_beacon_to_clear in _asset_realtime_state:
         state = _asset_realtime_state[mac_beacon_to_clear]
+        
         state.candidate_quarto_id = None
         state.candidate_since = None
-        logger.info(f"[aggregator-cancel] Estado de candidato para o ativo {mac_beacon_to_clear} foi limpo via API.")
+        state.pending_wifi_check_since = None
+        state.pending_quarto_id = None
+        state.pending_event_details = {}
+        
+        logger.info(f"[aggregator-cancel] Estado de candidato/pendente para o ativo {mac_beacon_to_clear} foi limpo via API.")
         return True
     return False
 
@@ -94,12 +102,51 @@ async def _consume_scan_data_queue():
 async def _processar_localizacoes():
     if not _esp_map or not _asset_map: return
 
-    # 1. Cria uma lista vazia para colecionar as mudanças do ciclo atual.
     changes_to_commit = []
-
+    now = time.time() # <--- NOVA ADIÇÃO: 'now' definido no início para ser usado em todo o ciclo
     db = SessionLocal()
     try:
+        # <--- INÍCIO DA NOVA SECÇÃO: Processamento de Verificações de Wi-Fi Pendentes ---
+        # Este bloco é executado primeiro para verificar o status dos ativos que já estão à espera da confirmação de Wi-Fi.
         for mac, state in list(_asset_realtime_state.items()):
+            if state.pending_wifi_check_since is not None:
+                asset_info = _asset_map.get(mac)
+                if not asset_info: continue
+                
+                wifi_mac_address = asset_info.get("wifi_mac")
+
+                # SUCESSO: O Wi-Fi foi encontrado
+                if wifi_mac_address and await check_presence(wifi_mac_address):
+                    logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id}.")
+                    
+                    change = state.pending_event_details
+                    change["new_quarto_id"] = state.pending_quarto_id
+                    change["details"] = change["details"].replace("Aguardando Wi-Fi", "Wi-Fi confirmado.")
+                    changes_to_commit.append(change)
+
+                    if mac in _asset_map:
+                        _asset_map[mac]["quarto_id"] = state.pending_quarto_id
+                    
+                    # Limpa o estado pendente para finalizar a operação
+                    state.pending_wifi_check_since = None
+                    state.pending_quarto_id = None
+                    state.pending_event_details = {}
+                    
+                # TIMEOUT: A verificação está a demorar demasiado (ex: 3 minutos)
+                elif (now - state.pending_wifi_check_since) > 180:
+                    logger.warning(f"EVENTO CANCELADO (TIMEOUT): Verificação de Wi-Fi para o ativo {mac} excedeu o tempo limite. A abortar a mudança de quarto.")
+                    
+                    # Apenas limpa o estado pendente, revertendo a operação
+                    state.pending_wifi_check_since = None
+                    state.pending_quarto_id = None
+                    state.pending_event_details = {}
+        # <--- FIM DA NOVA SECÇÃO ---
+
+        for mac, state in list(_asset_realtime_state.items()):
+            # <--- MUDANÇA: Ignora ativos que ainda estão pendentes para não processá-los duas vezes no mesmo ciclo
+            if state.pending_wifi_check_since is not None:
+                continue
+
             asset_info = _asset_map.get(mac)
             if not asset_info:
                 continue 
@@ -110,13 +157,12 @@ async def _processar_localizacoes():
 
             if not asset_id: continue
 
-            # --- Lógica de SAÍDA POR TIMEOUT ---
+            # --- Lógica de SAÍDA POR TIMEOUT (sem alterações) ---
             if not state.cleanup_old_readings():
                 if quarto_id_atual is not None:
                     if state.disappeared_since is None: state.disappeared_since = time.time()
                     if (time.time() - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
                         logger.info(f"EVENTO OUT (TIMEOUT): Ativo {mac} marcado para remoção do Quarto {quarto_id_atual}.")
-                        # Adiciona a mudança à lista, em vez de chamar o serviço
                         changes_to_commit.append({
                             "asset_id": asset_id, "new_quarto_id": None,
                             "source_esp_id": state.last_strongest_signal.get("esp_id") or "server_timeout",
@@ -129,7 +175,7 @@ async def _processar_localizacoes():
                     del _asset_realtime_state[mac]
                 continue
             
-            # Encontra o candidato mais forte baseado na EMA
+            # --- Lógica de encontrar o candidato mais forte (sem alterações) ---
             strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None}
             for esp_id, reading in state.readings.items():
                 if esp_id not in _esp_map: continue
@@ -147,22 +193,20 @@ async def _processar_localizacoes():
                 if reading["ema_rssi"] > threshold and reading["ema_rssi"] > strongest_candidate["ema_rssi"]:
                     strongest_candidate = {
                         "esp_id": esp_id, 
-                        "rssi": reading["rssi"],      # Guarda o RSSI bruto para log
-                        "ema_rssi": reading["ema_rssi"],# Usa a EMA para decisão
+                        "rssi": reading["rssi"],
+                        "ema_rssi": reading["ema_rssi"],
                         "quarto_id": q_id
                     }
             
-            # Atualiza o sinal mais forte geral (para logs e referência)
             top_esp, top_read = max(state.readings.items(), key=lambda i: i[1]['ema_rssi'])
             state.last_strongest_signal = {"esp_id": top_esp, "rssi": top_read['rssi'], "ema_rssi": top_read['ema_rssi']}
-
             candidate_quarto_id = strongest_candidate["quarto_id"]
 
+            # --- Lógica de SAÍDA POR SINAL FRACO (sem alterações) ---
             if quarto_id_atual is not None and not candidate_quarto_id:
                 if state.weak_signal_since is None: state.weak_signal_since = time.time()
                 elif (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
                     logger.info(f"EVENTO OUT (SINAL FRACO): Ativo {mac} marcado para remoção do Quarto {quarto_id_atual}.")
-                    # Adiciona a mudança à lista
                     changes_to_commit.append({
                         "asset_id": asset_id, "new_quarto_id": None,
                         "source_esp_id": state.last_strongest_signal['esp_id'],
@@ -174,6 +218,7 @@ async def _processar_localizacoes():
                     continue
             elif state.weak_signal_since is not None: state.weak_signal_since = None
 
+            # --- Lógica de gestão do candidato (sem alterações) ---
             if candidate_quarto_id == quarto_id_atual:
                 state.candidate_quarto_id = quarto_id_atual
                 state.candidate_since = None
@@ -182,9 +227,7 @@ async def _processar_localizacoes():
             if candidate_quarto_id != state.candidate_quarto_id:
                 if quarto_id_atual is not None and candidate_quarto_id is not None:
                     esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
-                    
                     leituras_ao_vivo = [r["ema_rssi"] for e, r in state.readings.items() if e in esps_no_quarto_atual]
-                    
                     if leituras_ao_vivo:
                         rssi_para_comparacao = max(leituras_ao_vivo)
                     else:
@@ -192,45 +235,45 @@ async def _processar_localizacoes():
                         rssi_para_comparacao = max(emas_conhecidos) if emas_conhecidos else -1000
                     
                     if strongest_candidate["ema_rssi"] < (rssi_para_comparacao + _config["conflict_margin_db"]):
-                        #logger.info(f"CONFLITO: Ativo {mac}: Troca de Q{quarto_id_atual} para Q{candidate_quarto_id} NEGADA. Sinal EMA Cand: {strongest_candidate['ema_rssi']:.1f}dBm vs Base Atual: {rssi_para_comparacao:.1f}dBm + Margem: {_config['conflict_margin_db']}dBm")
                         continue
                 
                 state.candidate_quarto_id = candidate_quarto_id
                 state.candidate_since = time.time()
 
+            # <--- INÍCIO DA SECÇÃO MODIFICADA: Lógica de Entrada e Transição para Pendente ---
+            # Este bloco agora não confirma a entrada diretamente. Em vez disso, ele inicia o estado de verificação pendente.
             if state.candidate_since and state.candidate_quarto_id is not None:
-                if (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
+                if (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
                     if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
-                        asset_info = _asset_map.get(mac)
-                        if not asset_info: continue
-
-                        asset_id = asset_info.get("id")
-                        quarto_id_atual = asset_info.get("quarto_id")
-                        wifi_mac_address = asset_info.get("wifi_mac")
-                        wifi_mac_address = asset_info.get("wifi_mac") if asset_info else None
-
+                        
+                        # Se o ativo não tem Wi-Fi, o comportamento antigo é mantido: confirmação direta.
                         if not wifi_mac_address:
-                            logger.warning(f"Ativo {mac} não tem um MAC de Wi-Fi configurado. Ignorando verificação de presença.")
-                            is_present = True 
-                        else:
-                            loop = asyncio.get_running_loop()
-                            is_present = await check_presence(wifi_mac_address)
-                        if is_present:
-                            logger.info(f"EVENTO IN (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.candidate_quarto_id}.")
+                            logger.warning(f"Ativo {mac} não tem um MAC de Wi-Fi. Confirmando entrada no Quarto {state.candidate_quarto_id} diretamente.")
                             changes_to_commit.append({
-                                "asset_id": asset_id,
-                                "new_quarto_id": state.candidate_quarto_id,
-                                "source_esp_id": strongest_candidate['esp_id'],
-                                "rssi": strongest_candidate['rssi'],
-                                "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f}) e Wi-Fi confirmado."
+                                "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
+                                "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'],
+                                "details": f"Localizado via {strongest_candidate['esp_id']} (Sem verificação de Wi-Fi)."
                             })
-                            if mac in _asset_map:
-                                _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
-                            state.candidate_since = None 
-                        else:
-                            logger.warning(f"EVENTO PENDENTE: Ativo {mac} tem sinal forte para o Quarto {state.candidate_quarto_id}, mas o seu Wi-Fi ({wifi_mac_address}) está ausente. A aguardar...")
+                            if mac in _asset_map: _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
+                            state.candidate_since = None
+                        
+                        # Se tem Wi-Fi, inicia o estado pendente
+                        elif state.pending_wifi_check_since is None:
+                            logger.info(f"EVENTO PENDENTE: Ativo {mac} está estável para o Quarto {state.candidate_quarto_id}. INICIANDO verificação de Wi-Fi.")
+                            
+                            state.pending_quarto_id = state.candidate_quarto_id
+                            state.pending_wifi_check_since = now
+                            state.pending_event_details = {
+                                "asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'],
+                                "rssi": strongest_candidate['rssi'],
+                                "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f}). Aguardando Wi-Fi."
+                            }
+                            
+                            # Limpa o estado de candidato para não re-acionar este bloco
+                            state.candidate_since = None
+                            state.candidate_quarto_id = None
+            # <--- FIM DA SECÇÃO MODIFICADA ---
 
-        
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)
     finally:
