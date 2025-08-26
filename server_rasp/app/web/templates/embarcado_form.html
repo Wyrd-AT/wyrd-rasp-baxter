@@ -5,19 +5,14 @@
             <label for="id_esp">ID da ESP</label>
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
-        
+         
         <div class="form-group">
-            <label for="quarto_id">Quarto</label>
-            <select id="quarto_id" name="quarto_id" class="filter-dropdown-main" required>
-                <option value="" disabled {% if not embarcado %}selected{% endif %}>Selecione um quarto disponível</option>
-                {% for q in available_quartos %}
-                <option value="{{ q.id }}" {% if embarcado and embarcado.quarto_id == q.id %}selected{% endif %}>
-                    {{ q.nome }}
-                </option>
-                {% endfor %}
-            </select>
+            <label for="quarto_nome">Quarto</label>
+            <input type="text" id="quarto_nome" name="quarto_nome" 
+                   value="{{ embarcado.quarto.nome if embarcado and embarcado.quarto else '' }}" 
+                   placeholder="Ex: 1806 ou UTI-02" required>
         </div>
-        
+         
         <div class="form-group">
             <label for="rssi_threshold">RSSI Mínimo Individual (dBm)</label>
             <input type="number" id="rssi_threshold" name="rssi_threshold"

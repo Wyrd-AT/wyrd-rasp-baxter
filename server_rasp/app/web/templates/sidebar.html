@@ -19,17 +19,6 @@
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
             <span class="nav-text">Camas</span>
         </a>
-
-        <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
-            <span class="nav-text">Quartos</span>
-        </a>
-
-        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Plantas">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
-            <span class="nav-text">Plantas</span>
-        </a>
-        
     </nav>
     <div class="sidebar-footer">
         <a href="#" class="nav-item" title="Sair">

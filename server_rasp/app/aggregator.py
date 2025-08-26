@@ -243,36 +243,58 @@ async def _processar_localizacoes():
             # <--- INÍCIO DA SECÇÃO MODIFICADA: Lógica de Entrada e Transição para Pendente ---
             # Este bloco agora não confirma a entrada diretamente. Em vez disso, ele inicia o estado de verificação pendente.
             if state.candidate_since and state.candidate_quarto_id is not None:
+                # 1. Condição de Inércia (sem alteração)
+                #    Verifica se o ativo permaneceu como candidato estável pelo tempo necessário.
                 if (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
+                    # 2. Condição de Validade do Candidato (sem alteração)
+                    #    Confirma que o candidato forte ainda é o mesmo que iniciou o processo e que é para um novo quarto.
                     if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
                         
-                        # Se o ativo não tem Wi-Fi, o comportamento antigo é mantido: confirmação direta.
-                        if not wifi_mac_address:
-                            logger.warning(f"Ativo {mac} não tem um MAC de Wi-Fi. Confirmando entrada no Quarto {state.candidate_quarto_id} diretamente.")
-                            changes_to_commit.append({
-                                "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
-                                "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'],
-                                "details": f"Localizado via {strongest_candidate['esp_id']} (Sem verificação de Wi-Fi)."
-                            })
-                            if mac in _asset_map: _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
-                            state.candidate_since = None
+
+                        # REGRA 1: Sem Trocas Diretas. O ativo deve estar livre (quarto_id_atual deve ser None).
+                        if quarto_id_atual is not None:
+                            logger.info(f"[WH-CONNECT] Atribuição para {mac} BLOQUEADA. O ativo já está no quarto {quarto_id_atual} e precisa de um evento 'OUT' primeiro.")
+                            state.candidate_since = None # Reseta o candidato para evitar loops de verificação
                         
-                        # Se tem Wi-Fi, inicia o estado pendente
-                        elif state.pending_wifi_check_since is None:
-                            logger.info(f"EVENTO PENDENTE: Ativo {mac} está estável para o Quarto {state.candidate_quarto_id}. INICIANDO verificação de Wi-Fi.")
+                        # REGRA 2: Limite de Ocupação. O quarto de destino deve ter vaga.
+                        else:
+                            ativos_no_quarto_candidato = [
+                                asset for asset in _asset_map.values() if asset.get("quarto_id") == state.candidate_quarto_id
+                            ]
+                            if len(ativos_no_quarto_candidato) >= _config["max_assets_per_room"]:
+                                logger.warning(f"[WH-CONNECT] Atribuição para {mac} BLOQUEADA. O quarto {state.candidate_quarto_id} já atingiu o seu limite de {_config['max_assets_per_room']} ativo(s).")
+                                state.candidate_since = None # Reseta o candidato
                             
-                            state.pending_quarto_id = state.candidate_quarto_id
-                            state.pending_wifi_check_since = now
-                            state.pending_event_details = {
-                                "asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'],
-                                "rssi": strongest_candidate['rssi'],
-                                "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f}). Aguardando Wi-Fi."
-                            }
-                            
-                            # Limpa o estado de candidato para não re-acionar este bloco
-                            state.candidate_since = None
-                            state.candidate_quarto_id = None
-            # <--- FIM DA SECÇÃO MODIFICADA ---
+                            # <--- FIM DAS NOVAS REGRAS DE NEGÓCIO ---
+
+                            # 3. Se todas as regras passaram, inicia o estado PENDENTE (lógica original movida para dentro deste 'else')
+                            else:
+                                # Caso de exceção: Se o ativo não tem Wi-Fi, confirma diretamente.
+                                if not wifi_mac_address:
+                                    logger.warning(f"Ativo {mac} não tem um MAC de Wi-Fi. Confirmando entrada no Quarto {state.candidate_quarto_id} diretamente.")
+                                    changes_to_commit.append({
+                                        "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
+                                        "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'],
+                                        "details": f"Localizado via {strongest_candidate['esp_id']} (Sem verificação de Wi-Fi)."
+                                    })
+                                    if mac in _asset_map: _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
+                                    state.candidate_since = None
+                                
+                                # Caso principal: Se tem Wi-Fi, inicia o estado pendente.
+                                elif state.pending_wifi_check_since is None:
+                                    logger.info(f"EVENTO PENDENTE: Ativo {mac} está estável e passou nas regras para o Quarto {state.candidate_quarto_id}. INICIANDO verificação de Wi-Fi.")
+                                    
+                                    state.pending_quarto_id = state.candidate_quarto_id
+                                    state.pending_wifi_check_since = now
+                                    state.pending_event_details = {
+                                        "asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'],
+                                        "rssi": strongest_candidate['rssi'],
+                                        "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f}). Aguardando Wi-Fi."
+                                    }
+                                    
+                                    # Limpa o estado de candidato para não re-acionar este bloco
+                                    state.candidate_since = None
+                                    state.candidate_quarto_id = None
 
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)
@@ -301,6 +323,7 @@ def _load_maps_from_db():
         new_config["conflict_margin_db"] = int(settings_from_db.get("conflict_margin_db", _config["conflict_margin_db"]))
         new_config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))
         new_config["inertia_saida_ms"] = int(settings_from_db.get("inercia_saida", _config["inertia_saida_ms"]))
+        new_config["max_assets_per_room"] = int(settings_from_db.get("max_assets_per_room", 1))
         # Carrega o novo parâmetro também, se existir no DB
         new_config["ema_alpha"] = float(settings_from_db.get("ema_alpha", _config["ema_alpha"]))
         _config = new_config

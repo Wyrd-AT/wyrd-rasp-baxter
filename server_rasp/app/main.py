@@ -226,7 +226,7 @@ def get_server_time():
 
 @app.get("/", name="main")
 def main_page(request: Request):
-    return RedirectResponse(url=request.url_for("list_quartos"), status_code=303)
+    return RedirectResponse(url=request.url_for("list_events"), status_code=303)
 
 @app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
 def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
@@ -478,118 +478,15 @@ def esp_handshake(
         "whitelist": whitelist
     }
 
-@app.get("/planta", name="view_planta")
-def view_planta(request: Request, db: Session = Depends(get_db)):
-    """
-    Renderiza a página da planta baixa interativa.
-    """
-    return templates.TemplateResponse("planta_baixa.html", {"request": request})
-
-@app.get("/api/planta/dados", name="get_planta_dados")
-def get_planta_dados(db: Session = Depends(get_db)):
-    """
-    Endpoint de API que fornece os dados de ocupação dos quartos,
-    incluindo o status do embarcado e detalhes de cada ativo.
-    """
-    quartos = db.query(Quarto).options(
-        joinedload(Quarto.assets),
-        joinedload(Quarto.embarcados)
-    ).order_by(Quarto.id).all()
-    
-    dados_quartos = []
-    now_utc = datetime.now(timezone.utc)
-    sao_paulo_tz = timezone(timedelta(hours=-3))
-
-    for quarto in quartos:
-        status_embarcado = "Offline"
-        if quarto.embarcados: # Verifica se existe um embarcado associado
-            embarcado = quarto.embarcados[0] # Pega o primeiro (deve ser apenas um)
-            if embarcado.last_seen:
-                last_seen_utc = embarcado.last_seen.replace(tzinfo=timezone.utc)
-                if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
-                    status_embarcado = "Online"
-        
-        # 2. Obter detalhes de cada ativo individualmente
-        ativos_detalhados = []
-        for asset in quarto.assets:
-            # Para cada ativo, busca o seu último evento de entrada bem sucedido
-            ultimo_evento = db.query(ReceivedEvent).filter(
-                ReceivedEvent.ativo == asset.mac_beacon,
-                ReceivedEvent.action == 'GET',
-                ReceivedEvent.status.in_(['OK', 'Confirmado'])
-            ).order_by(desc(ReceivedEvent.data_on)).first()
-            
-            horario = "N/A"
-            if ultimo_evento:
-                # Usamos um fuso horário para formatar a hora local corretamente
-                horario_local = ultimo_evento.data_on.astimezone(sao_paulo_tz)
-                horario = horario_local.strftime("%H:%M:%S")
-            ativos_detalhados.append({
-                "nome": asset.nome_ativo,
-                "horario_entrada": horario
-            })
-
-        dados_quartos.append({
-            "id_quarto": f"quarto-{quarto.id}",
-            "nome_quarto": quarto.nome,
-            "numero_ativos": len(quarto.assets),
-            "status_embarcado": status_embarcado, # <-- NOVO DADO
-            "ativos": ativos_detalhados          # <-- NOVA ESTRUTURA DE DADOS
-        })
-        
-    return JSONResponse(content=dados_quartos)
-
-# ===================================================================
-# SEÇÃO 2: CRUD PARA QUARTOS
-# ===================================================================
-@app.get("/quartos", name="list_quartos")
-def list_quartos(request: Request, db: Session = Depends(get_db)):
-    """
-    Exibe o dashboard de status dos quartos, com os ativos ordenados por hora de entrada.
-    """
-    quartos_com_assets = db.query(Quarto).options(joinedload(Quarto.assets)).order_by(Quarto.id).all()
-
-    # --- LÓGICA DE BUSCA E ORDENAÇÃO ---
-    for quarto in quartos_com_assets:
-        for asset in quarto.assets:
-            # 1. Busca o evento 'GET' mais recente para este ativo
-            ultimo_evento_entrada = db.query(ReceivedEvent).filter(
-                ReceivedEvent.ativo == asset.mac_beacon,
-                ReceivedEvent.action == 'GET',
-                ReceivedEvent.status == 'OK'
-            ).order_by(ReceivedEvent.data_on.desc()).first()
-
-            if ultimo_evento_entrada:
-                # 2. Armazena a data como um objeto e como texto formatado
-                asset.data_entrada_obj = ultimo_evento_entrada.data_on
-                asset.data_entrada_str = ultimo_evento_entrada.data_on.strftime("%d/%m/%Y às %H:%M:%S")
-            else:
-                # Usa uma data muito antiga para garantir que fiquem no início
-                asset.data_entrada_obj = datetime.min.replace(tzinfo=timezone.utc)
-                asset.data_entrada_str = "Horário de entrada não registrado"
-        
-        # 3. --- CORREÇÃO ADICIONADA AQUI ---
-        # Ordena a lista de ativos do quarto com base na data de entrada que acabamos de encontrar.
-        quarto.assets.sort(key=lambda b: b.data_entrada_obj)
-
-    return templates.TemplateResponse("quartos_list.html", {
-        "request": request,
-        "quartos": quartos_com_assets
-    })
-
-
-@app.post("/quartos/{quarto_id}/edit", name="update_quarto")
-def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: Session = Depends(get_db)):
-    """
-    Processa a atualização do nome de um quarto (submetido pelo formulário inline).
-    """
-    quarto = db.query(Quarto).get(quarto_id)
-    if quarto:
-        quarto.nome = nome
+def get_or_create_quarto(db: Session, nome: str) -> Quarto:
+    quarto = db.query(Quarto).filter(Quarto.nome == nome).first()
+    if not quarto:
+        logger.info(f"Quarto '{nome}' não encontrado. A criar novo registo.")
+        quarto = Quarto(nome=nome)
+        db.add(quarto)
         db.commit()
-        aggregator.flag_for_reload() 
-    return RedirectResponse(request.url_for("list_quartos"), status_code=303)
-
+        db.refresh(quarto)
+    return quarto
 
 # ===================================================================
 # SEÇÃO 3: CRUD PARA EMBARCADOS
@@ -639,16 +536,17 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
     })
 
 @app.post("/embarcados/new", name="create_embarcado")
-def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int = Form(...),
+def create_embarcado(request: Request, id_esp: str = Form(...), quarto_nome: str = Form(...),
                      rssi_threshold: Optional[str] = Form(None),
                      db: Session = Depends(get_db)):
 
-    # Converte a string recebida para int apenas se ela não for vazia/nula
+    quarto_obj = get_or_create_quarto(db, quarto_nome.strip())
+    
     rssi_value = int(rssi_threshold) if rssi_threshold else None
     
     # Usa o valor convertido ao criar o objeto
-    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_id, rssi_threshold=rssi_value)
-    
+    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, rssi_threshold=rssi_value)
+        
     try:
         db.add(novo_embarcado)
         db.commit()
@@ -694,15 +592,16 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
 # Em main.py
 
 @app.post("/embarcados/{embarcado_id}/edit", name="update_embarcado")
-def update_embarcado(request: Request, embarcado_id: int, quarto_id: int = Form(...),
+def update_embarcado(request: Request, embarcado_id: int, quarto_nome: str = Form(...),
                        rssi_threshold: Optional[str] = Form(None),
                        db: Session = Depends(get_db)):
     emb = db.query(Embarcado).get(embarcado_id)
     if emb:
         # Converte a string recebida para int apenas se ela não for vazia/nula
+        quarto_obj = get_or_create_quarto(db, quarto_nome.strip())
         rssi_value = int(rssi_threshold) if rssi_threshold else None
         
-        emb.quarto_id = quarto_id
+        emb.quarto_id = quarto_obj.id
         emb.rssi_threshold = rssi_value # Salva o valor correto
         db.commit()
         aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
