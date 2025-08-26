@@ -757,6 +757,33 @@ async def receive_rssi_report(report_data: Dict):
     else:
         logger.info(f"AVISO: Relatório da ESP '{esp_id}' recebido, mas nenhum cliente estava à espera.")
 
+@app.get("/api/esp/handshake", name="esp_handshake")
+def esp_handshake(
+    request: Request,
+    db: Session = Depends(get_db),
+    id_esp: str = Query(...),
+    mac: str = Query(...),
+    ip: str = Query("N/A"),
+    fw: str = Query("N/A")
+):
+    """
+    Endpoint único para a ESP se anunciar e obter a sua configuração de operação.
+    """
+    logger.info(f"HANDSHAKE recebido da ESP: {id_esp} (MAC: {mac}, IP: {ip}, FW: {fw})")
+
+    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
+    if embarcado:
+        pass
+
+    all_assets = db.query(Bed.mac_beacon).filter(Bed.mac_beacon.isnot(None)).all()
+    whitelist = [m for m, in all_assets]
+
+    logger.info(f"Enviando configuração para {id_esp}: {len(whitelist)} ativos na whitelist.")
+
+    return {
+        "whitelist": whitelist
+    }
+
 @app.post("/embarcados/{esp_id}/reboot", name="reboot_esp")
 def reboot_esp(request: Request, esp_id: str):
     """
