@@ -769,10 +769,8 @@ def list_events(
             e.quarto = e.quarto_nome if e.quarto_nome else "N/A"
             e.nome_cama = e.nome_ativo
             if e.data_on:
-                data_utc = e.data_on.replace(tzinfo=timezone.utc)
-                data_local = data_utc.astimezone(sao_paulo_tz)
-                e.data_str = data_local.strftime("%d/%m/%Y")
-                e.hora_str = data_local.strftime("%H:%M:%S")
+                e.data_str = e.data_on.strftime("%d/%m/%Y")
+                e.hora_str = e.data_on.strftime("%H:%M:%S")
 
     enrich_event_data(pending_events)
     enrich_event_data(events)
