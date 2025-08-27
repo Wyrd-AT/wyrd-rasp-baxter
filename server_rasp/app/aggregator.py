@@ -71,7 +71,6 @@ class AssetState:
         new_ema = (rssi * alpha) + (old_ema * (1 - alpha))
         self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema, "wifi_signal": wifi_signal}
         self.last_known_ema[esp_id] = new_ema
-        self.disappeared_since = None
         self.disappearance_count = 0
 
     def cleanup_old_readings(self):
@@ -279,9 +278,7 @@ async def _processar_localizacoes():
                     
                     # Se o timer JÁ estava a correr, verifica se o tempo expirou.
                     elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
-                        # Antes de processar a saída, cancela qualquer evento pendente.
-                        clear_asset_candidate_state(mac)
-
+                        clear_asset_candidate_state(mac) # Cancela qualquer pendência antes de sair
                         logger.info(f"EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} após inércia de saída.")
                         changes_to_commit.append({
                             "asset_id": asset_id, 
@@ -290,26 +287,14 @@ async def _processar_localizacoes():
                             "rssi": state.last_strongest_signal.get('rssi', -1000),
                             "details": f"Sinal permaneceu fraco ou ausente por mais de {_config['inertia_saida_ms']}ms."
                         })
-                        
-                        if mac in _asset_realtime_state:
-                            del _asset_realtime_state[mac]
+                        if mac in _asset_realtime_state: del _asset_realtime_state[mac]
                         continue
 
-            # Se o ativo ainda é um candidato válido para o seu quarto atual, reseta o temporizador de saída.
-            elif quarto_id_atual is not None and candidate_quarto_id == quarto_id_atual:
-                if state.disappeared_since is not None:
-                    logger.info(f"Sinal para o ativo {mac} no quarto atual ({quarto_id_atual}) restabelecido. Cancelando inércia de saída.")
-                    state.disappeared_since = None
-
-            # 3.3: Lógica de Gestão de Candidato (Inércia de Entrada)
-            if candidate_quarto_id == quarto_id_atual:
-                state.candidate_quarto_id = None
-                state.candidate_since = None
-                continue
-
-            if candidate_quarto_id != state.candidate_quarto_id:
-                state.candidate_quarto_id = candidate_quarto_id
-                state.candidate_since = now
+            # 3.3: Lógica de Gestão de Candidato para ENTRADA (Apenas para ativos livres)
+            if quarto_id_atual is None:
+                if candidate_quarto_id != state.candidate_quarto_id:
+                    state.candidate_quarto_id = candidate_quarto_id
+                    state.candidate_since = now
 
             # 3.4: Transição para o Estado PENDENTE
             if state.candidate_since and state.candidate_quarto_id is not None and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
