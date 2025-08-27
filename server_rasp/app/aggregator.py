@@ -262,25 +262,38 @@ async def _processar_localizacoes():
             candidate_quarto_id = strongest_candidate["quarto_id"]
 
             # 3.2: Lógica de Saída Unificada (Sinal Fraco ou Desaparecimento)
-            if quarto_id_atual is not None and candidate_quarto_id != quarto_id_atual:
-                if state.disappeared_since is None:
-                    logger.info(f"Ativo {mac} não é mais candidato para o quarto atual ({quarto_id_atual}). Iniciando inércia de saída.")
-                    state.disappeared_since = now
+            if quarto_id_atual is not None:
+                # CONDIÇÃO A: O ativo ainda é um candidato válido para seu quarto?
+                if candidate_quarto_id == quarto_id_atual:
+                    # Se sim, e se um timer de saída estava a correr, ele é cancelado.
+                    if state.disappeared_since is not None:
+                        logger.info(f"Sinal para o ativo {mac} no quarto atual ({quarto_id_atual}) restabelecido. Cancelando inércia de saída.")
+                        state.disappeared_since = None
                 
-                # Se o temporizador de saída já passou do limite, processa o OUT.
-                elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
-                    logger.info(f"EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} após inércia de saída.")
-                    changes_to_commit.append({
-                        "asset_id": asset_id, 
-                        "new_quarto_id": None,
-                        "source_esp_id": state.last_strongest_signal.get('esp_id') or "server_inertia_out",
-                        "rssi": state.last_strongest_signal.get('rssi', -1000),
-                        "details": f"Sinal permaneceu fraco ou ausente por mais de {_config['inertia_saida_ms']}ms."
-                    })
-                    # Limpa o estado da memória APENAS APÓS preparar o commit
-                    if mac in _asset_realtime_state:
-                        del _asset_realtime_state[mac]
-                    continue # Pula para o próximo ativo
+                # CONDIÇÃO B: O ativo NÃO é mais um candidato válido.
+                else:
+                    # Se o timer de saída ainda não foi iniciado, inicia-o AGORA.
+                    if state.disappeared_since is None:
+                        logger.info(f"Ativo {mac} não é mais candidato para o quarto atual ({quarto_id_atual}). Iniciando inércia de saída.")
+                        state.disappeared_since = now
+                    
+                    # Se o timer JÁ estava a correr, verifica se o tempo expirou.
+                    elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
+                        # Antes de processar a saída, cancela qualquer evento pendente.
+                        clear_asset_candidate_state(mac)
+
+                        logger.info(f"EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} após inércia de saída.")
+                        changes_to_commit.append({
+                            "asset_id": asset_id, 
+                            "new_quarto_id": None,
+                            "source_esp_id": state.last_strongest_signal.get('esp_id') or "server_inertia_out",
+                            "rssi": state.last_strongest_signal.get('rssi', -1000),
+                            "details": f"Sinal permaneceu fraco ou ausente por mais de {_config['inertia_saida_ms']}ms."
+                        })
+                        
+                        if mac in _asset_realtime_state:
+                            del _asset_realtime_state[mac]
+                        continue
 
             # Se o ativo ainda é um candidato válido para o seu quarto atual, reseta o temporizador de saída.
             elif quarto_id_atual is not None and candidate_quarto_id == quarto_id_atual:
