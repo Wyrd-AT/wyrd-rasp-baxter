@@ -72,6 +72,19 @@ async def batch_update_asset_assignments(db: Session, changes: list):
 
         db.commit()
         
+        for change in changes:
+            asset_id = change.get("asset_id")
+            if not asset_id: continue
+            
+            # Precisamos do MAC do beacon para atualizar o cache, então buscamos o asset novamente.
+            # Como o commit já foi feito, esta é uma operação rápida.
+            asset_db = db.query(Asset).get(asset_id)
+            if asset_db:
+                aggregator.update_asset_cache(
+                    mac_beacon=asset_db.mac_beacon, 
+                    new_quarto_id=change["new_quarto_id"]
+                )
+
         # Despacha os eventos confirmados e notifica a UI
         logger.info(f"Lote de {len(changes)} mudanças processado. Notificando sistemas.")
         loop = asyncio.get_running_loop()

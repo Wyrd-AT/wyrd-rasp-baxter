@@ -112,6 +112,15 @@ def clear_asset_candidate_state(mac_beacon_to_clear: str):
         return True
     return False
 
+def update_asset_cache(mac_beacon: str, new_quarto_id: int | None):
+    """
+    (NOVA FUNÇÃO) Atualiza o quarto de um ativo no cache em memória do agregador.
+    Garante a consistência entre o DB e o estado em tempo real.
+    """
+    if mac_beacon in _asset_map:
+        _asset_map[mac_beacon]["quarto_id"] = new_quarto_id
+        logger.info(f"Cache do agregador atualizado para o ativo {mac_beacon}: novo quarto_id é {new_quarto_id}.")
+        
 def flag_for_reload():
     """Sinaliza ao loop principal que o cache de mapas precisa ser recarregado."""
     _config_needs_reload.set()
