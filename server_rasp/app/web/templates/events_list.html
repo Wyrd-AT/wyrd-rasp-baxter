@@ -53,6 +53,48 @@
     </div>
 </form>
 
+{% if pending_events %}
+<div class="pending-events-section">
+    <h2>Eventos Pendentes (Aguardando Wi-Fi)</h2>
+    <div class="history-table-container">
+        <table class="data-table history-table">
+            <thead>
+                <tr>
+                    <th>HORA</th>
+                    <th>CAMA</th>
+                    <th>QUARTO DETECTADO</th>
+                    <th>AÇÃO</th>
+                    <th>STATUS</th>
+                    <th>AÇÕES</th> 
+                </tr>
+            </thead>
+            <tbody>
+                {% for event in pending_events %}
+                <tr>
+                    <td>{{ event.hora_str }}</td>
+                    <td>{{ event.nome_cama }}</td>
+                    <td>{{ event.quarto }}</td>
+                    <td><span class="action-get">Conectar</span></td>
+                    <td>
+                        <span class="status-box status-pendente" 
+                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
+                            Pendente
+                        </span>
+                    </td>
+                    <td>
+                        <form action="{{ url_for('cancel_pending_event', event_id=event.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja cancelar esta verificação?');">
+                            <button type="submit" class="btn-cancel" title="Cancelar verificação em segundo plano">
+                                Cancelar
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
 <div class="history-table-container">
     <table class="data-table history-table">
         <thead>
@@ -96,48 +138,7 @@
         </tbody>
     </table>
 </div>
-{% if pending_events %}
-<div class="pending-events-section">
-    <h2>Eventos Pendentes (Aguardando Wi-Fi)</h2>
-    <div class="history-table-container">
-        <table class="data-table history-table">
-            <thead>
-                <tr>
-                    <th>HORA</th>
-                    <th>CAMA</th>
-                    <th>QUARTO DETECTADO</th>
-                    <th>AÇÃO</th>
-                    <th>STATUS</th>
-                    <th>AÇÕES</th> 
-                </tr>
-            </thead>
-            <tbody>
-                {% for event in pending_events %}
-                <tr>
-                    <td>{{ event.hora_str }}</td>
-                    <td>{{ event.nome_cama }}</td>
-                    <td>{{ event.quarto }}</td>
-                    <td><span class="action-get">Conectar</span></td>
-                    <td>
-                        <span class="status-box status-pendente" 
-                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
-                            Pendente
-                        </span>
-                    </td>
-                    <td>
-                        <form action="{{ url_for('cancel_pending_event', event_id=event.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja cancelar esta verificação?');">
-                            <button type="submit" class="btn-cancel" title="Cancelar verificação em segundo plano">
-                                Cancelar
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
+
 
 <div class="pagination">
     {% if page > 1 %}<a href="{{ request.url.replace_query_params(page=page-1) }}">Anterior</a>{% endif %}
