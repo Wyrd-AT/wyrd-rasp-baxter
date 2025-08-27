@@ -65,7 +65,7 @@ class AssetState:
         self.last_wifi_check_at = 0
         self.warning_issued = False
 
-    def update_reading(self, esp_id, rssi, timestamp):
+    def update_reading(self, esp_id, rssi, timestamp, wifi_signal=None):
         old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi)
         alpha = _config["ema_alpha"]
         new_ema = (rssi * alpha) + (old_ema * (1 - alpha))
@@ -126,6 +126,7 @@ async def _consume_scan_data_queue():
             signal_logger.info(json.dumps(item))
             esp_id, payload = item.get("esp_id"), item.get("payload", {})
             beacons = payload.get("beacons", [])
+            wifi_signal = payload.get("wifi_signal")
             for beacon in beacons:
                 mac = beacon.get("mac", "").lower()
                 if not mac or mac not in _asset_map: continue
@@ -142,7 +143,7 @@ async def _consume_scan_data_queue():
                 
                 if mac not in _asset_realtime_state:
                     _asset_realtime_state[mac] = AssetState(mac)
-                _asset_realtime_state[mac].update_reading(esp_id, beacon.get("rssi"), time.time())
+                _asset_realtime_state[mac].update_reading(esp_id, beacon.get("rssi"), time.time(), wifi_signal)
     finally:
         if db:
             db.commit()
@@ -237,14 +238,14 @@ async def _processar_localizacoes():
             wifi_mac_address = asset_info.get("wifi_mac")
 
             # 3.1: Encontrar o Sinal Mais Forte (Candidato)
-            strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None}
+            strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None, "wifi_signal": None}
             for esp_id, reading in state.readings.items():
                 if esp_id not in _esp_map: continue
                 q_id, q_rssi = _esp_map[esp_id]
                 if any(om != mac and oa.get("quarto_id") == q_id for om, oa in _asset_map.items()): continue
                 threshold = q_rssi if q_rssi is not None else _config["default_rssi_threshold"]
                 if reading["ema_rssi"] > threshold and reading["ema_rssi"] > strongest_candidate["ema_rssi"]:
-                    strongest_candidate.update({"esp_id": esp_id, "rssi": reading["rssi"], "ema_rssi": reading["ema_rssi"], "quarto_id": q_id})
+                    strongest_candidate.update({"esp_id": esp_id, "rssi": reading["rssi"], "ema_rssi": reading["ema_rssi"], "quarto_id": q_id, "wifi_signal": reading.get("wifi_signal")})
             
             if state.readings:
                 top_esp, top_read = max(state.readings.items(), key=lambda i: i[1]['ema_rssi'])
@@ -308,8 +309,15 @@ async def _processar_localizacoes():
                                         clear_asset_candidate_state(other_mac)
 
                     if not wifi_mac_address:
-                        logger.warning(f"Ativo {mac} não tem MAC de Wi-Fi. Confirmando entrada no Quarto {state.candidate_quarto_id} diretamente.")
-                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "details": f"Localizado via {strongest_candidate['esp_id']} (Sem verificação de Wi-Fi)."})
+                        logger.warning(f"Ativo {mac} não tem MAC de Wi-Fi. Confirmando entrada...")
+                        changes_to_commit.append({
+                            "asset_id": asset_id, 
+                            "new_quarto_id": state.candidate_quarto_id, 
+                            "source_esp_id": strongest_candidate['esp_id'], 
+                            "rssi": strongest_candidate['rssi'], 
+                            "wifi_signal": strongest_candidate['wifi_signal'],
+                            "details": f"Localizado via {strongest_candidate['esp_id']} (Sem verificação de Wi-Fi)."
+                        })
                         if mac in _asset_map: _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
                         state.candidate_since = None
                     elif state.pending_wifi_check_since is None:
@@ -332,7 +340,13 @@ async def _processar_localizacoes():
                         state.pending_wifi_check_since = now
                         state.last_wifi_check_at = 0
                         state.warning_issued = False
-                        state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "details": f"Wi-Fi confirmado via {strongest_candidate['esp_id']} (EMA {strongest_candidate['ema_rssi']:.1f})."}
+                        state.pending_event_details = {
+                                        "asset_id": asset_id, 
+                                        "source_esp_id": strongest_candidate['esp_id'], 
+                                        "rssi": strongest_candidate['rssi'], 
+                                        "wifi_signal": strongest_candidate['wifi_signal'], 
+                                        "details": f"Wi-Fi confirmado via {strongest_candidate['esp_id']} (EMA {strongest_candidate['ema_rssi']:.1f})."
+                                    }                        
                         state.candidate_since = None
                         state.candidate_quarto_id = None
         
