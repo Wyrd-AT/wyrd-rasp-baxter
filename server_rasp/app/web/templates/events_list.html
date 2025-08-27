@@ -120,6 +120,8 @@
                         <span class="action-get">Conectar</span>
                     {% elif event.action == 'OUT' %}
                         <span class="action-out">Desconectar</span>
+                    {% elif event.action == 'ALERTA' %}
+                        <span class="action-warning">Alerta</span>
                     {% else %}
                         <span>{{ event.action }}</span>
                     {% endif %}

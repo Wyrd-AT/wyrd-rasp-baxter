@@ -37,6 +37,7 @@ class Asset(Base):
     mac_address = Column(String, unique=True, nullable=True, index=True) 
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
     quarto = relationship("Quarto", back_populates="assets")
+    status = Column(String, default='Online', nullable=False)
 
 
 class Embarcado(Base):
