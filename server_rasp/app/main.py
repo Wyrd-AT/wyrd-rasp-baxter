@@ -51,11 +51,12 @@ from .dispatcher import dispatch_event
 
 logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 
-# --- Constantes e Configuração Inicial ---
-HISTORY_RETENTION_DAYS = 7
-EVENT_PAGE_SIZE = 25
-CLEANUP_INTERVAL_SEC = 3600
-NUM_FIXED_ROOMS = 6
+HISTORY_RETENTION_DAYS = int(settings.get('history_retention_days', 7))
+EVENT_PAGE_SIZE = int(settings.get('event_page_size', 25))
+CLEANUP_INTERVAL_SEC = int(settings.get('cleanup_interval_sec', 3600))
+MONITOR_WIFI_INTERVAL_SEC = int(settings.get('monitor_wifi_interval_sec', 60))
+ESP_TIMEOUT_SEC = int(settings.get('esp_timeout_sec', 150)) 
+WIFI_FAILURE_TOLERANCE = int(settings.get('wifi_failure_tolerance', 3)) 
 
 pending_rssi_requests = {} 
 _wifi_failure_counts = defaultdict(int)
@@ -348,7 +349,6 @@ def update_settings(
 
 LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
-ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
 
 async def check_esp_liveness():
     """
@@ -403,7 +403,7 @@ async def monitor_assigned_assets_wifi():
     await asyncio.sleep(30) # Espera inicial para o sistema estabilizar
 
     while True:
-        await asyncio.sleep(60) 
+        await asyncio.sleep(MONITOR_WIFI_INTERVAL_SEC)
         
         db = SessionLocal()
         try:
@@ -432,7 +432,7 @@ async def monitor_assigned_assets_wifi():
                         f"Contagem de falhas: {_wifi_failure_counts[asset.mac_address]}"
                     )
 
-                    if _wifi_failure_counts[asset.mac_address] >= 3:
+                    if _wifi_failure_counts[asset.mac_address] >= WIFI_FAILURE_TOLERANCE:
                         logger.error(
                             f"[MONITOR-WIFI] Wi-Fi do ativo '{asset.nome_ativo}' ausente de forma consistente. "
                             f"GERANDO ALERTA e forçando remoção do quarto {asset.quarto_id}."
@@ -448,7 +448,7 @@ async def monitor_assigned_assets_wifi():
                             action="ALERTA",
                             status="OK",
                             status_detail=f"Ativo '{asset.nome_ativo}' desapareceu da rede Wi-Fi enquanto estava confirmado no quarto.",
-                            data_on=datetime.now(timezone.utc),
+                            data_on=datetime.now(FUSO_HORARIO_BRASIL),
                             raw={"reason": "Liveness check failed by monitor"}
                         )
                         db.add(warning_event)
@@ -458,7 +458,7 @@ async def monitor_assigned_assets_wifi():
                             "quarto": asset.quarto.nome if asset.quarto else "N/A",
                             "cama":   asset.nome_ativo,
                             "status": "ALERTA",
-                            "dataOn": datetime.now(timezone.utc).isoformat()
+                            "dataOn": datetime.now(FUSO_HORARIO_BRASIL).isoformat()
                         }
                         logger.info(f"[MONITOR-WIFI] A despachar ALERTA para o servidor final: {dispatch_payload}")
                         await loop.run_in_executor(None, dispatch_event, dispatch_payload)

@@ -6,7 +6,9 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta 
+
+FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
 from sqlalchemy.orm import Session, joinedload
 
@@ -58,7 +60,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                     esp_id=change["source_esp_id"], ativo=asset.mac_beacon,
                     quarto_nome=nome_quarto_evento, action=action, status="OK",
                     status_detail=change["details"], rssi=change.get("rssi"),
-                    data_on=datetime.now(timezone.utc),
+                    data_on=datetime.now(FUSO_HORARIO_BRASIL),
                     raw={"source": "services_batch", "old_quarto_id": quarto_anterior_id}
                 )
                 db.add(event)
@@ -76,7 +78,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                     "quarto": change.get("quarto_nome"),
                     "cama":   change.get("nome_ativo"),
                     "status": "GET",
-                    "dataOn": datetime.now(timezone.utc).isoformat(),
+                    "dataOn": datetime.now(FUSO_HORARIO_BRASIL).isoformat(),
                     "wifi": change.get("wifi_signal")
                 }
                 await loop.run_in_executor(None, dispatch_event, dispatch_payload)

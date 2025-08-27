@@ -9,13 +9,16 @@ import asyncio
 import time
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta 
+
+FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
 from .presence import check_presence
 from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting, ReceivedEvent
 from .services import batch_update_asset_assignments
 from .mqtt_client import scan_data_queue
 from .dispatcher import dispatch_event
+from .config import settings
 
 logger = logging.getLogger(__name__)
 signal_logger = logging.getLogger('signals')
@@ -28,21 +31,20 @@ _config_needs_reload = asyncio.Event()
 
 # --- Configurações padrão, carregadas na inicialização e atualizadas via DB ---
 _config = {
-    "process_interval_sec": 2.0,
-    "reading_timeout_sec": 10,
-    "default_rssi_threshold": -75,
-    "inertia_entrada_ms": 3000,
-    "inertia_saida_ms": 10000,
-    "ema_alpha": 0.4,
-    "max_assets_per_room": 1
+    "process_interval_sec": float(settings.get('process_interval_sec', 2.0)),
+    "reading_timeout_sec": int(settings.get('reading_timeout_sec', 10)),
+    "default_rssi_threshold": -75, 
+    "conflict_margin_db": 5,
+    "inertia_entrada_ms": 3000,   
+    "inertia_saida_ms": 10000,    
+    "ema_alpha": float(settings.get('ema_alpha', 0.4)),
+    "max_assets_per_room": 1       
 }
 
-# --- Constantes de Tempo do Agregador (em segundos) ---
-PENDING_WIFI_CHECK_INTERVAL_SEC = 30  
-PENDING_WARNING_TIMEOUT_SEC = 300     
-PENDING_EXPIRATION_TIMEOUT_SEC = 600  
-DISAPPEARANCE_TOLERANCE_CYCLES = 10 
-
+PENDING_WIFI_CHECK_INTERVAL_SEC = int(settings.get('pending_wifi_check_interval_sec', 10))
+PENDING_WARNING_TIMEOUT_SEC = int(settings.get('pending_warning_timeout_sec', 300))
+PENDING_EXPIRATION_TIMEOUT_SEC = int(settings.get('pending_expiration_timeout_sec', 600))
+DISAPPEARANCE_TOLERANCE_CYCLES = int(settings.get('disappearance_tolerance_cycles', 10))
 
 # ===== SEÇÃO 3: CLASSE DE ESTADO DO ATIVO (AssetState) ========================
 class AssetState:
@@ -180,10 +182,10 @@ async def _processar_localizacoes():
                     logger.warning(f"EVENTO ALERTA (PENDENTE): Wi-Fi para {mac} ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.")
                     asset_info = _asset_map.get(mac, {})
                     quarto_pendente = db.query(Quarto).get(state.pending_quarto_id)
-                    warning_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="ALERTA", status="OK", status_detail=f"Ativo '{asset_info.get('nome_ativo')}' detectado, mas Wi-Fi ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc), raw={"reason": "Pending Wi-Fi check delay"})
+                    warning_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="ALERTA", status="OK", status_detail=f"Ativo '{asset_info.get('nome_ativo')}' detectado, mas Wi-Fi ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(FUSO_HORARIO_BRASIL), raw={"reason": "Pending Wi-Fi check delay"})
                     db.add(warning_event)
                     state.warning_issued = True
-                    dispatch_payload = {"quarto": quarto_pendente.nome if quarto_pendente else "N/A", "cama": asset_info.get("nome_ativo"), "status": "ALERTA", "dataOn": datetime.now(timezone.utc).isoformat()}
+                    dispatch_payload = {"quarto": quarto_pendente.nome if quarto_pendente else "N/A", "cama": asset_info.get("nome_ativo"), "status": "ALERTA", "dataOn": datetime.now(FUSO_HORARIO_BRASIL).isoformat()}
                     logger.info(f"A despachar ALERTA para o servidor final: {dispatch_payload}")
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(None, dispatch_event, dispatch_payload)
@@ -320,7 +322,7 @@ async def _processar_localizacoes():
 
                         logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {state.candidate_quarto_id}. Criando novo evento e iniciando verificação.")
                         quarto_pendente = db.query(Quarto).get(state.candidate_quarto_id)
-                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], data_on=datetime.now(timezone.utc), raw=strongest_candidate)
+                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], data_on=datetime.now(FUSO_HORARIO_BRASIL), raw=strongest_candidate)
                         db.add(pending_event)
                         db.commit()
                         db.refresh(pending_event)
