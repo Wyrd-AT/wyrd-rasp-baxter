@@ -42,7 +42,8 @@ def load_configuration():
             'disappearance_tolerance_cycles': '10',
             'process_interval_sec': '2.0',     
             'reading_timeout_sec': '10',        
-            'ema_alpha': '0.4'                
+            'ema_alpha': '0.4',
+            'dispatch_delay_after_wifi_sec': '5'        
         }
         
         config['Tasks'] = {

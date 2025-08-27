@@ -17,6 +17,9 @@ from . import aggregator  # Permite que os serviços interajam com o estado do a
 from .connection_manager import manager
 from .dispatcher import dispatch_event
 from .models import Asset, Embarcado, Quarto, ReceivedEvent
+from .config import settings
+
+DISPATCH_DELAY_SEC = int(settings.get('dispatch_delay_after_wifi_sec', 15))
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,10 @@ async def batch_update_asset_assignments(db: Session, changes: list):
         loop = asyncio.get_running_loop()
         for change in changes:
             if change.get("action") == "GET":
+                if DISPATCH_DELAY_SEC > 0:
+                    logger.info(f"Aguardando {DISPATCH_DELAY_SEC}s para estabilização do ativo antes de despachar...")
+                    await asyncio.sleep(DISPATCH_DELAY_SEC)
+
                 dispatch_payload = {
                     "quarto": change.get("quarto_nome"),
                     "cama":   change.get("nome_ativo"),
@@ -81,6 +88,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                     "dataOn": datetime.now(FUSO_HORARIO_BRASIL).isoformat(),
                     "wifi": change.get("wifi_signal")
                 }
+                logger.info(f"A despachar evento confirmado: {dispatch_payload}")
                 await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 
         await manager.broadcast("ATUALIZAR_ESTADO")
