@@ -69,7 +69,7 @@ class AssetState:
         old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi)
         alpha = _config["ema_alpha"]
         new_ema = (rssi * alpha) + (old_ema * (1 - alpha))
-        self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema}
+        self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema, "wifi_signal": wifi_signal}
         self.last_known_ema[esp_id] = new_ema
         self.disappeared_since = None
         self.disappearance_count = 0
