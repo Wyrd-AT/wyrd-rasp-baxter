@@ -120,7 +120,7 @@ def update_asset_cache(mac_beacon: str, new_quarto_id: int | None):
     if mac_beacon in _asset_map:
         _asset_map[mac_beacon]["quarto_id"] = new_quarto_id
         logger.info(f"Cache do agregador atualizado para o ativo {mac_beacon}: novo quarto_id é {new_quarto_id}.")
-        
+
 def flag_for_reload():
     """Sinaliza ao loop principal que o cache de mapas precisa ser recarregado."""
     _config_needs_reload.set()
@@ -267,7 +267,6 @@ async def _processar_localizacoes():
                 elif (now - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
                     logger.info(f"EVENTO OUT (SINAL FRACO): Ativo {mac} removido do Quarto {quarto_id_atual}.")
                     changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": state.last_strongest_signal.get('esp_id'), "rssi": state.last_strongest_signal.get('rssi'), "details": f"Sinal (EMA) permaneceu fraco por {_config['inertia_saida_ms']}ms"})
-                    if mac in _asset_map: _asset_map[mac]["quarto_id"] = None
                     state.weak_signal_since = None
                     continue
             elif state.weak_signal_since is not None: state.weak_signal_since = None
@@ -285,37 +284,44 @@ async def _processar_localizacoes():
             # 3.4: Transição para o Estado PENDENTE
             if state.candidate_since and state.candidate_quarto_id is not None and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
                 if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
+                    
+                    # 1ª Verificação: O ativo está livre?
                     if quarto_id_atual is not None:
                         logger.info(f"[RTLS] Atribuição para {mac} BLOQUEADA. Ativo já está no quarto {quarto_id_atual} e precisa de um evento 'OUT' primeiro.")
-                        state.candidate_since = None
-                    else: 
-                        # 1. Encontra o CONCORRENTE PENDENTE MAIS FORTE para o mesmo quarto
-                        strongest_competitor_state = None
-                        strongest_competitor_signal = -1000 # Começa com um sinal muito fraco
+                        state.candidate_since = None # Reseta a candidatura
+                    
+                    # Se o ativo estiver livre, prossiga para as próximas verificações
+                    else:
+                        # 2ª Verificação: O quarto de destino tem vaga?
+                        ativos_no_quarto = [a for a in _asset_map.values() if a.get("quarto_id") == state.candidate_quarto_id]
+                        if len(ativos_no_quarto) >= _config.get("max_assets_per_room", 1):
+                            logger.warning(f"[RTLS] Atribuição para {mac} BLOQUEADA. Quarto {state.candidate_quarto_id} já atingiu o limite de ocupação.")
+                            state.candidate_since = None # Reseta a candidatura
+                        
+                        # Se o quarto tiver vaga, prossiga
+                        else:
+                            # 3ª Verificação (Meritocracia): Existe um concorrente pendente mais forte?
+                            strongest_competitor_state = None
+                            strongest_competitor_signal = -1000
+                            for other_mac, other_state in _asset_realtime_state.items():
+                                if other_mac != mac and other_state.pending_quarto_id == state.candidate_quarto_id:
+                                    competitor_signal = other_state.last_strongest_signal.get('ema_rssi', -1000)
+                                    if competitor_signal > strongest_competitor_signal:
+                                        strongest_competitor_signal = competitor_signal
+                                        strongest_competitor_state = other_state
 
-                        for other_mac, other_state in _asset_realtime_state.items():
-                            if other_mac != mac and other_state.pending_quarto_id == state.candidate_quarto_id:
-                                competitor_signal = other_state.last_strongest_signal.get('ema_rssi', -1000)
-                                if competitor_signal > strongest_competitor_signal:
-                                    strongest_competitor_signal = competitor_signal
-                                    strongest_competitor_state = other_state
-
-                        # 2. Se encontrou pelo menos um concorrente, compara o ativo atual com o MAIS FORTE deles
-                        if strongest_competitor_state:
-                            signal_current = strongest_candidate['ema_rssi']
+                            if strongest_competitor_state and strongest_candidate['ema_rssi'] <= strongest_competitor_signal:
+                                logger.info(f"[RTLS] Atribuição para {mac} BLOQUEADA. Concorrente pendente '{strongest_competitor_state.mac}' tem sinal mais forte ou igual ({strongest_competitor_signal:.1f}dBm vs {strongest_candidate['ema_rssi']:.1f}dBm).")
+                                state.candidate_since = None # Reseta a candidatura
                             
-                            # 2a. Se o sinal do ativo atual não for o mais forte, ele perde a disputa e é bloqueado.
-                            if signal_current <= strongest_competitor_signal:
-                                logger.info(f"[RTLS] Atribuição para {mac} BLOQUEADA. Concorrente pendente '{strongest_competitor_state.mac}' tem sinal mais forte ou igual ({strongest_competitor_signal:.1f}dBm vs {signal_current:.1f}dBm).")
-                                state.candidate_since = None 
-                                continue 
-
-                            # 2b. Se o sinal do ativo atual é o mais forte, ele vence e cancela TODOS os outros concorrentes.
+                            # Se passou por todas as verificações, o ativo é o vencedor
                             else:
-                                logger.warning(f"[RTLS] Ativo {mac} tem o sinal mais forte ({signal_current:.1f}dBm). Cancelando todos os outros concorrentes pendentes para o Quarto {state.candidate_quarto_id}.")
-                                for other_mac, other_state in list(_asset_realtime_state.items()):
-                                    if other_mac != mac and other_state.pending_quarto_id == state.candidate_quarto_id:
-                                        clear_asset_candidate_state(other_mac)
+                                # Se o ativo atual for o mais forte, ele cancela todos os outros concorrentes pendentes
+                                if strongest_competitor_state:
+                                    logger.warning(f"[RTLS] Ativo {mac} tem o sinal mais forte. Cancelando outros concorrentes pendentes para o Quarto {state.candidate_quarto_id}.")
+                                    for other_mac, other_state in list(_asset_realtime_state.items()):
+                                        if other_mac != mac and other_state.pending_quarto_id == state.candidate_quarto_id:
+                                            clear_asset_candidate_state(other_mac)
 
                     if not wifi_mac_address:
                         logger.warning(f"Ativo {mac} não tem MAC de Wi-Fi. Confirmando entrada...")
