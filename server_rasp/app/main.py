@@ -92,27 +92,6 @@ class AdminAuth(AuthenticationBackend):
 
 authentication_backend = AdminAuth(secret_key="W753y@r159d")
 
-def seed_database():
-    db = SessionLocal()
-    try:
-        num_quartos = db.query(Quarto).count()
-        if num_quartos < NUM_FIXED_ROOMS:
-            logger.info(f"INFO: Detectados {num_quartos}/{NUM_FIXED_ROOMS} quartos. Criando os quartos fixos restantes...")
-            for i in range(num_quartos + 1, NUM_FIXED_ROOMS + 1):
-                quarto_nome = f"Quarto {i}"
-                existing_quarto = db.query(Quarto).filter(Quarto.nome == quarto_nome).first()
-                if not existing_quarto:
-                    db.add(Quarto(nome=quarto_nome))
-            db.commit()
-            logger.info("INFO: Quartos fixos criados com sucesso.")
-    except Exception as e:
-        logger.error(f"ERRO ao 'semear' o banco de dados com quartos fixos: {e}")
-        db.rollback()
-    finally:
-        db.close()
-
-seed_database()
-
 app = FastAPI(title="Wyrd-Baxter Connect")
 
 admin = Admin(app, engine, authentication_backend=authentication_backend)
