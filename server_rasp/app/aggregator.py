@@ -191,10 +191,10 @@ async def _processar_localizacoes():
                     logger.warning(f"EVENTO ALERTA (PENDENTE): Wi-Fi para {mac} ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.")
                     asset_info = _asset_map.get(mac, {})
                     quarto_pendente = db.query(Quarto).get(state.pending_quarto_id)
-                    warning_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="ALERTA", status="OK", status_detail=f"Ativo '{asset_info.get('nome_ativo')}' detectado, mas Wi-Fi ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(FUSO_HORARIO_BRASIL), raw={"reason": "Pending Wi-Fi check delay"})
+                    warning_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="ALERTA", status="OK", status_detail=f"Ativo '{asset_info.get('nome_ativo')}' detectado, mas Wi-Fi ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc), raw={"reason": "Pending Wi-Fi check delay"})
                     db.add(warning_event)
                     state.warning_issued = True
-                    dispatch_payload = {"quarto": quarto_pendente.nome if quarto_pendente else "N/A", "cama": asset_info.get("nome_ativo"), "status": "ALERTA", "dataOn": datetime.now(FUSO_HORARIO_BRASIL).isoformat()}
+                    dispatch_payload = {"quarto": quarto_pendente.nome if quarto_pendente else "N/A", "cama": asset_info.get("nome_ativo"), "status": "ALERTA", "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')}
                     logger.info(f"A despachar ALERTA para o servidor final: {dispatch_payload}")
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(None, dispatch_event, dispatch_payload)
@@ -358,7 +358,7 @@ async def _processar_localizacoes():
 
                         logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {state.candidate_quarto_id}. Criando novo evento e iniciando verificação.")
                         quarto_pendente = db.query(Quarto).get(state.candidate_quarto_id)
-                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], data_on=datetime.now(FUSO_HORARIO_BRASIL), raw=strongest_candidate)
+                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], data_on=datetime.now(timezone.utc), raw=strongest_candidate)
                         db.add(pending_event)
                         db.commit()
                         db.refresh(pending_event)

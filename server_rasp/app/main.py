@@ -427,7 +427,7 @@ async def monitor_assigned_assets_wifi():
                             action="ALERTA",
                             status="OK",
                             status_detail=f"Ativo '{asset.nome_ativo}' desapareceu da rede Wi-Fi enquanto estava confirmado no quarto.",
-                            data_on=datetime.now(FUSO_HORARIO_BRASIL),
+                            data_on=datetime.now(timezone.utc),
                             raw={"reason": "Liveness check failed by monitor"}
                         )
                         db.add(warning_event)
@@ -437,7 +437,7 @@ async def monitor_assigned_assets_wifi():
                             "quarto": asset.quarto.nome if asset.quarto else "N/A",
                             "cama":   asset.nome_ativo,
                             "status": "ALERTA",
-                            "dataOn": datetime.now(FUSO_HORARIO_BRASIL).isoformat()
+                            "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
                         }
                         logger.info(f"[MONITOR-WIFI] A despachar ALERTA para o servidor final: {dispatch_payload}")
                         await loop.run_in_executor(None, dispatch_event, dispatch_payload)
@@ -532,7 +532,6 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         }
     }
     fuso_local = timezone(timedelta(hours=-3))
-
     for emb in embarcados:
         emb.status = emb.status_rede.capitalize() if emb.status_rede else "Desconhecido"
 
@@ -769,8 +768,10 @@ def list_events(
             e.quarto = e.quarto_nome if e.quarto_nome else "N/A"
             e.nome_cama = e.nome_ativo
             if e.data_on:
-                e.data_str = e.data_on.strftime("%d/%m/%Y")
-                e.hora_str = e.data_on.strftime("%H:%M:%S")
+                data_utc = e.data_on.replace(tzinfo=timezone.utc)
+                data_local = data_utc.astimezone(sao_paulo_tz)
+                e.data_str = data_local.strftime("%d/%m/%Y")
+                e.hora_str = data_local.strftime("%H:%M:%S")
 
     enrich_event_data(pending_events)
     enrich_event_data(events)

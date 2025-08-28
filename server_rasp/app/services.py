@@ -63,7 +63,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                     esp_id=change["source_esp_id"], ativo=asset.mac_beacon,
                     quarto_nome=nome_quarto_evento, action=action, status="OK",
                     status_detail=change["details"], rssi=change.get("rssi"),
-                    data_on=datetime.now(FUSO_HORARIO_BRASIL),
+                    data_on=datetime.now(timezone.utc),
                     raw={"source": "services_batch", "old_quarto_id": quarto_anterior_id}
                 )
                 db.add(event)
@@ -98,7 +98,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                     "quarto": change.get("quarto_nome"),
                     "cama":   change.get("nome_ativo"),
                     "status": "GET",
-                    "dataOn": datetime.now(FUSO_HORARIO_BRASIL).isoformat(),
+                    "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
                     "wifi": change.get("wifi_signal")
                 }
                 logger.info(f"A despachar evento confirmado: {dispatch_payload}")
