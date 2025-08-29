@@ -59,15 +59,11 @@
                             <button class="actions-menu-trigger" title="Abrir menu de ações">
                                 &#8942; </button>
                             <div class="actions-dropdown">
-                                <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
                                 <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
                                     <button type="submit" class="menu-item-btn">Reconfigurar</button>
                                 </form>
                                 <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
                                     <button type="submit" class="menu-item-btn">Reiniciar</button>
-                                </form>
-                                <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Resetar o ESTADO da ESP {{ emb.id_esp }}?');">
-                                    <button type="submit" class="menu-item-btn">Resetar Estado</button>
                                 </form>
                             </div>
                         </div>

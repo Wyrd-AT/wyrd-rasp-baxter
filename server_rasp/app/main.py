@@ -210,67 +210,67 @@ def main_page(request: Request):
     return RedirectResponse(url=request.url_for("list_events"), status_code=303)
 
 # Em main.py
-@app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
-async def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
-    """
-    Reseta o estado de um quarto, forçando a saída de qualquer ativo que esteja nele.
-    """
-    embarcado = db.query(Embarcado).get(embarcado_id)
-    if embarcado and embarcado.quarto_id:
-        # Encontra o ativo que está no quarto deste embarcado
-        asset_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).first()
+# @app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
+# async def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+#     """
+#     Reseta o estado de um quarto, forçando a saída de qualquer ativo que esteja nele.
+#     """
+#     embarcado = db.query(Embarcado).get(embarcado_id)
+#     if embarcado and embarcado.quarto_id:
+#         # Encontra o ativo que está no quarto deste embarcado
+#         asset_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).first()
         
-        if asset_no_quarto:
-            # Se encontrou um ativo, chama o serviço para forçar sua remoção
-            await force_asset_removal(
-                db=db, 
-                asset_id=asset_no_quarto.id,
-                details=f"Remoção forçada pelo operador via reset do embarcado '{embarcado.id_esp}'."
-            )
-        else:
-            logger.info(f"Reset solicitado para o embarcado '{embarcado.id_esp}', mas seu quarto já estava vazio.")
+#         if asset_no_quarto:
+#             # Se encontrou um ativo, chama o serviço para forçar sua remoção
+#             await force_asset_removal(
+#                 db=db, 
+#                 asset_id=asset_no_quarto.id,
+#                 details=f"Remoção forçada pelo operador via reset do embarcado '{embarcado.id_esp}'."
+#             )
+#         else:
+#             logger.info(f"Reset solicitado para o embarcado '{embarcado.id_esp}', mas seu quarto já estava vazio.")
             
-    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+#     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-@app.post("/embarcados/test_rssi", name="test_rssi_esp")
-async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
-    embarcado_id = data.get("embarcado_id")
-    client_id = data.get("client_id")
+# @app.post("/embarcados/test_rssi", name="test_rssi_esp")
+# async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
+#     data = await request.json()
+#     embarcado_id = data.get("embarcado_id")
+#     client_id = data.get("client_id")
 
-    if not embarcado_id or not client_id:
-        raise HTTPException(status_code=400, detail="embarcado_id e client_id são necessários.")
+#     if not embarcado_id or not client_id:
+#         raise HTTPException(status_code=400, detail="embarcado_id e client_id são necessários.")
 
-    embarcado = db.query(Embarcado).get(embarcado_id)
-    if embarcado:
-        logger.info("Pedido de Teste RSSI da ESP '%s' pelo cliente '%s'.", embarcado.id_esp, client_id)
-        pending_rssi_requests[embarcado.id_esp] = client_id
-        command = {"type": "command", "data": {"name": "RSSI_TEST"}}
-        mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
-    return Response(status_code=status.HTTP_202_ACCEPTED)
+#     embarcado = db.query(Embarcado).get(embarcado_id)
+#     if embarcado:
+#         logger.info("Pedido de Teste RSSI da ESP '%s' pelo cliente '%s'.", embarcado.id_esp, client_id)
+#         pending_rssi_requests[embarcado.id_esp] = client_id
+#         command = {"type": "command", "data": {"name": "RSSI_TEST"}}
+#         mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
+#     return Response(status_code=status.HTTP_202_ACCEPTED)
 
-@app.post("/rssi-report", status_code=status.HTTP_204_NO_CONTENT)
-async def receive_rssi_report(report_data: Dict):
-    """
-    Recebe um relatório de RSSI de uma ESP via POST e o retransmite
-    para todos os clientes conectados via WebSocket.
-    """
-    esp_id = report_data.get("esp_id") 
-    report_payload = report_data.get("report")
+# @app.post("/rssi-report", status_code=status.HTTP_204_NO_CONTENT)
+# async def receive_rssi_report(report_data: Dict):
+#     """
+#     Recebe um relatório de RSSI de uma ESP via POST e o retransmite
+#     para todos os clientes conectados via WebSocket.
+#     """
+#     esp_id = report_data.get("esp_id") 
+#     report_payload = report_data.get("report")
 
-    if not esp_id or report_payload is None:
-        raise HTTPException(status_code=400, detail="Payload do relatório incompleto.")
+#     if not esp_id or report_payload is None:
+#         raise HTTPException(status_code=400, detail="Payload do relatório incompleto.")
     
-    client_id = pending_rssi_requests.pop(esp_id, None)
-    if client_id:
-        logger.info("Relatório da ESP '%s' recebido. Enviando para o cliente '%s'.", esp_id, client_id)
-        websocket_message = {"type": "RSSI_REPORT", "esp_id": esp_id, "report": report_data.get("report")}
+#     client_id = pending_rssi_requests.pop(esp_id, None)
+#     if client_id:
+#         logger.info("Relatório da ESP '%s' recebido. Enviando para o cliente '%s'.", esp_id, client_id)
+#         websocket_message = {"type": "RSSI_REPORT", "esp_id": esp_id, "report": report_data.get("report")}
 
-        await manager.send_to_client(client_id, json.dumps(websocket_message))
-    else:
-        logger.warning("Relatório da ESP '%s' recebido, mas nenhum cliente estava à espera dele.", esp_id)
+#         await manager.send_to_client(client_id, json.dumps(websocket_message))
+#     else:
+#         logger.warning("Relatório da ESP '%s' recebido, mas nenhum cliente estava à espera dele.", esp_id)
 
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+#     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @app.get("/api/assets/map", name="get_assets_map")
 def get_assets_map(db: Session = Depends(get_db)):
