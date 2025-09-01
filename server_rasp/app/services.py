@@ -48,6 +48,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             # Prepara dados para o evento e para o dispatcher
             novo_quarto_obj = db.query(Quarto).get(new_quarto_id) if new_quarto_id else None
             nome_quarto_evento = novo_quarto_obj.nome if novo_quarto_obj else (asset.quarto.nome if asset.quarto else "N/A")
+            nome_andar_evento = novo_quarto_obj.andar.nome if novo_quarto_obj and novo_quarto_obj.andar else None
             change.update({"nome_ativo": asset.nome_ativo, "quarto_nome": nome_quarto_evento, "action": action})
 
             # Atualiza um evento pendente ou cria um novo
@@ -58,11 +59,15 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                     event.status = "OK"
                     event.status_detail = change["details"]
                     event.rssi = change.get("rssi")
+                    event.wifi = change.get("wifi_signal")
+                    event.andar_nome = nome_andar_evento 
             else:
                 event = ReceivedEvent(
                     esp_id=change["source_esp_id"], ativo=asset.mac_beacon,
-                    quarto_nome=nome_quarto_evento, action=action, status="OK",
+                    quarto_nome=nome_quarto_evento, andar_nome=nome_andar_evento,
+                    action=action, status="OK",
                     status_detail=change["details"], rssi=change.get("rssi"),
+                    wifi=change.get("wifi_signal"),
                     data_on=datetime.now(timezone.utc),
                     raw={"source": "services_batch", "old_quarto_id": quarto_anterior_id}
                 )

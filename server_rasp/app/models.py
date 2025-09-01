@@ -13,14 +13,23 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
-# --- NOVO MODELO ---
-# 1. Adicionamos a nova tabela para centralizar a informação dos quartos.
+class Andar(Base):
+    __tablename__ = "andares"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    
+    # Relação inversa para acessar os quartos de um andar
+    quartos = relationship("Quarto", back_populates="andar")
+
+
 class Quarto(Base):
     __tablename__ = "quartos"
     id   = Column(Integer, primary_key=True, index=True)
     nome = Column(String, unique=True, nullable=False)
     
-    # Relações inversas para fácil acesso a partir de um objeto Quarto
+    andar_id = Column(Integer, ForeignKey("andares.id"), nullable=False)
+    andar = relationship("Andar", back_populates="quartos")
+
     embarcados = relationship("Embarcado", back_populates="quarto")
     assets     = relationship("Asset", back_populates="quarto")
 
@@ -35,6 +44,9 @@ class Asset(Base):
     nome_ativo = Column(String, nullable=False, unique=True)
     mac_beacon = Column(String, unique=True, nullable=False, index=True)
     mac_address = Column(String, unique=True, nullable=True, index=True) 
+    tipo_ativo = Column(String, nullable=True)
+    modelo = Column(String, nullable=True)
+    fabricante = Column(String, nullable=True)
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
     quarto = relationship("Quarto", back_populates="assets")
     status = Column(String, default='Online', nullable=False)
@@ -59,6 +71,7 @@ class ReceivedEvent(Base):
     esp_id        = Column(String, nullable=False, index=True)
     ativo        = Column(String, nullable=False, index=True)
     quarto_nome   = Column(String, nullable=True) 
+    andar_nome = Column(String, nullable=True)
     action        = Column(String, nullable=False, index=True)    
     status        = Column(String, nullable=True, index=True)
     status_detail = Column(String, nullable=True)   

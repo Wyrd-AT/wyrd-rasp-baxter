@@ -52,6 +52,7 @@
                 {# 3. COLUNA DE AÇÕES MOVIDA PARA O INÍCIO #}
                 <th style="text-align: center; width: 80px;">AÇÕES</th>
                 <th>ID do Embarcado</th>
+                <th>ANDAR</th>      
                 <th>QUARTO</th>
                 <th>MAC ADDRESS</th>
                 <th>IP ADDRESS</th>
@@ -81,6 +82,7 @@
                     </div>
                 </td>
                 <td>{{ emb.id_esp }}</td>
+                <td>{{ emb.quarto.andar.nome if emb.quarto and emb.quarto.andar else '---' }}</td>
                 <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
                 <td>{{ emb.mac_address or '---' }}</td>
                 <td>{{ emb.ip_address or '---' }}</td>

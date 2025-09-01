@@ -26,6 +26,12 @@
             <option value="monthly" {% if current_filters.time_filter == 'monthly' %}selected{% endif %}>Últimos 30 dias</option>
         </select>
 
+        <select name="filter_andar" class="filter-btn" onchange="this.form.submit()">
+            <option value="">Andar</option>
+            {% for andar in all_andares %}
+            <option value="{{ andar }}" {% if current_filters.andar == andar %}selected{% endif %}>{{ andar }}</option>
+            {% endfor %}
+        </select>
         <select name="filter_quarto" class="filter-btn" onchange="this.form.submit()">
             <option value="">Quarto</option>
             {% for quarto in all_quartos %}
@@ -103,7 +109,10 @@
                 <th>HORA</th>
                 <th>ATIVO</th>
                 <th>QUARTO</th>
+                <th>ANDAR</th>
                 <th>AÇÃO</th>
+                <th>SINAL BLE</th>  
+                <th>SINAL WI-FI</th>  
                 <th>SINAL</th>
                 <th>STATUS</th>
             </tr>
@@ -115,6 +124,7 @@
                 <td>{{ event.hora_str }}</td>
                 <td>{{ event.nome_ativo }}</td>
                 <td>{{ event.quarto }}</td>
+                <td>{{ event.andar }}</td>
                 <td>
                     {% if event.action == 'GET' %}
                         <span class="action-get">Conectar</span>
@@ -126,7 +136,8 @@
                         <span>{{ event.action }}</span>
                     {% endif %}
                 </td>
-                <td>{{ event.rssi or '0' }}</td>
+                <td>{{ event.rssi or '---' }}</td>     
+                <td>{{ event.wifi or '---' }}</td>     
                 <td>
                     {% if event.status %}
                         <span class="status-box status-{{ event.status | lower }}"

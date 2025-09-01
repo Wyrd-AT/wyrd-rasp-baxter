@@ -38,7 +38,7 @@ from collections import defaultdict
 
 from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
-    ReceivedEvent, GlobalSetting, init_db
+    ReceivedEvent, GlobalSetting, Andar, init_db
 )
 from .presence import check_presence
 from .aggregator import clear_asset_candidate_state
@@ -506,14 +506,28 @@ def esp_handshake(
         "whitelist": whitelist
     }
 
-def get_or_create_quarto(db: Session, nome: str) -> Quarto:
+def get_or_create_andar(db: Session, nome: str) -> Andar:
+    andar = db.query(Andar).filter(Andar.nome == nome).first()
+    if not andar:
+        logger.info(f"Andar '{nome}' não encontrado. Criando novo registro.")
+        andar = Andar(nome=nome)
+        db.add(andar)
+        db.commit()
+        db.refresh(andar)
+    return andar
+
+def get_or_create_quarto(db: Session, nome: str, andar_id: int) -> Quarto:
     quarto = db.query(Quarto).filter(Quarto.nome == nome).first()
     if not quarto:
-        logger.info(f"Quarto '{nome}' não encontrado. A criar novo registo.")
-        quarto = Quarto(nome=nome)
+        logger.info(f"Quarto '{nome}' não encontrado. Criando e associando ao andar ID {andar_id}.")
+        quarto = Quarto(nome=nome, andar_id=andar_id)
         db.add(quarto)
         db.commit()
         db.refresh(quarto)
+    # Se o quarto já existe, mas pertence a outro andar (caso de edição)
+    elif quarto.andar_id != andar_id:
+        quarto.andar_id = andar_id
+        db.commit()
     return quarto
 
 # ===================================================================
@@ -563,24 +577,27 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
     })
 
 @app.post("/embarcados/new", name="create_embarcado")
-def create_embarcado(request: Request, id_esp: str = Form(...), quarto_nome: str = Form(...),
-                     rssi_threshold: Optional[str] = Form(None),
-                     db: Session = Depends(get_db)):
-
-    quarto_obj = get_or_create_quarto(db, quarto_nome.strip())
+def create_embarcado(
+    request: Request, 
+    id_esp: str = Form(...), 
+    andar_nome: str = Form(...), # Novo campo
+    quarto_nome: str = Form(...),
+    rssi_threshold: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    andar_obj = get_or_create_andar(db, andar_nome.strip())
+    quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
     
     rssi_value = int(rssi_threshold) if rssi_threshold else None
     
-    # Usa o valor convertido ao criar o objeto
     novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, rssi_threshold=rssi_value)
         
     try:
         db.add(novo_embarcado)
         db.commit()
         db.refresh(novo_embarcado)
-        aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
-
-        logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. A disparar reset automático.")
+        aggregator.flag_for_reload()
+        logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. Disparando reset automático.")
         command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
         mqtt_client.publish_command_to_esp(esp_id=novo_embarcado.id_esp, command=command)
     except Exception as e:
@@ -588,6 +605,7 @@ def create_embarcado(request: Request, id_esp: str = Form(...), quarto_nome: str
         logger.error(f"[main-db] ERRO ao criar embarcado: {e}")
 
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
 
 @app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
 def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
@@ -619,23 +637,29 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
 # Em main.py
 
 @app.post("/embarcados/{embarcado_id}/edit", name="update_embarcado")
-def update_embarcado(request: Request, embarcado_id: int, quarto_nome: str = Form(...),
-                       rssi_threshold: Optional[str] = Form(None),
-                       db: Session = Depends(get_db)):
+def update_embarcado(
+    request: Request, 
+    embarcado_id: int, 
+    andar_nome: str = Form(...), # Novo campo
+    quarto_nome: str = Form(...),
+    rssi_threshold: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
     emb = db.query(Embarcado).get(embarcado_id)
     if emb:
-        # Converte a string recebida para int apenas se ela não for vazia/nula
-        quarto_obj = get_or_create_quarto(db, quarto_nome.strip())
+        andar_obj = get_or_create_andar(db, andar_nome.strip())
+        quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
+        
         rssi_value = int(rssi_threshold) if rssi_threshold else None
         
         emb.quarto_id = quarto_obj.id
-        emb.rssi_threshold = rssi_value # Salva o valor correto
+        emb.rssi_threshold = rssi_value
         db.commit()
-        aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
-
-        logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. A disparar reset automático.")
+        aggregator.flag_for_reload()
+        logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. Disparando reset automático.")
         command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
         mqtt_client.publish_command_to_esp(esp_id=emb.id_esp, command=command)
+        
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.get("/embarcados/{embarcado_id}/delete", name="delete_embarcado")
@@ -729,6 +753,7 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
 def list_events(
     request: Request, page: int = Query(1, ge=1),
     filter_ativo: Optional[str] = Query(None), filter_quarto: Optional[str] = Query(None),
+    filter_andar: Optional[str] = Query(None),
     filter_action: Optional[str] = Query(None), filter_status: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None), db: Session = Depends(get_db)
 ):
@@ -743,6 +768,8 @@ def list_events(
     history_query = db.query(ReceivedEvent).filter(ReceivedEvent.status != 'Pendente')
 
     # --- Aplicação dos Filtros APENAS no Histórico ---
+    if filter_andar: 
+        history_query = history_query.filter(ReceivedEvent.andar_nome == filter_andar)
     if filter_quarto: 
         history_query = history_query.filter(ReceivedEvent.quarto_nome == filter_quarto)
     if filter_ativo: 
@@ -786,6 +813,7 @@ def list_events(
     all_action_options = [("GET", "Conectar"), ("OUT", "Desconectar"), ("WARNING", "Alerta")]
     all_status_options = ["OK", "Resolvido", "Confirmado", "Enfileirado", "Ignorado", "Cancelado", "Vencido", "Erro"]
     all_quartos = sorted([q.nome for q in db.query(Quarto).order_by(Quarto.nome).all()])
+    all_andares = sorted([a.nome for a in db.query(Andar).order_by(Andar.nome).all()]) 
 
     return templates.TemplateResponse("events_list.html", {
         "request": request,
@@ -797,6 +825,7 @@ def list_events(
         "all_action_options": all_action_options,
         "all_status_options": all_status_options,
         "all_quartos": all_quartos,
+        "all_andares": all_andares,
         "current_filters": {"ativo": filter_ativo, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
     })
 
@@ -850,7 +879,7 @@ def download_events_csv(
     def iter_csv():
         buf = StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["Data/Hora", "Nome do Ativo", "Quarto", "Status", "Ação", "RSSI"])
+        writer.writerow(["Data/Hora", "Nome do Ativo", "Quarto", "Status", "Ação", "RSSI BLE", "RSSI Wi-Fi"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
         action_map = {"GET": "Conectar", "OUT": "Desconectar"}
@@ -861,7 +890,7 @@ def download_events_csv(
             acao_traduzida = action_map.get(e.action, e.action)
             writer.writerow([
                 e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
-                nome_ativo, quarto, e.status, acao_traduzida, e.rssi
+                nome_ativo, quarto, e.status, acao_traduzida, e.rssi, e.wifi
             ])
             yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
