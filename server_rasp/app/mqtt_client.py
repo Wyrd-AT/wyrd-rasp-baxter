@@ -1,6 +1,7 @@
 import paho.mqtt.client as mqtt
 import json
 import asyncio
+import threading # <-- NOVO: Para o lock de segurança
 from datetime import datetime, timezone
 from .models import SessionLocal, Asset, Embarcado
 from .config import settings
@@ -8,28 +9,29 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# --- NOVO: Fila assíncrona para comunicação com o agregador ---
+# --- NOVO: Fila assíncrona para o aggregator (lógica existente) ---
 scan_data_queue = asyncio.Queue()
 
-_update_task = None
+# --- NOVO: Cache em memória para o status dos ESPs e lock de segurança ---
+_esp_status_cache = {}
+_cache_lock = threading.Lock()
 
 client = mqtt.Client()
 
-def publish_command_to_esp(esp_id: str, command: dict):
-    """(Mantida) Publica um comando específico para o canal individual de uma ESP."""
-    if not client.is_connected():
-        logger.warning(f"[MQTT] Cliente não conectado. Abortando envio de comando para {esp_id}.")
-        return
-
-    command_topic = f"wyrd/rtls/esp/{esp_id}/command"
-    payload = json.dumps(command)
-    logger.info(f"[MQTT] Enviando comando {payload} para a ESP '{esp_id}' no tópico '{command_topic}'")
-    client.publish(command_topic, payload, qos=2)
+def get_and_clear_status_cache():
+    """
+    Função segura para que a tarefa de escrita possa obter os dados do cache
+    e limpá-lo para o próximo ciclo.
+    """
+    with _cache_lock:
+        cache_copy = _esp_status_cache.copy()
+        _esp_status_cache.clear()
+        return cache_copy
 
 def on_message(client, userdata, msg):
     """
-    Callback para processar mensagens de scan_data, atualizar o last_seen da ESP
-    e colocar os dados na fila para o agregador.
+    Callback super rápido que agora SÓ coloca dados na fila e no cache em memória.
+    NENHUM ACESSO AO BANCO DE DADOS AQUI.
     """
     topic_parts = msg.topic.split('/')
     
@@ -37,19 +39,19 @@ def on_message(client, userdata, msg):
         esp_id = topic_parts[3]
         try:
             payload = json.loads(msg.payload)
+            # 1. Coloca os dados de scan na fila do aggregator (como antes)
             scan_data_queue.put_nowait({"esp_id": esp_id, "payload": payload})
 
-            db = SessionLocal()
-            try:
-                embarcado = db.query(Embarcado).filter(Embarcado.id_esp == esp_id).first()
-                if embarcado:
-                    embarcado.last_seen = datetime.now(timezone.utc)
-                    if embarcado.status_rede == 'offline':
-                        embarcado.status_rede = 'online'
-                        logger.info("ESP %s ficou 'online' ao receber dados de scan.", esp_id)
-                    db.commit()
-            finally:
-                db.close()
+            # 2. Atualiza o cache de status com as novas informações
+            with _cache_lock:
+                update_data = {
+                    "last_seen": datetime.now(timezone.utc)
+                }
+                if 'wifi_signal' in payload:
+                    update_data["wifi_signal"] = payload['wifi_signal']
+                
+                _esp_status_cache[esp_id] = update_data
+
         except json.JSONDecodeError:
             logger.warning("[MQTT] JSON inválido recebido no tópico: %s", msg.topic)
         except Exception as e:

@@ -57,6 +57,7 @@ CLEANUP_INTERVAL_SEC = int(settings.get('cleanup_interval_sec', 3600))
 MONITOR_WIFI_INTERVAL_SEC = int(settings.get('monitor_wifi_interval_sec', 60))
 ESP_TIMEOUT_SEC = int(settings.get('esp_timeout_sec', 150)) 
 WIFI_FAILURE_TOLERANCE = int(settings.get('wifi_failure_tolerance', 3)) 
+ESP_STATUS_UPDATE_INTERVAL_SEC = 60
 
 pending_rssi_requests = {} 
 _wifi_failure_counts = defaultdict(int)
@@ -372,6 +373,44 @@ async def check_esp_liveness():
             db.rollback()
         finally:
             db.close()
+
+async def batch_update_esp_status():
+    """
+    Tarefa de background que periodicamente escreve o status mais recente
+    dos ESPs (last_seen, wifi_signal) no banco de dados de uma só vez.
+    """
+    logger.info("[BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.")
+    while True:
+        await asyncio.sleep(ESP_STATUS_UPDATE_INTERVAL_SEC)
+        
+        status_updates = mqtt_client.get_and_clear_status_cache()
+        if not status_updates:
+            continue
+
+        logger.info(f"[BATCH-UPDATE-ESP] Atualizando status de {len(status_updates)} embarcados no banco de dados.")
+        db = SessionLocal()
+        try:
+            # Usamos uma única query para buscar todos os embarcados de uma vez
+            esp_ids_to_update = list(status_updates.keys())
+            embarcados_to_update = db.query(Embarcado).filter(Embarcado.id_esp.in_(esp_ids_to_update)).all()
+            
+            for emb in embarcados_to_update:
+                if emb.id_esp in status_updates:
+                    data = status_updates[emb.id_esp]
+                    emb.last_seen = data["last_seen"]
+                    if "wifi_signal" in data:
+                        emb.wifi_signal = data["wifi_signal"]
+                    # Como só atualizamos embarcados que enviaram dados, eles sempre estão 'online'
+                    if emb.status_rede == 'offline':
+                        emb.status_rede = 'online'
+            
+            db.commit()
+        except Exception as e:
+            logger.error(f"[BATCH-UPDATE-ESP] Erro ao atualizar status dos embarcados: {e}", exc_info=True)
+            db.rollback()
+        finally:
+            db.close()
+
 
 async def monitor_assigned_assets_wifi():
     """
@@ -691,14 +730,26 @@ def list_assets(request: Request, search: Optional[str] = Query(None), db: Sessi
     })
 
 @app.post("/assets", name="create_asset")
-def create_asset(request: Request, 
-                 nome_ativo: str = Form(...), 
-                 mac_address: str = Form(None),  
-                 mac_beacon: str = Form(...), 
-                 db: Session = Depends(get_db)):
-    asset = Asset(nome_ativo=nome_ativo, 
-                  mac_address=mac_address.lower() if mac_address else None,  
-                  mac_beacon=mac_beacon.lower())
+def create_asset(
+    request: Request, 
+    nome_ativo: str = Form(...), 
+    mac_address: str = Form(None),  
+    mac_beacon: str = Form(...),
+    # --- NOVOS CAMPOS DO FORMULÁRIO ---
+    tipo_ativo: str = Form(None),
+    modelo: str = Form(None),
+    fabricante: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    asset = Asset(
+        nome_ativo=nome_ativo, 
+        mac_address=mac_address.lower() if mac_address else None,  
+        mac_beacon=mac_beacon.lower(),
+        # --- NOVOS DADOS PARA SALVAR ---
+        tipo_ativo=tipo_ativo,
+        modelo=modelo,
+        fabricante=fabricante
+    )
     try:
         db.add(asset)
         db.commit()
@@ -711,6 +762,7 @@ def create_asset(request: Request,
         logger.error(f"[main-db] ERRO ao criar ativo: {e}")
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
+
 @app.get("/assets/{asset_id}/edit", name="edit_asset")
 def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     # Esta rota não precisa de mudanças, ela apenas exibe o formulário.
@@ -721,17 +773,28 @@ def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     })
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")
-def update_asset(request: Request, 
-                 asset_id: int, 
-                 nome_ativo: str = Form(...), 
-                 mac_address: str = Form(None),
-                 mac_beacon: str = Form(...), 
-                 db: Session = Depends(get_db)):
+def update_asset(
+    request: Request, 
+    asset_id: int, 
+    nome_ativo: str = Form(...), 
+    mac_address: str = Form(None),
+    mac_beacon: str = Form(...),
+    # --- NOVOS CAMPOS DO FORMULÁRIO ---
+    tipo_ativo: str = Form(None),
+    modelo: str = Form(None),
+    fabricante: str = Form(None),
+    db: Session = Depends(get_db)
+):
     asset = db.query(Asset).get(asset_id)
     if asset:
         asset.nome_ativo = nome_ativo
         asset.mac_address = mac_address.lower() if mac_address else None 
         asset.mac_beacon = mac_beacon.lower()
+        # --- ATUALIZANDO OS NOVOS DADOS ---
+        asset.tipo_ativo = tipo_ativo
+        asset.modelo = modelo
+        asset.fabricante = fabricante
+        
         db.commit()
         aggregator.flag_for_reload() 
             
@@ -922,19 +985,17 @@ def download_assets_csv(db: Session = Depends(get_db)):
 
 @app.get("/embarcados/download", name="download_embarcados_csv")
 def download_embarcados_csv(db: Session = Depends(get_db)):
-    # --- CORREÇÃO AQUI: Usa 'joinedload' para carregar o quarto junto ---
-    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).order_by(Embarcado.id_esp).all()
+    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar)).order_by(Embarcado.id_esp).all()
     
     def iter_csv():
         buf = StringIO()
         writer = csv.writer(buf)
-        # --- CORREÇÃO AQUI: Remove a coluna 'ANDAR' que não existe mais ---
-        writer.writerow(["ID DO EMBARCADO", "QUARTO"])
+        writer.writerow(["ID DO EMBARCADO", "ANDAR", "QUARTO", "SINAL WI-FI (RSSI)"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
         for emb in embarcados:
-            # --- CORREÇÃO AQUI: Acessa o nome do quarto e remove 'andar' ---
             quarto_nome = emb.quarto.nome if emb.quarto else ""
-            writer.writerow([emb.id_esp, quarto_nome])
+            andar_nome = emb.quarto.andar.nome if emb.quarto and emb.quarto.andar else ""
+            writer.writerow([emb.id_esp, andar_nome, quarto_nome, emb.wifi_signal])
             yield buf.getvalue(); buf.seek(0); buf.truncate(0)
             
     return StreamingResponse(
@@ -991,6 +1052,7 @@ async def on_startup():
     running_tasks["liveness_check"] = asyncio.create_task(check_esp_liveness())
     running_tasks["wifi_monitor"] = asyncio.create_task(monitor_assigned_assets_wifi())
     running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
+    running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 
