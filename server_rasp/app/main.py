@@ -490,7 +490,12 @@ def esp_handshake(
 
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
     if embarcado:
-        pass
+        embarcado.mac_address = mac
+        embarcado.ip_address = ip
+        db.commit()
+    
+    else:
+        logger.warning(f"Handshake recebido de um embarcado não cadastrado: {id_esp}")
 
     all_assets = db.query(Asset.mac_beacon).filter(Asset.mac_beacon.isnot(None)).all()
     whitelist = [m for m, in all_assets]

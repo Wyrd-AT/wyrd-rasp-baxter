@@ -45,6 +45,8 @@ class Embarcado(Base):
     id        = Column(Integer, primary_key=True, index=True)
     id_esp    = Column(String, unique=True, nullable=False, index=True)
     last_seen = Column(DateTime(timezone=True), nullable=True)
+    mac_address = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
     status_rede = Column(String, default="offline", nullable=False) 
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
     rssi_threshold = Column(Integer, nullable=True)
