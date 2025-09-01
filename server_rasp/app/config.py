@@ -16,7 +16,6 @@ def load_configuration():
     
     if not os.path.exists(CONFIG_FILE):
         logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
-        # Se o config.ini não existe, cria um com valores padrão
         config['Network'] = {
             'IP': '0.0.0.0',
             'PORT': '8080'
@@ -27,10 +26,16 @@ def load_configuration():
             'MQTT_ASSET_LIST_TOPIC': 'wyrd/rtls/assets/available',
             'MQTT_ESP_COMMAND_TOPIC': 'wyrd/rtls/esp/all/command'
         }
+        # --- NOVA SEÇÃO ADICIONADA ---
+        config['Aggregator'] = {
+            'process_interval_sec': '2.0',
+            'reading_timeout_sec': '10',
+            'disappearance_tolerance_cycles': '10' # Novo parâmetro para a lógica de saída
+        }
+        
         with open(CONFIG_FILE, 'w') as configfile:
             config.write(configfile)
     
-    # Lê o arquivo de configuração existente
     config.read(CONFIG_FILE)
     
     # Junta todas as configurações de todas as seções em um único dicionário

@@ -226,9 +226,9 @@ def main_page(request: Request):
     return RedirectResponse(url=request.url_for("list_quartos"), status_code=303)
 
 @app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
-def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
-    synchronize_and_reset_esp(db=db, embarcado_id=embarcado_id)
-    time.sleep(1)
+async def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    await synchronize_and_reset_esp(db=db, embarcado_id=embarcado_id)
+    time.sleep(1) 
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/embarcados/test_rssi", name="test_rssi_esp")

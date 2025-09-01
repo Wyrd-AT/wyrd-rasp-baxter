@@ -1,22 +1,32 @@
-# services.py (Versão RTLS Final com Histórico de Eventos)
+# app/services.py
+
+# ==============================================================================
+# ARQUIVO: services.py (Versão Refatorada para Maior Coesão)
+# FUNÇÃO:  Orquestra as ações de negócio, garantindo a consistência entre o
+#          agregador, o banco de dados e a UI.
+# ==============================================================================
+
+import logging
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session, joinedload
-from .models import Asset, Embarcado, Quarto, ReceivedEvent # Importamos ReceivedEvent
+
+from . import aggregator # Permite que os serviços interajam com o estado do agregador
 from . import mqtt_client
 from .connection_manager import manager
-from datetime import datetime, timezone
-import logging
+from .models import Asset, Embarcado, Quarto, ReceivedEvent
 
 logger = logging.getLogger(__name__)
 
+
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
+    (FUNÇÃO PRINCIPAL E INALTERADA)
     Processa uma lista de mudanças de localização de ativos numa única transação.
     """
     if not changes:
         return
 
     try:
-        # Itera sobre a lista de mudanças para preparar os objetos para o commit
         for change in changes:
             asset_id = change["asset_id"]
             new_quarto_id = change["new_quarto_id"]
@@ -30,7 +40,6 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             action = "GET"
 
             if new_quarto_id is not None:
-                # Busca o nome do novo quarto (otimização: poderia ser pré-carregado)
                 novo_quarto = db.query(Quarto).get(new_quarto_id)
                 if novo_quarto:
                     nome_quarto_evento = novo_quarto.nome
@@ -39,7 +48,6 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 if asset.quarto:
                     nome_quarto_evento = asset.quarto.nome
             
-            # Cria o registo do evento
             event = ReceivedEvent(
                 esp_id=change["source_esp_id"],
                 ativo=asset.mac_beacon,
@@ -53,13 +61,10 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             )
             db.add(event)
 
-            # Atualiza o ativo
             asset.quarto_id = new_quarto_id
 
-        # 1. Tenta salvar TODAS as mudanças de uma só vez.
         db.commit()
         
-        # 2. Se o commit foi bem-sucedido, envia UMA ÚNICA notificação.
         logger.info(f"Lote de {len(changes)} mudanças processado e salvo com sucesso.")
         await manager.broadcast("ATUALIZAR_ESTADO")
 
@@ -68,60 +73,86 @@ async def batch_update_asset_assignments(db: Session, changes: list):
         db.rollback()
 
 
-def synchronize_and_reset_esp(db: Session, embarcado_id: int):
+async def synchronize_and_reset_esp(db: Session, embarcado_id: int):
     """
-    Serviço simplificado para forçar um ESP a um estado limpo.
-    Apenas envia o comando de reset. O ESP será responsável
-    por notificar a saída dos ativos que ele possui.
+    (LÓGICA CORRIGIDA) Força a remoção de todos os ativos associados
+    ao quarto de um embarcado diretamente no servidor.
+    Esta função NÃO envia mais comandos para a ESP.
     """
     try:
         embarcado = db.query(Embarcado).get(embarcado_id)
-        if not embarcado:
-            logger.info(f"[SERVICE] Embarcado com ID '{embarcado_id}' não encontrado. Abortando reset.")
+        if not embarcado or not embarcado.quarto_id:
+            logger.warning(f"[SERVICE] Reset solicitado para embarcado ID {embarcado_id}, mas ele não foi encontrado ou não tem quarto associado.")
             return
 
-        logger.info(f"[SERVICE] Enviando comando RESET_STATE para a ESP '{embarcado.id_esp}'.")
-        mqtt_client.publish_command_to_esp(
-            esp_id=embarcado.id_esp,
-            command={"type": "command", "data": {"name": "RESET_STATE"}}
-        )
-        logger.info(f"[SERVICE] Comando de reset enviado. O servidor aguardará os eventos 'OUT' do embarcado.")
+        quarto_id_para_limpar = embarcado.quarto_id
+        logger.info(f"[SERVICE] Iniciando remoção forçada de todos os ativos do Quarto ID {quarto_id_para_limpar} (acionado pelo embarcado {embarcado.id_esp}).")
+
+        # 1. Encontra todos os ativos que estão atualmente neste quarto.
+        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id_para_limpar).all()
+
+        if not assets_no_quarto:
+            logger.info(f"[SERVICE] O quarto já estava vazio. Nenhuma ação necessária.")
+            return
+
+        changes_to_commit = []
+        for asset in assets_no_quarto:
+            logger.info(f"[SERVICE] Preparando remoção forçada do ativo '{asset.nome_ativo}' (MAC: {asset.mac_beacon}).")
+            
+            # 2. Limpa o estado em tempo real do ativo no aggregator para parar o processamento.
+            aggregator.clear_asset_state(asset.mac_beacon)
+
+            # 3. Prepara a "mudança de saída" para ser processada em lote.
+            changes_to_commit.append({
+                "asset_id": asset.id,
+                "new_quarto_id": None,
+                "source_esp_id": "manual_reset",
+                "rssi": -999,
+                "details": f"Remoção forçada pelo operador via reset do embarcado '{embarcado.id_esp}'."
+            })
+
+        # 4. Processa todas as saídas de uma vez só, de forma consistente.
+        if changes_to_commit:
+            await batch_update_asset_assignments(db, changes_to_commit)
+            logger.info(f"[SERVICE] {len(changes_to_commit)} ativos foram removidos com sucesso do Quarto ID {quarto_id_para_limpar}.")
 
     except Exception as e:
-        logger.error(f"[SERVICE] ERRO durante o envio do comando de reset para ESP ID '{embarcado_id}': {e}")
+        logger.error(f"[SERVICE] ERRO durante a remoção forçada de ativos para o embarcado ID '{embarcado_id}': {e}", exc_info=True)
+
 
 async def release_assets_for_offline_esp(db: Session, esp_id: str):
     """
-    Liberta todos os ativos associados a uma ESP que ficou offline.
+    (FUNÇÃO CORRIGIDA) Liberta todos os ativos de um quarto cuja ESP ficou offline.
     """
-    try:
-        # Encontra o embarcado e o seu quarto
-        embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
-        if not embarcado or not embarcado.quarto_id:
-            logger.info("[LIVENESS] ESP %s offline, mas não foi encontrado ou não tinha quarto associado.", esp_id)
-            return
+    embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
+    if not embarcado or not embarcado.quarto_id:
+        return
 
-        quarto_id = embarcado.quarto_id
-        quarto_nome = embarcado.quarto.nome
-        logger.warning("[LIVENESS] ESP %s (Quarto: %s) ficou offline. Libertando seus ativos...", esp_id, quarto_nome)
+    quarto_nome = embarcado.quarto.nome
+    logger.warning(f"[LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Libertando seus ativos...")
+    
+    assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
+    if not assets_no_quarto:
+        return
 
-        # Encontra todos os ativos naquele quarto e os desassocia
-        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id).all()
+    changes_to_commit = []
+    for asset in assets_no_quarto:
+        logger.info(f"[LIVENESS] Preparando para libertar ativo '{asset.nome_ativo}'...")
         
-        if not assets_no_quarto:
-            logger.info("[LIVENESS] Quarto %s já estava vazio. Nenhuma ação necessária.", quarto_nome)
-            return
+        # 1. (NOVO) Limpa o estado de cada ativo na memória do agregador.
+        #    Para isso, precisaremos de uma nova função no agregador.
+        aggregator.clear_asset_state(asset.mac_beacon)
 
-        for asset in assets_no_quarto:
-            logger.info("[LIVENESS] Libertando ativo '%s'...", asset.nome_ativo)
-            asset.quarto_id = None
-        
-        db.commit()
-        logger.info("[LIVENESS] %d ativos do quarto %s foram libertados.", len(assets_no_quarto), quarto_nome)
-        
-        # Notifica o frontend
-        await manager.broadcast("ATUALIZAR_ESTADO")
+        # 2. Prepara a informação de "saída" para cada ativo.
+        changes_to_commit.append({
+            "asset_id": asset.id,
+            "new_quarto_id": None,
+            "source_esp_id": "liveness_check",
+            "rssi": -999,
+            "details": f"Ativo libertado porque a ESP '{esp_id}' do quarto '{quarto_nome}' ficou offline."
+        })
 
-    except Exception as e:
-        db.rollback()
-        logger.error("[LIVENESS] ERRO ao libertar ativos da ESP %s: %s", esp_id, e, exc_info=True)
+    # 3. Processa todas as saídas de uma só vez através da função principal.
+    if changes_to_commit:
+        logger.info(f"[LIVENESS] Processando a saída de {len(changes_to_commit)} ativos do quarto {quarto_nome}.")
+        await batch_update_asset_assignments(db, changes_to_commit)

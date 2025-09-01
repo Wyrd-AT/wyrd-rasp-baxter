@@ -5,7 +5,7 @@ from sqlalchemy.ext.declarative import declarative_base
 import logging
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite:///./base_wh_ff.db"
+DATABASE_URL = "sqlite:///./base_rtls_hsa.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -36,6 +36,7 @@ class Asset(Base):
     mac_beacon  = Column(String, unique=True, nullable=False, index=True)
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
     quarto = relationship("Quarto", back_populates="assets")
+    status = Column(String, default='Online', nullable=False)
 
 
 class Embarcado(Base):
