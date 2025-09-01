@@ -99,10 +99,54 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .overlay.active { opacity: 1; visibility: visible; }
 
 /* --- Cabeçalho do Conteúdo --- */
-.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; flex-shrink: 0; }
-.content-header h1 { font-size: 28px; position: relative; }
-.content-header h1::after { content: ''; position: absolute; bottom: -1.5rem; left: 0; width: 100px; height: 4px; background-color: var(--primary-color); }
-.btn-primary { background-color: var(--button-primary-bg); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 16px; font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none; }
+/* --- Cabeçalho do Conteúdo --- */
+.content-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    margin-bottom: 2rem; 
+    border-bottom: 1px solid var(--border-color); 
+    padding-bottom: 1.5rem; 
+    flex-shrink: 0; 
+}
+.content-header h1 { 
+    font-size: 28px; 
+    position: relative; 
+}
+.content-header h1::after { 
+    content: ''; 
+    position: absolute; 
+    bottom: -1.5rem; 
+    left: 0; 
+    width: 100px; 
+    height: 4px; 
+    background-color: var(--primary-color); 
+}
+
+/* NOVO: Estilo para o contêiner das ações no cabeçalho */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem; /* Espaço entre a busca e o botão de download */
+}
+
+/* Ajuste na barra de pesquisa para funcionar no cabeçalho */
+.header-actions .search-bar {
+    width: 350px; /* Largura um pouco menor */
+    margin: 0; /* Remove margens extras */
+}
+
+.btn-primary { 
+    background-color: var(--button-primary-bg); 
+    color: white; 
+    border: none; 
+    padding: 0.8rem 1.5rem; 
+    border-radius: 16px; 
+    font-weight: 700; 
+    font-size: 14px; 
+    cursor: pointer; 
+    text-decoration: none; 
+}
 
 /* --- Layout da Página de Listas --- */
 .list-container-full-width {
@@ -123,9 +167,26 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .data-table th, .data-table td { padding: 1.2rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
 .data-table th { font-weight: 600; font-size: 14px; color: var(--text-secondary); text-transform: uppercase; }
 
-/* --- Estilos dos Formulários (Versão Final Compacta) --- */
-.forms-container-vertical .form-card:last-child {
-    margin-top: 2rem; /* Espaço entre os dois cards de formulário */
+/* NOVO: Estilo para a primeira coluna (Ações) para adicionar separação à direita */
+.data-table th:first-child,
+.data-table td:first-child {
+    padding-right: 10rem; /* Aumenta o espaçamento à direita */
+}
+
+/* --- Estilos dos Formulários (Layout Horizontal Lado a Lado) --- */
+.forms-container-horizontal {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+    margin-bottom: 2rem; /* NOVO: Adiciona a separação vertical entre os forms e a tabela */
+}
+
+/* --- Estilos dos Formulários (Layout Horizontal Lado a Lado) --- */
+.forms-container-vertical {
+    display: grid;
+    align-items: start;
+    margin-bottom: 2rem; /* NOVO: Adiciona a separação vertical entre os forms e a tabela */
 }
 
 .form-card {
@@ -180,19 +241,21 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 .form-fields-grid .icon-btn {
     padding: 0.5rem;
-    margin-bottom: 2px;
+    margin-bottom: -2px; /* Ajuste fino de alinhamento vertical */
     border-radius: 50%;
     transition: background-color 0.2s ease;
+    color: var(--primary-color); /* Define a cor do traço (stroke) do SVG */
 }
 
 .form-fields-grid .icon-btn:hover {
     background-color: #e9ecef;
 }
 
-.form-fields-grid .icon-btn .svg-icon {
-    width: 24px;
-    height: 24px;
-    background-color: var(--primary-color);
+/* NOVA REGRA PARA ESTILIZAR O SVG DIRETAMENTE */
+.form-fields-grid .icon-btn svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentColor; /* Faz o SVG herdar a cor do botão (.icon-btn) */
 }
 
 /* --- Estilos Específicos da Página de Histórico --- */
@@ -243,12 +306,35 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .actions-menu-container { position: relative; display: inline-block; }
 .actions-menu-trigger { background: none; border: none; cursor: pointer; padding: 8px 12px; font-size: 20px; line-height: 1; border-radius: 4px; }
 .actions-menu-trigger:hover { background-color: #f0f2f5; }
-.actions-dropdown { display: none; position: absolute; right: 0; top: 100%; background-color: white; min-width: 160px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); z-index: 1; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+.actions-dropdown { display: none; position: absolute; left: 0; top: 100%; background-color: white; min-width: 160px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); z-index: 1; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
 .actions-dropdown.show { display: block; }
 .actions-dropdown form { margin: 0; }
-.actions-dropdown .menu-item-btn { background: none; border: none; color: var(--text-primary); padding: 12px 16px; text-decoration: none; display: block; width: 100%; text-align: left; cursor: pointer; font-size: 14px; font-family: 'Inter', sans-serif; }
-.actions-dropdown .menu-item-btn:hover { background-color: #f0f2f5; }
+.actions-dropdown .menu-item-btn,
+.actions-dropdown .menu-item-link {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+}
 
+/* Efeito hover para ambos */
+.actions-dropdown .menu-item-btn:hover,
+.actions-dropdown .menu-item-link:hover {
+    background-color: #f0f2f5;
+}
+
+/* NOVO: Estilo específico para a opção de excluir */
+.actions-dropdown .menu-item-link.delete:hover {
+    background-color: #fff0f0; /* Fundo avermelhado claro */
+    color: var(--status-red); /* Texto vermelho */
+}
 /* --- Indicadores e Relatórios --- */
 .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
 .status-indicator.online { background-color: #28a745; }

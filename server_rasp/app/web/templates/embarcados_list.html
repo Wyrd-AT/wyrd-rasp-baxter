@@ -5,36 +5,81 @@
 {% block content %}
 <div class="content-header">
     <h1>Embarcados</h1>
-    <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
-</div>
-
-<div class="list-container-full-width">
-    <div class="table-toolbar">
+    <div class="header-actions">
         <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
             <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
-        <div class="toolbar-actions">
-            <button class="icon-btn" title="Editar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span></button>
-            <button class="icon-btn" title="Apagar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lixeira.svg') }})"></span></button>
-        </div>
+        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+    </div>
+</div>
+
+{# 1. FORMULÁRIOS MOVIDOS PARA CIMA #}
+<div class="forms-container-horizontal">
+    <div class="form-card">
+        {% include 'embarcado_form.html' with context %}
     </div>
     
+    <div class="form-card">
+        <form action="{{ url_for('update_settings') }}" method="post">
+            <h3>Configurações Globais</h3>
+            <div class="form-fields-grid">
+                <div class="form-group">
+                    <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
+                    <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_entrada">Inércia de Entrada (ms)</label>
+                    <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_saida">Inércia de Saída (ms)</label>
+                    <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
+                </div>
+                <button type="submit" class="icon-btn" title="Salvar Configurações Globais">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# 2. TABELA AGORA VEM DEPOIS DOS FORMULÁRIOS #}
+<div class="list-container-full-width">
     <table class="data-table">
         <thead>
             <tr>
+                {# 3. COLUNA DE AÇÕES MOVIDA PARA O INÍCIO #}
+                <th style="text-align: center; width: 80px;">AÇÕES</th>
                 <th>ID do Embarcado</th>
                 <th>QUARTO</th>
                 <th>MAC ADDRESS</th>
                 <th>IP ADDRESS</th>
                 <th>RSSI MÍN.</th>
                 <th>STATUS</th>
-                <th style="text-align: center;">AÇÕES</th>
             </tr>
         </thead>
         <tbody>
             {% for emb in embarcados %}
             <tr class="selectable-row" data-id="{{ emb.id }}">
+                {# 3. COLUNA DE AÇÕES MOVIDA PARA O INÍCIO #}
+                <td style="text-align: center;">
+                    <div class="actions-menu-container">
+                        <button class="actions-menu-trigger" title="Abrir menu de ações">
+                            &#8942;
+                        </button>
+                        <div class="actions-dropdown">
+                            <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar Dados</a>
+                            <a href="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o embarcado {{ emb.id_esp }}?');">Excluir Dados</a>
+                            <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
+                                <button type="submit" class="menu-item-btn">Reconfigurar</button>
+                            </form>
+                            <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
+                                <button type="submit" class="menu-item-btn">Reiniciar</button>
+                            </form>
+                        </div>
+                    </div>
+                </td>
                 <td>{{ emb.id_esp }}</td>
                 <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
                 <td>{{ emb.mac_address or '---' }}</td>
@@ -53,63 +98,13 @@
                         <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
                     {% endif %}
                 </td>
-                <td style="text-align: center;">
-                    <div class="actions-menu-container">
-                        <button class="actions-menu-trigger" title="Abrir menu de ações">
-                            &#8942;
-                        </button>
-                        <div class="actions-dropdown">
-                            <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
-                                <button type="submit" class="menu-item-btn">Reconfigurar</button>
-                            </form>
-                            <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
-                                <button type="submit" class="menu-item-btn">Reiniciar</button>
-                            </form>
-                        </div>
-                    </div>
-                </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
 
-<div class="forms-container-vertical">
-    <div class="form-card">
-        {# O formulário de cadastro é incluído aqui, já com o novo layout interno #}
-        {% include 'embarcado_form.html' with context %}
-    </div>
-    
-    <div class="form-card">
-        {# O formulário de configurações globais agora com o título e botão no novo estilo #}
-        <form action="{{ url_for('update_settings') }}" method="post">
-            {# Título volta a ser um elemento simples no topo do card #}
-            <h3>Configurações Globais</h3>
-            
-            <div class="form-fields-grid">
-                <div class="form-group">
-                    <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
-                    <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inercia_entrada">Inércia de Entrada (ms)</label>
-                    <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inercia_saida">Inércia de Saída (ms)</label>
-                    <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
-                </div>
-                {# Botão de salvar como ícone, no final da linha de campos #}
-                <button type="submit" class="icon-btn" title="Salvar Configurações Globais">
-                    <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/salvar.svg') }})"></span>
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
-
 {% endblock %}
-
 
 {% block scripts %}
 <script>
@@ -152,62 +147,6 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(response => response.json())
         .then(data => { assetNameMap = data; });
 
-    // 2. "Ouvinte" do WebSocket
-    window.addEventListener('websocket_message', function (event) {
-        try {
-            const data = JSON.parse(event.detail); 
-            
-            if (data.type === "RSSI_REPORT") {
-                const modalTitle = document.getElementById('modal-title');
-                const modalBody = document.getElementById('modal-body-content');
-                const esp_id = data.esp_id;
-
-                // 3. Determina qual limite usar para esta ESP
-                const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
-                
-                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (${threshold} dBm)`;
-                
-                let reportHtml = `
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Nome do Ativo</th>
-                                <th>MAC Address</th>
-                                <th>RSSI</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
-
-                if (data.report && data.report.length > 0) {
-                    data.report.sort((a, b) => b.rssi - a.rssi);
-                    
-                    data.report.forEach(beacon => {
-                        const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
-                        const rssiValue = beacon.rssi;
-
-                        // 4. Lógica de coloração
-                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
-                        
-                        reportHtml += `
-                            <tr>
-                                <td>${assetName}</td>
-                                <td>${beacon.mac}</td>
-                                <td class="${rssiClass}">${rssiValue} dBm</td>
-                            </tr>
-                        `;
-                    });
-                } else {
-                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
-                }
-
-                reportHtml += '</tbody></table>';
-                
-                modalBody.innerHTML = reportHtml;
-                document.getElementById('rssi-modal').style.display = "block";
-            }
-        } catch (e) { /* Ignora outras mensagens */ }
-    });
 });
 </script>
 {% endblock %}

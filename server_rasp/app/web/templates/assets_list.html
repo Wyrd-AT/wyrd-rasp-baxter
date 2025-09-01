@@ -5,47 +5,55 @@
 {% block content %}
 <div class="content-header">
     <h1>Ativos</h1>
-    <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+    <div class="header-actions">
+        <form method="get" action="{{ url_for('list_assets') }}" class="search-bar">
+            <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
+            <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
+</button>
+        </form>
+        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+    </div>
 </div>
 
-<div class="page-with-form">
-    <div class="list-column">
-        <div class="table-toolbar">
-            <form method="get" action="{{ url_for('list_assets') }}" class="search-bar">
-                <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
-                <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
-</button>
-            </form>
-            <div class="toolbar-actions">
-                <button class="icon-btn" title="Editar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span>
-</button>
-                <button class="icon-btn" title="Apagar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lixeira.svg') }})"></span>
-</button>
-            </div>
-        </div>
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>NOME DA CAMA</th>
-                    <th>MAC WI-FI</th> <th>MAC BEACON</th>
-                    <th>QUARTO ATUAL</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for asset in assets %}
-                <tr class="selectable-row" data-id="{{ asset.id }}">
-                    <td>{{ asset.nome_ativo }}</td>
-                    <td>{{ asset.mac_address or '---' }}</td> <td>{{ asset.mac_beacon }}</td>
-                    <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <div class="form-column">
-        {% include 'asset_form.html' %}
-    </div>
-
+{# FORMULÁRIO MOVIDO PARA CIMA E USANDO O CONTAINER VERTICAL #}
+<div class="forms-container-vertical">
+    {% include 'asset_form.html' %}
 </div>
+
+{# TABELA AGORA VEM DEPOIS, EM UM CONTAINER DE LARGURA TOTAL #}
+<div class="list-container-full-width">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="text-align: center; width: 80px;">AÇÕES</th>
+                <th>NOME DA CAMA</th>
+                <th>MAC WI-FI</th>
+                <th>MAC BEACON</th>
+                <th>QUARTO ATUAL</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for asset in assets %}
+            <tr class="selectable-row" data-id="{{ asset.id }}">
+                <td style="text-align: center;">
+                    <div class="actions-menu-container">
+                        <button class="actions-menu-trigger" title="Abrir menu de ações">
+                            &#8942;
+                        </button>
+                        <div class="actions-dropdown">
+                            <a href="{{ url_for('edit_asset', asset_id=asset.id) }}" class="menu-item-link">Editar</a>
+                            <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o ativo {{ asset.nome_ativo }}?');">Excluir</a>
+                        </div>
+                    </div>
+                </td>
+                <td>{{ asset.nome_ativo }}</td>
+                <td>{{ asset.mac_address or '---' }}</td>
+                <td>{{ asset.mac_beacon }}</td>
+                <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
 {% endblock %}
