@@ -385,26 +385,32 @@ async def batch_update_esp_status():
         
         status_updates = mqtt_client.get_and_clear_status_cache()
         if not status_updates:
+            # <-- LOG 1: INFORMA QUANDO A TAREFA RODA, MAS NÃO HÁ NADA A FAZER
+            logger.info("[BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.")
             continue
 
+        # <-- LOG 2: INFORMA QUE HÁ TRABALHO A SER FEITO (JÁ EXISTIA, MAS É IMPORTANTE)
         logger.info(f"[BATCH-UPDATE-ESP] Atualizando status de {len(status_updates)} embarcados no banco de dados.")
         db = SessionLocal()
         try:
-            # Usamos uma única query para buscar todos os embarcados de uma vez
             esp_ids_to_update = list(status_updates.keys())
             embarcados_to_update = db.query(Embarcado).filter(Embarcado.id_esp.in_(esp_ids_to_update)).all()
             
+            updated_count = 0
             for emb in embarcados_to_update:
                 if emb.id_esp in status_updates:
                     data = status_updates[emb.id_esp]
                     emb.last_seen = data["last_seen"]
                     if "wifi_signal" in data:
                         emb.wifi_signal = data["wifi_signal"]
-                    # Como só atualizamos embarcados que enviaram dados, eles sempre estão 'online'
                     if emb.status_rede == 'offline':
                         emb.status_rede = 'online'
+                    updated_count += 1
             
             db.commit()
+            # <-- LOG 3: CONFIRMA QUE A OPERAÇÃO FOI BEM-SUCEDIDA
+            logger.info(f"[BATCH-UPDATE-ESP] {updated_count} registros de embarcados foram atualizados com sucesso.")
+
         except Exception as e:
             logger.error(f"[BATCH-UPDATE-ESP] Erro ao atualizar status dos embarcados: {e}", exc_info=True)
             db.rollback()
