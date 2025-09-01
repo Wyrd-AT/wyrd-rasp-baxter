@@ -57,3 +57,31 @@
 </div>
 
 {% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // Lógica para controlar a abertura e fechamento do menu de ações
+    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
+        button.addEventListener('click', function (event) {
+            event.stopPropagation(); // Impede que o clique feche o menu imediatamente
+            
+            // Fecha qualquer outro menu que esteja aberto
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                if (d !== this.nextElementSibling) d.classList.remove('show');
+            });
+
+            // Alterna a exibição do menu clicado
+            this.nextElementSibling.classList.toggle('show');
+        });
+    });
+
+    // Fecha o menu se o usuário clicar em qualquer outro lugar da tela
+    window.addEventListener('click', (event) => {
+        if (!event.target.matches('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+        }
+    });
+});
+</script>
+{% endblock %}
