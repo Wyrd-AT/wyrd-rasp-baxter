@@ -595,7 +595,8 @@ def list_embarcados(
     # --- LÓGICA DE ORDENAÇÃO ---
     sortable_columns = {
         "id_esp": Embarcado.id_esp, "andar": Andar.nome, "quarto": Quarto.nome,
-        "status": Embarcado.status_rede, "wifi_signal": Embarcado.wifi_signal, "rssi_min": Embarcado.rssi_threshold
+        "status": Embarcado.status_rede, "wifi_signal": Embarcado.wifi_signal, "rssi_min": Embarcado.rssi_threshold,
+        "mac_address": Embarcado.mac_address, "ip_address": Embarcado.ip_address
     }
     # Adiciona joins necessários para a ordenação
     if sort_by in ["andar", "quarto"]:
@@ -694,7 +695,8 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
         "available_quartos": available_quartos, # <-- Passa a lista filtrada
         "form_action": request.url_for("update_embarcado", embarcado_id=embarcado_id),
         "embarcado": emb_para_editar,
-        "search": None, "global_settings": get_global_settings(db)
+        "search": None, "global_settings": get_global_settings(db),
+        "current_filters": {"search": None, "sort_by": "id_esp", "order": "asc"}
     })
 
 # Em main.py
@@ -814,7 +816,8 @@ def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     return templates.TemplateResponse("assets_list.html", {
         "request": request, "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
         "form_action": request.url_for("update_asset", asset_id=asset_id),
-        "asset": db.query(Asset).get(asset_id), "search": None
+        "asset": db.query(Asset).get(asset_id), "search": None,
+        "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"}
     })
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")

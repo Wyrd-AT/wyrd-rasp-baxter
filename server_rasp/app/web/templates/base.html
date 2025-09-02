@@ -36,72 +36,7 @@
             toggleButton.addEventListener('click', toggleSidebar);
             overlay.addEventListener('click', toggleSidebar);
         }
-
-        // 3. Lógica de Interatividade da Tabela (para Ativos e Embarcados).
-        const table = document.querySelector('.data-table');
-        // Só continua se a página atual TIVER uma tabela com a classe '.data-table'.
-        if (table) {
-            const editBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Editar"]');
-            const deleteBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
-            let selectedRow = null;
-
-            table.addEventListener('click', (event) => {
-                const row = event.target.closest('.selectable-row');
-                if (!row) return;
-
-                if (selectedRow) {
-                    selectedRow.style.backgroundColor = '';
-                }
-                row.style.backgroundColor = '#e0eafc'; // Cor de seleção
-                selectedRow = row;
-            });
-
-            if (editBtn) {
-                editBtn.addEventListener('click', () => {
-                    if (!selectedRow) {
-                        alert('Por favor, selecione um item na tabela para editar.');
-                        return;
-                    }
-                    const itemId = selectedRow.dataset.id;
-                    const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                    let editUrl = '';
-
-                    if (pageTitle.includes('ativos')) {
-                        editUrl = `/assets/${itemId}/edit`;
-                    } else if (pageTitle.includes('embarcados')) {
-                        editUrl = `/embarcados/${itemId}/edit`;
-                    }
-
-                    if (editUrl) {
-                        window.location.href = editUrl;
-                    }
-                });
-            }
-
-            if (deleteBtn) {
-                deleteBtn.addEventListener('click', () => {
-                    if (!selectedRow) {
-                        alert('Por favor, selecione um item na tabela para apagar.');
-                        return;
-                    }
-                    if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
-                        const itemId = selectedRow.dataset.id;
-                        const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                        let deleteUrl = '';
-
-                        if (pageTitle.includes('ativos')) {
-                            deleteUrl = `/assets/${itemId}/delete`; 
-                        } else if (pageTitle.includes('embarcados')) {
-                            deleteUrl = `/embarcados/${itemId}/delete`;
-                        }
-
-                        if (deleteUrl) {
-                            window.location.href = deleteUrl;
-                        }
-                    }
-                });
-            }
-        }
+        
         function conectarWebSocket() {
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
@@ -125,7 +60,7 @@
                         window.location.reload();
                     }, 500); // 500ms de delay
                 }   
-                
+
                 try {
                     const data = JSON.parse(event.data);
                     // Verifica se é a mensagem especial de conexão para receber o nosso "crachá"

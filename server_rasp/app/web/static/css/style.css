@@ -343,5 +343,29 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .modal-body .data-table { width: 100%; border-collapse: collapse; }
 .modal-body .data-table th, .modal-body .data-table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-color); }
 .modal-body .data-table th { background-color: #f8f9fa; }
+
 .rssi-strong { color: #28a745; font-weight: bold; }
 .rssi-weak { color: #dc3545; font-weight: bold; }
+
+/* 1. Remove a aparência de link e alinha a seta para TODOS os cabeçalhos ordenáveis */
+.data-table th a {
+    /* Estilo do texto */
+    color: inherit; /* Remove o azul, herdando a cor do cabeçalho */
+    text-decoration: none; /* Remove o sublinhado */
+
+    /* Alinhamento da seta */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+}
+
+/* 2. Adiciona um efeito hover para indicar que o cabeçalho é clicável */
+.data-table th a:hover {
+    color: var(--text-primary); /* Deixa o texto preto ao passar o mouse */
+}
+
+/* 3. Restaura o padding da primeira coluna APENAS na tabela de histórico */
+.data-table.history-table th:first-child,
+.data-table.history-table td:first-child {
+    padding-right: 1rem; /* Restaura o padding padrão */
+}

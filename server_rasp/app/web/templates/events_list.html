@@ -105,8 +105,8 @@
         <thead>
             <tr>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'data_on' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='data_on', order=sort_order) }}">DATA</a>
-                    {% if current_filters.sort_by == 'data_on' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='data_on', order=sort_order) }}">
+                    DATA {% if current_filters.sort_by == 'data_on' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a>
                 </th>
                 <th>HORA</th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'ativo' and current_filters.order == 'desc' else 'desc' %}
