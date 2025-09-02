@@ -117,6 +117,15 @@
                 if (event.data === "ping") {
                     return;
                 }
+
+                if (event.data === "ATUALIZAR_ESTADO") {
+                    console.log("Recebido sinal para atualizar. Recarregando a página...");
+                    // Adiciona um pequeno delay para garantir que o banco de dados foi atualizado
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500); // 500ms de delay
+                }   
+                
                 try {
                     const data = JSON.parse(event.data);
                     // Verifica se é a mensagem especial de conexão para receber o nosso "crachá"

@@ -26,15 +26,30 @@
     <thead>
         <tr>
             <th style="text-align: center; width: 80px;">AÇÕES</th>
-            <th>NOME DA CAMA</th>
-            
-            {# NOVAS COLUNAS #}
-            <th>TIPO DE ATIVO</th>
-            <th>MODELO</th>
-            <th>FABRICANTE</th>
-
-            <th>MAC BEACON</th>
-            <th>QUARTO ATUAL</th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'nome_ativo' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=sort_order) }}">NOME DA CAMA</a>
+                {% if current_filters.sort_by == 'nome_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'tipo_ativo' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='tipo_ativo', order=sort_order) }}">TIPO DE ATIVO</a>
+                {% if current_filters.sort_by == 'tipo_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'modelo' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='modelo', order=sort_order) }}">MODELO</a>
+                {% if current_filters.sort_by == 'modelo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'fabricante' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='fabricante', order=sort_order) }}">FABRICANTE</a>
+                {% if current_filters.sort_by == 'fabricante' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'mac_beacon' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
+                {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
+                {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
         </tr>
     </thead>
     <tbody>

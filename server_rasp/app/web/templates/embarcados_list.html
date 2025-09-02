@@ -50,14 +50,32 @@
         <thead>
             <tr>
                 <th style="text-align: center; width: 80px;">AÇÕES</th>
-                <th>ID DO EMBARCADO</th>
-                <th>ANDAR</th>
-                <th>QUARTO</th>
-                <th>STATUS</th>
-                <th>SINAL WI-FI</th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'id_esp' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='id_esp', order=sort_order) }}">ID DO EMBARCADO</a>
+                    {% if current_filters.sort_by == 'id_esp' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'andar' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='andar', order=sort_order) }}">ANDAR</a>
+                    {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO</a>
+                    {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
+                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'wifi_signal' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='wifi_signal', order=sort_order) }}">SINAL WI-FI</a>
+                    {% if current_filters.sort_by == 'wifi_signal' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
                 <th>MAC ADDRESS</th>
                 <th>IP ADDRESS</th>
-                <th>RSSI MÍN.</th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'rssi_min' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='rssi_min', order=sort_order) }}">RSSI MÍN.</a>
+                    {% if current_filters.sort_by == 'rssi_min' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
             </tr>
         </thead>
         <tbody>

@@ -53,6 +53,7 @@ class AssetState:
         self.readings = {}
         self.last_known_ema = {}
         self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000}
+        self.last_known_wifi_signal = None
         self.candidate_quarto_id = None
         self.candidate_since = None
         self.disappeared_since = None
@@ -72,6 +73,8 @@ class AssetState:
         self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema, "wifi_signal": wifi_signal}
         self.last_known_ema[esp_id] = new_ema
         self.disappearance_count = 0
+        if wifi_signal is not None: 
+            self.last_known_wifi_signal = wifi_signal
 
     def cleanup_old_readings(self):
         now = time.time()
@@ -285,9 +288,14 @@ async def _processar_localizacoes():
                             "new_quarto_id": None,
                             "source_esp_id": state.last_strongest_signal.get('esp_id') or "server_inertia_out",
                             "rssi": state.last_strongest_signal.get('rssi', -1000),
+                            "wifi_signal": state.last_known_wifi_signal,
                             "details": f"Sinal permaneceu fraco ou ausente por mais de {_config['inertia_saida_ms']}ms."
                         })
-                        if mac in _asset_realtime_state: del _asset_realtime_state[mac]
+                        if mac in _asset_realtime_state:
+                            state.disappeared_since = None
+                            state.candidate_quarto_id = None
+                            state.candidate_since = None
+                            logger.info(f"Estado de saída para o ativo {mac} foi resetado, mantendo o histórico de sinal.")
                         continue
 
             # 3.3: Lógica de Gestão de Candidato para ENTRADA (Apenas para ativos livres)
@@ -358,7 +366,7 @@ async def _processar_localizacoes():
 
                         logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {state.candidate_quarto_id}. Criando novo evento e iniciando verificação.")
                         quarto_pendente = db.query(Quarto).get(state.candidate_quarto_id)
-                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], data_on=datetime.now(timezone.utc), raw=strongest_candidate)
+                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], wifi=strongest_candidate.get('wifi_signal'), data_on=datetime.now(timezone.utc), raw=strongest_candidate)
                         db.add(pending_event)
                         db.commit()
                         db.refresh(pending_event)

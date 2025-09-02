@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import event, or_, desc
+from sqlalchemy import event, or_, desc, asc
 
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
@@ -579,15 +579,32 @@ def get_or_create_quarto(db: Session, nome: str, andar_id: int) -> Quarto:
 # SEÇÃO 3: CRUD PARA EMBARCADOS
 # ===================================================================
 @app.get("/embarcados", name="list_embarcados")
-def list_embarcados(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    query = db.query(Embarcado).options(joinedload(Embarcado.quarto))
+def list_embarcados(
+    request: Request, db: Session = Depends(get_db),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("id_esp"),
+    order: Optional[str] = Query("asc")
+):
+    query = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar))
     if search:
-        query = query.filter(or_(
-            Embarcado.id_esp.ilike(f"%{search}%"),
-            Embarcado.quarto.has(Quarto.nome.ilike(f"%{search}%"))
-        ))
+        search_term = f"%{search}%"
+        query = query.join(Embarcado.quarto).join(Quarto.andar).filter(
+            or_(Embarcado.id_esp.ilike(search_term), Quarto.nome.ilike(search_term), Andar.nome.ilike(search_term), Embarcado.mac_address.ilike(search_term), Embarcado.ip_address.ilike(search_term))
+        )
     
-    embarcados = query.order_by(Embarcado.id_esp).all()
+    # --- LÓGICA DE ORDENAÇÃO ---
+    sortable_columns = {
+        "id_esp": Embarcado.id_esp, "andar": Andar.nome, "quarto": Quarto.nome,
+        "status": Embarcado.status_rede, "wifi_signal": Embarcado.wifi_signal, "rssi_min": Embarcado.rssi_threshold
+    }
+    # Adiciona joins necessários para a ordenação
+    if sort_by in ["andar", "quarto"]:
+        query = query.join(Embarcado.quarto).join(Quarto.andar)
+
+    sort_column = sortable_columns.get(sort_by, Embarcado.id_esp)
+    query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
+    
+    embarcados = query.all()
     global_settings = get_global_settings(db)
     rssi_thresholds = {
         "global": int(global_settings.get("rssi_threshold", -60)),
@@ -618,7 +635,8 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         "embarcado": None, 
         "search": search,
         "global_settings": get_global_settings(db),
-        "rssi_thresholds": json.dumps(rssi_thresholds)
+        "rssi_thresholds": json.dumps(rssi_thresholds),
+        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
 
 @app.post("/embarcados/new", name="create_embarcado")
@@ -722,18 +740,39 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
 # SEÇÃO 4: CRUD PARA ATIVOS
 # ===================================================================
 @app.get("/assets", name="list_assets")
-def list_assets(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
+def list_assets(
+    request: Request, db: Session = Depends(get_db),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("nome_ativo"),
+    order: Optional[str] = Query("asc")
+):
     query = db.query(Asset).options(joinedload(Asset.quarto))
     if search:
-        query = query.filter(or_(
-            Asset.nome_ativo.ilike(f"%{search}%"),
-            Asset.mac_beacon.ilike(f"%{search}%"),
-            Asset.quarto.has(Quarto.nome.ilike(f"%{search}%"))
-        ))
+        search_term = f"%{search}%"
+        query = query.outerjoin(Asset.quarto).filter(
+            or_(Asset.nome_ativo.ilike(search_term), Asset.mac_beacon.ilike(search_term), Asset.mac_address.ilike(search_term), Quarto.nome.ilike(search_term), Asset.tipo_ativo.ilike(search_term), Asset.modelo.ilike(search_term), Asset.fabricante.ilike(search_term))
+        )
+
+    # --- LÓGICA DE ORDENAÇÃO ---
+    sortable_columns = {
+        "nome_ativo": Asset.nome_ativo, "tipo_ativo": Asset.tipo_ativo, "modelo": Asset.modelo,
+        "fabricante": Asset.fabricante, "mac_beacon": Asset.mac_beacon, "quarto": Quarto.nome
+    }
+    # Adiciona join se necessário (outerjoin para não excluir ativos sem quarto)
+    if sort_by == "quarto":
+        query = query.outerjoin(Asset.quarto)
+        
+    sort_column = sortable_columns.get(sort_by, Asset.nome_ativo)
+    query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
+
+    assets = query.all()
+    
     return templates.TemplateResponse("assets_list.html", {
-        "request": request, "assets": query.order_by(Asset.nome_ativo).all(),
-        "form_action": request.url_for("create_asset"), "asset": None, "search": search
+        "request": request, "assets": assets,
+        "form_action": request.url_for("create_asset"), "asset": None, 
+        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
+
 
 @app.post("/assets", name="create_asset")
 def create_asset(
@@ -820,46 +859,58 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
 # ===================================================================
 @app.get("/events", name="list_events")
 def list_events(
-    request: Request, page: int = Query(1, ge=1),
-    filter_ativo: Optional[str] = Query(None), filter_quarto: Optional[str] = Query(None),
+    request: Request, db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    # Parâmetros de filtro
+    filter_ativo: Optional[str] = Query(None),
     filter_andar: Optional[str] = Query(None),
-    filter_action: Optional[str] = Query(None), filter_status: Optional[str] = Query(None),
-    time_filter: Optional[str] = Query(None), db: Session = Depends(get_db)
+    filter_quarto: Optional[str] = Query(None),
+    filter_action: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
+    time_filter: Optional[str] = Query(None),
+    # --- NOVOS PARÂMETROS DE BUSCA E ORDENAÇÃO ---
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("data_on"),
+    order: Optional[str] = Query("desc")
 ):
-    # --- Mapas de Dados para Enriquecimento ---
     asset_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
-
-    # --- Consulta SEPARADA para Eventos Pendentes (NÃO é filtrada) ---
-    pending_events_query = db.query(ReceivedEvent).filter(ReceivedEvent.status == 'Pendente')
-    pending_events = pending_events_query.order_by(desc(ReceivedEvent.data_on)).all()
-
-    # --- Consulta BASE para o Histórico (EXCLUI os pendentes) ---
+    pending_events = db.query(ReceivedEvent).filter(ReceivedEvent.status == 'Pendente').order_by(desc(ReceivedEvent.data_on)).all()
     history_query = db.query(ReceivedEvent).filter(ReceivedEvent.status != 'Pendente')
 
-    # --- Aplicação dos Filtros APENAS no Histórico ---
-    if filter_andar: 
-        history_query = history_query.filter(ReceivedEvent.andar_nome == filter_andar)
-    if filter_quarto: 
-        history_query = history_query.filter(ReceivedEvent.quarto_nome == filter_quarto)
-    if filter_ativo: 
-        history_query = history_query.filter(ReceivedEvent.ativo == filter_ativo)
-    if filter_action: 
-        history_query = history_query.filter(ReceivedEvent.action == filter_action)
-    if filter_status and filter_status != 'Pendente': 
-        history_query = history_query.filter(ReceivedEvent.status == filter_status)
+    # --- LÓGICA DE BUSCA ---
+    if search:
+        search_term = f"%{search}%"
+        history_query = history_query.filter(
+            or_(ReceivedEvent.ativo.ilike(search_term), ReceivedEvent.status_detail.ilike(search_term), ReceivedEvent.quarto_nome.ilike(search_term))
+        )
+
+    # --- LÓGICA DE FILTROS ---
+    if filter_andar: history_query = history_query.filter(ReceivedEvent.andar_nome == filter_andar)
+    if filter_quarto: history_query = history_query.filter(ReceivedEvent.quarto_nome == filter_quarto)
+    if filter_ativo: history_query = history_query.filter(ReceivedEvent.ativo == filter_ativo)
+    if filter_action: history_query = history_query.filter(ReceivedEvent.action == filter_action)
+    if filter_status: history_query = history_query.filter(ReceivedEvent.status == filter_status)
     if time_filter:
         now = datetime.now(timezone.utc)
         delta = None
         if time_filter == 'daily': delta = timedelta(days=1)
         elif time_filter == 'weekly': delta = timedelta(weeks=1)
         elif time_filter == 'monthly': delta = timedelta(days=30)
-        if delta:
-            history_query = history_query.filter(ReceivedEvent.data_on >= now - delta)
+        if delta: history_query = history_query.filter(ReceivedEvent.data_on >= now - delta)
+            
+    # --- LÓGICA DE ORDENAÇÃO ---
+    sortable_columns = {
+        "data_on": ReceivedEvent.data_on, "ativo": ReceivedEvent.ativo, "quarto": ReceivedEvent.quarto_nome, "andar": ReceivedEvent.andar_nome,
+        "action": ReceivedEvent.action, "status": ReceivedEvent.status, "rssi": ReceivedEvent.rssi, "wifi": ReceivedEvent.wifi
+    }
+    sort_column = sortable_columns.get(sort_by, ReceivedEvent.data_on)
+    history_query = history_query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
 
-    # --- Paginação do Histórico ---
+    # Paginação e enriquecimento dos dados...
     total = history_query.count()
-    events = history_query.order_by(desc(ReceivedEvent.data_on)).offset((page - 1) * EVENT_PAGE_SIZE).limit(EVENT_PAGE_SIZE).all()
-    has_next = total > page * EVENT_PAGE_SIZE
+    events = history_query.offset((page - 1) * EVENT_PAGE_SIZE).limit(EVENT_PAGE_SIZE).all()
+
+    has_next = (page * EVENT_PAGE_SIZE) < total
 
     # --- Função de Enriquecimento para AMBAS as listas ---
     sao_paulo_tz = timezone(timedelta(hours=-3))
@@ -895,7 +946,11 @@ def list_events(
         "all_status_options": all_status_options,
         "all_quartos": all_quartos,
         "all_andares": all_andares,
-        "current_filters": {"ativo": filter_ativo, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
+        "current_filters": {
+            "ativo": filter_ativo, "andar": filter_andar, "quarto": filter_quarto, 
+            "action": filter_action, "status": filter_status, "time_filter": time_filter, 
+            "search": search, "sort_by": sort_by, "order": order
+        }
     })
 
 
