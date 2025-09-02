@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload 
 
 from . import mqtt_client
 from . import aggregator  # Permite que os serviços interajam com o estado do agregador
@@ -46,7 +46,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             action = "OUT" if new_quarto_id is None else "GET"
             
             # Prepara dados para o evento e para o dispatcher
-            novo_quarto_obj = db.query(Quarto).get(new_quarto_id) if new_quarto_id else None
+            novo_quarto_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first() if new_quarto_id else None
             nome_quarto_evento = novo_quarto_obj.nome if novo_quarto_obj else (asset.quarto.nome if asset.quarto else "N/A")
             nome_andar_evento = novo_quarto_obj.andar.nome if novo_quarto_obj and novo_quarto_obj.andar else None
             change.update({"nome_ativo": asset.nome_ativo, "quarto_nome": nome_quarto_evento, "action": action})

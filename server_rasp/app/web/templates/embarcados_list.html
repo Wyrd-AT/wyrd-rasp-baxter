@@ -70,6 +70,7 @@
                 <th><a href="{{ request.url.replace_query_params(sort_by='wifi_signal', order=sort_order) }}">SINAL WI-FI</a>
                     {% if current_filters.sort_by == 'wifi_signal' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'mac_address' and current_filters.order == 'desc' else 'desc' %}
                 <th>
                     <a href="{{ request.url.replace_query_params(sort_by='mac_address', order=sort_order) }}">
                         MAC ADDRESS {% if current_filters.sort_by == 'mac_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
