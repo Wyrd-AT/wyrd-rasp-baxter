@@ -5,7 +5,7 @@ from sqlalchemy.ext.declarative import declarative_base
 import logging
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite:///./base_rtls_hsa.db"
+DATABASE_URL = "sqlite:///./base_rtls_bbraun.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}

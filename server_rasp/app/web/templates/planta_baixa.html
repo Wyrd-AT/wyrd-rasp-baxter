@@ -1,110 +1,130 @@
 {% extends "base.html" %}
 
-{% block title %}Plantas Baixas{% endblock %}
+{% block title %}Planta Baixa{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Plantas Baixas</h1>
+    <h1>Planta Baixa</h1>
 </div>
 
-<div id="planta-grid" class="planta-grid-container">
+<div class="plantas-wrapper">
+
+    <div class="planta-bloco">
+        <h3 class="planta-titulo">Térreo</h3>
+        
+        <div id="planta-terreo" class="planta-container"></div>
+        <div class="planta-sumario" id="sumario-terreo">
+            <span>-- quartos online</span>
+            <span>-- ativos no andar</span>
+        </div>
     </div>
+
+    <div class="planta-bloco">
+        <h3 class="planta-titulo">Mezanino</h3>
+        
+        <div id="planta-mezanino" class="planta-container"></div>
+        <div class="planta-sumario" id="sumario-mezanino">
+            <span>-- quartos online</span>
+            <span>-- ativos no andar</span>
+        </div>
+    </div>
+
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const gridContainer = document.getElementById('planta-grid');
+    const containerTerreo = document.getElementById('planta-terreo');
+    const containerMezanino = document.getElementById('planta-mezanino');
+    const sumarioTerreo = document.getElementById('sumario-terreo');
+    const sumarioMezanino = document.getElementById('sumario-mezanino');
 
-    const coordenadasDosPontos = {
-        'quarto-1': { top: '40%', left: '50%' },
-        'quarto-2': { top: '50%', left: '70%' },
-        'quarto-3': { top: '50%', left: '50%' },
-        'quarto-4': { top: '50%', left: '50%' },
-        'quarto-5': { top: '65%', left: '50%' },
-        'quarto-6': { top: '50%', left: '48%' }
+    // =======================================================================
+    //     VOCÊ AINDA PRECISA CONFIGURAR AS COORDENADAS
+    // =======================================================================
+    const coordenadasDosQuartos = {
+        'quarto-1': { top: '57%', left: '20%' }, 'quarto-2': { top: '55%', left: '46%' },
+        'quarto-3': { top: '37%', left: '49%' }, 'quarto-4': { top: '68%', left: '77%' },
+        'quarto-5': { top: '48%', left: '77%' }, 'quarto-6': { top: '38%', left: '71%' }, 
+        'quarto-7': { top: '38%', left: '83%' }, 'quarto-8': { top: '44%', left: '95%' },
+        'quarto-9': { top: '45%', left: '83%' }
     };
+    // =======================================================================
+
+    function renderizarPontos(container, quartos) {
+    container.innerHTML = ''; // Limpa pontos antigos
+    quartos.forEach(quarto => {
+        const pontoDiv = document.createElement('div');
+        pontoDiv.className = 'ponto-quarto-status';
+        
+        const coords = coordenadasDosQuartos[quarto.id_quarto];
+        if (!coords) return;
+
+        pontoDiv.style.top = coords.top;
+        pontoDiv.style.left = coords.left;
+
+        // Lógica de cor (permanece a mesma)
+        if (quarto.status_embarcado === 'Offline') {
+            pontoDiv.style.backgroundColor = '#6c757d';
+        } else if (quarto.numero_ativos > 0) {
+            pontoDiv.style.backgroundColor = '#28a745';
+        } else {
+            pontoDiv.style.backgroundColor = '#dc3545';
+        }
+
+        // --- NOVA LÓGICA PARA ADICIONAR O NÚMERO DENTRO DO PONTO ---
+        const numeroAtivosSpan = document.createElement('span');
+        numeroAtivosSpan.className = 'ponto-numero-ativos';
+        
+        // Só mostra o número se o embarcado não estiver offline
+        if (quarto.status_embarcado !== 'Offline') {
+            numeroAtivosSpan.textContent = quarto.numero_ativos;
+        }
+        pontoDiv.appendChild(numeroAtivosSpan);
+        // --- FIM DA NOVA LÓGICA ---
+
+        // Lógica do tooltip (permanece a mesma)
+        let tooltipText = `${quarto.nome_quarto}`;
+        if (quarto.status_embarcado === 'Offline') {
+            tooltipText += `\n(Embarcado Offline)`;
+        } else if (quarto.numero_ativos > 0) {
+            quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.horario_entrada})`; });
+        } else {
+            tooltipText += `\nLivre`;
+        }
+        pontoDiv.title = tooltipText;
+        
+        container.appendChild(pontoDiv);
+    });
+}
 
     function atualizarPlanta() {
         fetch("{{ url_for('get_planta_dados') }}")
             .then(response => response.json())
-            .then(dadosQuartos => {
-                gridContainer.innerHTML = '';
+            .then(data => {
+                // Atualiza o sumário do Térreo
+                const sumTerreo = data.terreo.sumario;
+                sumarioTerreo.innerHTML = `
+                    <span>${sumTerreo.quartos_online} quartos online</span>
+                    <span>${sumTerreo.total_ativos} ativos no andar</span>`;
+                
+                // Atualiza o sumário do Mezanino
+                const sumMezanino = data.mezanino.sumario;
+                sumarioMezanino.innerHTML = `
+                    <span>${sumMezanino.quartos_online} quartos online</span>
+                    <span>${sumMezanino.total_ativos} ativos no andar</span>`;
 
-                dadosQuartos.forEach(quarto => {
-                    const quartoContainer = document.createElement('div');
-                    quartoContainer.className = 'quarto-container';
-                    quartoContainer.id = quarto.id_quarto;
-
-                    const tituloH3 = document.createElement('h3');
-                    tituloH3.className = 'quarto-titulo';
-                    tituloH3.textContent = quarto.nome_quarto;
-
-                    const imgSvg = document.createElement('img');
-                    const numeroDoQuarto = quarto.id_quarto.split('-')[1];
-                    imgSvg.src = `{{ url_for('static', path='maps/') }}${numeroDoQuarto}.svg`;
-
-                    const pontoDiv = document.createElement('div');
-                    pontoDiv.className = 'ponto-status-overlay';
-                    const coords = coordenadasDosPontos[quarto.id_quarto] || { top: '50%', left: '50%' };
-                    pontoDiv.style.top = coords.top;
-                    pontoDiv.style.left = coords.left;
-                    pontoDiv.style.transform = 'translate(-50%, -50%)';
-
-                    // --- NOVA LÓGICA DE CORES ---
-                    if (quarto.status_embarcado === 'Offline') {
-                        pontoDiv.style.backgroundColor = '#6c757d'; // Cinza para Offline
-                    } else if (quarto.numero_ativos > 0) {
-                        pontoDiv.style.backgroundColor = '#28a745'; // Verde para Ocupado
-                    } else {
-                        pontoDiv.style.backgroundColor = '#dc3545'; // Vermelho para Livre (mas Online)
-                    }
-
-                    const contagemP = document.createElement('p');
-                    contagemP.className = 'quarto-asset-count';
-                    const textoAtivos = quarto.numero_ativos === 1 ? '1 ativo' : `${quarto.numero_ativos} ativos`;
-                    
-                    if (quarto.status_embarcado === 'Offline') {
-                        contagemP.textContent = 'Embarcado Offline';
-                    } else {
-                        contagemP.textContent = quarto.numero_ativos > 0 ? textoAtivos : 'Livre';
-                    }
-                    
-                    // --- NOVA LÓGICA DE TOOLTIP ---
-                    let tooltipText = `${quarto.nome_quarto}`;
-                    if (quarto.status_embarcado === 'Offline') {
-                        tooltipText += `\n(Embarcado Offline)`;
-                    } else if (quarto.numero_ativos > 0) {
-                        // Itera sobre a nova lista de ativos detalhados
-                        quarto.ativos.forEach(ativo => {
-                            tooltipText += `\n- ${ativo.nome} (Entrada: ${ativo.horario_entrada})`;
-                        });
-                    } else {
-                        tooltipText += `\nLivre`;
-                    }
-                    pontoDiv.title = tooltipText;
-
-                    quartoContainer.appendChild(tituloH3);
-                    quartoContainer.appendChild(imgSvg);
-                    quartoContainer.appendChild(pontoDiv);
-                    quartoContainer.appendChild(contagemP);
-                    
-                    gridContainer.appendChild(quartoContainer);
-                });
+                // Desenha os pontos para cada andar
+                renderizarPontos(containerTerreo, data.terreo.quartos);
+                renderizarPontos(containerMezanino, data.mezanino.quartos);
             });
     }
 
-    window.addEventListener('websocket_open', function() {
-        console.log("Planta Baixa: WebSocket conectado. Carregando dados iniciais.");
-        atualizarPlanta();
-    });
-
-    // Ouve pelo evento 'atualizar_estado' disparado pelo base.html
-    window.addEventListener('websocket_message', function (event) {
-        if (event.detail === "ATUALIZAR_ESTADO") {
-            console.log("Planta Baixa: Sinal de atualização recebido.");
-            atualizarPlanta();
-        }
+    // Gatilhos para atualização (não precisam de mudança)
+    window.addEventListener('websocket_open', () => atualizarPlanta());
+    window.addEventListener('websocket_message', (event) => {
+        if (event.detail === "ATUALIZAR_ESTADO") { atualizarPlanta(); }
     });
 });
 </script>
