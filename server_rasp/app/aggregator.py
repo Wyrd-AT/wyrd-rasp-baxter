@@ -136,10 +136,14 @@ async def _consume_scan_data_queue():
             item = await scan_data_queue.get()
             signal_logger.info(json.dumps(item))
             esp_id, payload = item.get("esp_id"), item.get("payload", {})
-            beacons = payload.get("beacons", [])
-            wifi_signal = payload.get("wifi_signal")
-            for beacon in beacons:
-                mac = beacon.get("mac", "").lower()
+
+            # --- MUDANÇA 1: Obter o objeto "b" e o sinal wifi "w" ---
+            beacons_obj = payload.get("b", {})
+            wifi_signal = payload.get("w") # Extrai o valor da chave 'w'
+
+            # --- MUDANÇA 2: Iterar sobre os itens do objeto (mac, rssi) ---
+            for mac, rssi in beacons_obj.items():
+                mac = mac.lower()
                 if not mac or mac not in _asset_map: continue
 
                 asset_info = _asset_map.get(mac)
@@ -154,7 +158,10 @@ async def _consume_scan_data_queue():
                 
                 if mac not in _asset_realtime_state:
                     _asset_realtime_state[mac] = AssetState(mac)
-                _asset_realtime_state[mac].update_reading(esp_id, beacon.get("rssi"), time.time(), wifi_signal)
+
+                # --- MUDANÇA 3: Usar as variáveis mac, rssi e wifi_signal diretamente ---
+                # (Assumindo que sua função update_reading agora aceita o parâmetro wifi_signal)
+                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time(), wifi_signal)
     finally:
         if db:
             db.commit()
