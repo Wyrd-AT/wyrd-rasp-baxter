@@ -77,15 +77,18 @@ async def _consume_scan_data_queue():
             item = await scan_data_queue.get()
             signal_logger.info(json.dumps(item))
             esp_id, payload = item.get("esp_id"), item.get("payload", {})
-            beacons = payload.get("beacons", [])
-            for beacon in beacons:
-                mac = beacon.get("mac", "").lower()
+
+            # --- MUDANÇA 1: Obter o objeto "b" em vez do array "beacons" ---
+            beacons_obj = payload.get("b", {})
+
+            # --- MUDANÇA 2: Iterar sobre os itens do objeto (mac, rssi) ---
+            for mac, rssi in beacons_obj.items():
+                mac = mac.lower()
                 if not mac or mac not in _asset_map: continue
 
                 asset_info = _asset_map.get(mac)
                 
                 if asset_info.get("status") == 'Offline':
-                    #logger.info(f"Ativo '{mac}' está de volta. Marcando como Online.")
                     if db is None: db = SessionLocal() 
                     asset_db = db.query(Asset).get(asset_info.get("id"))
                     if asset_db:
@@ -94,7 +97,9 @@ async def _consume_scan_data_queue():
                 
                 if mac not in _asset_realtime_state:
                     _asset_realtime_state[mac] = AssetState(mac)
-                _asset_realtime_state[mac].update_reading(esp_id, beacon.get("rssi"), time.time())
+                
+                # --- MUDANÇA 3: Usar as variáveis mac e rssi diretamente ---
+                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
     finally:
         if db:
             db.commit()
