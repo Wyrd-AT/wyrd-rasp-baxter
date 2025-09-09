@@ -42,7 +42,7 @@ from .models import (
 )
 from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
 from . import mqtt_client
-from .aggregator import main_aggregator_loop
+from .aggregator import main_aggregator_loop, _asset_realtime_state
 from .config import settings
 from .auth import authenticate_admin
 
@@ -53,8 +53,6 @@ HISTORY_RETENTION_DAYS = 7
 EVENT_PAGE_SIZE = 25
 CLEANUP_INTERVAL_SEC = 3600
 NUM_FIXED_ROOMS = 6
-
-pending_rssi_requests = {} 
 
 try:
     base_path = sys._MEIPASS
@@ -172,7 +170,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         logger.info("[WebSocket] Nova conexão estabelecida. Cliente: %s, ID: %s", websocket.client, client_id)
         await websocket.send_text(json.dumps({"type": "CONNECTION_INFO", "client_id": client_id}))
-        logger.info("[WebSocket] ID '%s' enviado para o cliente.", client_id)
+        #logger.info("[WebSocket] ID '%s' enviado para o cliente.", client_id)
 
         async def receiver(ws: WebSocket):
             # Esta tarefa simplesmente espera. Se o cliente desconectar, ela irá falhar.
@@ -241,35 +239,30 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="embarcado_id e client_id são necessários.")
 
     embarcado = db.query(Embarcado).get(embarcado_id)
-    if embarcado:
-        logger.info("Pedido de Teste RSSI da ESP '%s' pelo cliente '%s'.", embarcado.id_esp, client_id)
-        pending_rssi_requests[embarcado.id_esp] = client_id
-        command = {"type": "command", "data": {"name": "RSSI_TEST"}}
-        mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
-    return Response(status_code=status.HTTP_202_ACCEPTED)
+    if not embarcado:
+        raise HTTPException(status_code=404, detail="Embarcado não encontrado.")
 
-@app.post("/rssi-report", status_code=status.HTTP_204_NO_CONTENT)
-async def receive_rssi_report(report_data: Dict):
-    """
-    Recebe um relatório de RSSI de uma ESP via POST e o retransmite
-    para todos os clientes conectados via WebSocket.
-    """
-    esp_id = report_data.get("esp_id") 
-    report_payload = report_data.get("report")
-
-    if not esp_id or report_payload is None:
-        raise HTTPException(status_code=400, detail="Payload do relatório incompleto.")
+    logger.info("Gerando relatório RSSI para a ESP '%s' a pedido do cliente '%s'.", embarcado.id_esp, client_id)
     
-    client_id = pending_rssi_requests.pop(esp_id, None)
-    if client_id:
-        logger.info("Relatório da ESP '%s' recebido. Enviando para o cliente '%s'.", esp_id, client_id)
-        websocket_message = {"type": "RSSI_REPORT", "esp_id": esp_id, "report": report_data.get("report")}
+    report_data = []
+    
+    for mac, state in _asset_realtime_state.items():
+        if embarcado.id_esp in state.readings:
+            reading = state.readings[embarcado.id_esp]
+            report_data.append({
+                "mac": mac,
+                "rssi": reading.get("rssi", -1000) 
+            })
+    
+    websocket_message = {
+        "type": "RSSI_REPORT",
+        "esp_id": embarcado.id_esp,
+        "report": report_data
+    }
 
-        await manager.send_to_client(client_id, json.dumps(websocket_message))
-    else:
-        logger.warning("Relatório da ESP '%s' recebido, mas nenhum cliente estava à espera dele.", esp_id)
-
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    await manager.send_to_client(client_id, json.dumps(websocket_message))
+    
+    return Response(status_code=status.HTTP_200_OK)
 
 @app.get("/api/assets/map", name="get_assets_map")
 def get_assets_map(db: Session = Depends(get_db)):
@@ -677,6 +670,9 @@ def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str 
         db.add(asset)
         db.commit()
         aggregator.flag_for_reload()
+        logger.info("[main] Ativo criado. Enviando comando de sincronização para todas as ESPs.")
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
     except IntegrityError:
         db.rollback()
         logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
@@ -706,6 +702,9 @@ def update_asset(request: Request, asset_id: int, nome_ativo: str = Form(...), m
         asset.mac_beacon = mac_beacon.lower()
         db.commit()
         aggregator.flag_for_reload() 
+        logger.info("[main] Ativo atualizado. Enviando comando de sincronização para todas as ESPs.")
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
@@ -716,6 +715,9 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
         db.delete(asset)
         db.commit()
         aggregator.flag_for_reload()
+        logger.info("[main] Ativo apagado. Enviando comando de sincronização para todas as ESPs.")
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 # ===================================================================

@@ -17,6 +17,9 @@ _asset_map = {}
 _config_needs_reload = asyncio.Event()
 _asset_realtime_state = {}
 
+SIGNAL_LOG_INTERVAL_SEC = 15.0  
+_last_signal_log_times_per_esp = {}
+
 # --- Configurações Padrão ---
 _config = {
     "process_interval_sec": 2.0,
@@ -62,17 +65,29 @@ class AssetState:
         return bool(self.readings)
 
 async def _consume_scan_data_queue():
+    global _last_signal_log_times_per_esp
     db = None
+
     try:
         while not scan_data_queue.empty():
             item = await scan_data_queue.get()
-            signal_logger.info(json.dumps(item))
-            esp_id, payload = item.get("esp_id"), item.get("payload", {})
 
-            # --- MUDANÇA 1: Obter o objeto "b" em vez do array "beacons" ---
+            esp_id = item.get("esp_id")
+            if not esp_id:
+                continue    
+
+            now = time.time()
+            last_log_time = _last_signal_log_times_per_esp.get(esp_id, 0)
+
+            if (now - last_log_time) > SIGNAL_LOG_INTERVAL_SEC:
+                signal_logger.info(json.dumps(item))
+                _last_signal_log_times_per_esp[esp_id] = now
+
+            
+            payload = item.get("payload", {})
+
             beacons_obj = payload.get("b", {})
 
-            # --- MUDANÇA 2: Iterar sobre os itens do objeto (mac, rssi) ---
             for mac, rssi in beacons_obj.items():
                 mac = mac.lower()
                 if not mac or mac not in _asset_map: continue
@@ -89,7 +104,6 @@ async def _consume_scan_data_queue():
                 if mac not in _asset_realtime_state:
                     _asset_realtime_state[mac] = AssetState(mac)
                 
-                # --- MUDANÇA 3: Usar as variáveis mac e rssi diretamente ---
                 _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
     finally:
         if db:
@@ -169,7 +183,7 @@ async def _processar_localizacoes():
                         "rssi": state.last_strongest_signal['rssi'],
                         "details": f"Sinal (EMA) permaneceu fraco por {_config['inertia_saida_ms']}ms"
                     })
-                    if mac in _asset_map: _asset_map[mac] = (asset_id, None)
+                    if mac in _asset_map: _asset_map[mac]['quarto_id'] = None
                     state.weak_signal_since = None
                     continue
             elif state.weak_signal_since is not None: state.weak_signal_since = None

@@ -18,7 +18,7 @@ def load_configuration():
         logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
         config['Network'] = {
             'IP': '0.0.0.0',
-            'PORT': '8080'
+            'PORT': '9500'
         }
         config['MQTT'] = {
             'MQTT_BROKER_HOST': '127.0.0.1',
