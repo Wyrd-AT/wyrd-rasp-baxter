@@ -193,7 +193,23 @@ async def websocket_endpoint(websocket: WebSocket):
         
         manager.disconnect(client_id)
         logger.info("[WebSocket] Conexão com o cliente %s limpa e encerrada.", client_id)
-    
+
+
+@app.get("/login", name="login_page")
+def display_login_page(request: Request):
+    """
+    Esta rota apenas exibe a página de login.
+    """
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login", name="login")
+def handle_login(request: Request, username: str = Form(...), password: str = Form(...)):
+    """
+    Esta rota processa os dados do formulário de login.
+    Por enquanto, ela apenas redireciona para a planta, como pedido.
+    """
+    return RedirectResponse(url=request.url_for("view_planta"), status_code=303)
+
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
@@ -208,7 +224,7 @@ def get_server_time():
 
 @app.get("/", name="main")
 def main_page(request: Request):
-    return RedirectResponse(url=request.url_for("list_events"), status_code=303)
+    return RedirectResponse(url=request.url_for("login_page"), status_code=303)
 
 # Em main.py
 # @app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
@@ -856,6 +872,76 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
         db.commit()
         aggregator.flag_for_reload()
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
+
+# ===================================================================
+# SEÇÃO 4.5: ROTAS DA PLANTA BAIXA
+# ===================================================================
+
+@app.get("/planta", name="view_planta")
+def view_planta(request: Request, db: Session = Depends(get_db)):
+    """
+    Renderiza a página da planta baixa interativa.
+    """
+    return templates.TemplateResponse("planta_baixa.html", {"request": request})
+
+@app.get("/api/planta/dados", name="get_planta_dados")
+def get_planta_dados(db: Session = Depends(get_db)):
+    """
+    Endpoint de API que fornece os dados de ocupação para os 4 primeiros quartos
+    e um sumário com os totais.
+    """
+    # Pega apenas os 4 primeiros quartos ordenados pelo ID
+    quartos_db = db.query(Quarto).options(
+        joinedload(Quarto.assets),
+        joinedload(Quarto.embarcados)
+    ).order_by(Quarto.id).limit(4).all()
+
+    lista_quartos_data = []
+    sumario = {"quartos_online": 0, "total_ativos": 0}
+
+    now_utc = datetime.now(timezone.utc)
+    sao_paulo_tz = timezone(timedelta(hours=-3))
+
+    for quarto in quartos_db:
+        status_embarcado = "Offline"
+        if quarto.embarcados:
+            embarcado = quarto.embarcados[0]
+            if embarcado.last_seen:
+                last_seen_utc = embarcado.last_seen.replace(tzinfo=timezone.utc)
+                if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
+                    status_embarcado = "Online"
+
+        if status_embarcado == "Online":
+            sumario["quartos_online"] += 1
+        sumario["total_ativos"] += len(quarto.assets)
+
+        ativos_detalhados = []
+        for asset in quarto.assets:
+            # Busca pelo último evento GET confirmado para o ativo
+            ultimo_evento = db.query(ReceivedEvent).filter(
+                ReceivedEvent.ativo == asset.mac_beacon,
+                ReceivedEvent.action == 'GET',
+                ReceivedEvent.status == 'OK' # Usamos 'OK' no Baxter
+            ).order_by(desc(ReceivedEvent.data_on)).first()
+
+            horario = "N/A"
+            if ultimo_evento and ultimo_evento.data_on:
+                horario = ultimo_evento.data_on.astimezone(sao_paulo_tz).strftime("%H:%M:%S")
+
+            ativos_detalhados.append({"nome": asset.nome_ativo, "horario_entrada": horario})
+
+        lista_quartos_data.append({
+            "id_quarto": f"quarto-{quarto.id}",
+            "nome_quarto": quarto.nome,
+            "numero_ativos": len(quarto.assets),
+            "status_embarcado": status_embarcado,
+            "ativos": ativos_detalhados
+        })
+
+    return JSONResponse(content={
+        "quartos": lista_quartos_data,
+        "sumario": sumario
+    })
 
 # ===================================================================
 # SEÇÃO 5: HISTÓRICO DE EVENTOS E DOWNLOADS

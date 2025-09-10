@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Planta Baixa{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Planta Baixa</h1>
+</div>
+
+<div class="planta-container-unica">
+    <div id="planta-pontos-container">
+        </div>
+</div>
+
+<div class="planta-sumario" id="planta-sumario">
+    <div class="sumario-card card-quartos">
+        <div class="sumario-icon">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
+        </div>
+        <div class="sumario-texto">
+            <div class="sumario-numero">--</div>
+            <div class="sumario-label">Quartos Online</div>
+        </div>
+    </div>
+    <div class="sumario-card card-ativos">
+        <div class="sumario-icon">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
+        </div>
+        <div class="sumario-texto">
+            <div class="sumario-numero">--</div>
+            <div class="sumario-label">Ativos na Planta</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const pontosContainer = document.getElementById('planta-pontos-container');
+    const plantaSumario = document.getElementById('planta-sumario');
+
+    // Coordenadas fixas para os 4 quartos.
+    // **AJUSTE ESTES VALORES PARA POSICIONAR OS PONTOS NA SUA PLANTA**
+    const coordenadasDosQuartos = {
+        'quarto-1': { top: '31%', left: '20.5%' },
+        'quarto-2': { top: '31%', left: '45.8%' },
+        'quarto-3': { top: '31%', left: '67.7%' },
+        'quarto-4': { top: '31%', left: '92.5%' },
+        // Adicione mais quartos conforme necessário:
+        // 'quarto-5': { top: 'X%', left: 'Y%' },
+    };
+
+    function atualizarPlanta() {
+        fetch("{{ url_for('get_planta_dados') }}")
+            .then(response => response.json())
+            .then(data => {
+                // --- ATUALIZAÇÃO DO SUMÁRIO ---
+                // Encontra os elementos de número dentro dos cards existentes
+                const quartosOnlineNumero = plantaSumario.querySelector('.card-quartos .sumario-numero');
+                const ativosNaPlantaNumero = plantaSumario.querySelector('.card-ativos .sumario-numero');
+
+                // Garante que 'data.sumario' exista e tenha as propriedades corretas
+                const sumarioData = data.sumario || { quartos_online: '--', total_ativos: '--' };
+
+                if (quartosOnlineNumero) {
+                    quartosOnlineNumero.textContent = sumarioData.quartos_online;
+                }
+                if (ativosNaPlantaNumero) {
+                    ativosNaPlantaNumero.textContent = sumarioData.total_ativos;
+                }
+
+                // --- RENDERIZAÇÃO DOS PONTOS ---
+                pontosContainer.innerHTML = ''; // Limpa apenas os pontos antigos
+
+                const dadosQuartos = data.quartos || []; // Garante que é um array, mesmo que vazio
+
+                dadosQuartos.forEach(quarto => {
+                    // 1. Cria o container principal para o marcador inteiro (Nomes + Bolinha)
+                    const pontoContainer = document.createElement('div');
+                    pontoContainer.className = 'ponto-quarto-container';
+
+                    // 2. Aplica as coordenadas ao container principal
+                    const coords = coordenadasDosQuartos[quarto.id_quarto] || { display: 'none' };
+                    pontoContainer.style.top = coords.top;
+                    pontoContainer.style.left = coords.left;
+
+                    // 3. Cria e adiciona o NOME DO QUARTO
+                    const nomeQuartoSpan = document.createElement('span');
+                    nomeQuartoSpan.className = 'ponto-nome-quarto';
+                    nomeQuartoSpan.textContent = quarto.nome_quarto;
+                    pontoContainer.appendChild(nomeQuartoSpan);
+
+                    // 4. Cria e adiciona a BOLINHA de status
+                    const pontoStatusDiv = document.createElement('div');
+                    pontoStatusDiv.className = 'ponto-quarto-status';
+                    // Lógica de cor
+                    if (quarto.status_embarcado === 'Offline') {
+                        pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza
+                    } else if (quarto.numero_ativos > 0) {
+                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde
+                    } else {
+                        pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho
+                    }
+                    pontoContainer.appendChild(pontoStatusDiv);
+
+                    // 5. Cria e adiciona o NÚMERO dentro da bolinha
+                    const numeroAtivosSpan = document.createElement('span');
+                    numeroAtivosSpan.className = 'ponto-numero-ativos';
+                    if (quarto.status_embarcado !== 'Offline') {
+                        numeroAtivosSpan.textContent = quarto.numero_ativos;
+                    }
+                    pontoStatusDiv.appendChild(numeroAtivosSpan);
+
+                    // 6. Cria e adiciona o NOME DA CAMA (com lógica)
+                    const nomeCamaSpan = document.createElement('span');
+                    nomeCamaSpan.className = 'ponto-nome-cama';
+
+                    if (quarto.status_embarcado === 'Offline') {
+                        nomeCamaSpan.textContent = '(Offline)';
+                        nomeCamaSpan.classList.add('cama-livre');
+                    } else if (quarto.numero_ativos > 0) {
+                        // Pega o nome do primeiro ativo (cama) no quarto.
+                        // Garante que 'ativos' é um array e tem pelo menos um elemento.
+                        nomeCamaSpan.textContent = quarto.ativos && quarto.ativos.length > 0 ? quarto.ativos[0].nome : 'Ativo(s)';
+                    } else {
+                        nomeCamaSpan.textContent = 'Livre';
+                        nomeCamaSpan.classList.add('cama-livre');
+                    }
+                    pontoContainer.appendChild(nomeCamaSpan);
+
+                    // 7. Adiciona o tooltip ao container principal
+                    let tooltipText = `${quarto.nome_quarto}`;
+                    if (quarto.status_embarcado === 'Offline') {
+                        tooltipText += `\n(Embarcado Offline)`;
+                    } else if (quarto.numero_ativos > 0) {
+                        quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.horario_entrada})`; });
+                    } else {
+                        tooltipText += `\nLivre`;
+                    }
+                    pontoContainer.title = tooltipText;
+
+                    // 8. Adiciona o marcador completo à planta
+                    pontosContainer.appendChild(pontoContainer);
+                });
+            });
+    }
+
+    // O resto do script permanece igual
+    function inicializar() {
+        console.log("Inicializando a planta baixa...");
+        atualizarPlanta();
+    }
+
+    window.addEventListener('websocket_open', inicializar);
+    window.addEventListener('websocket_message', (event) => {
+        if (event.detail === "ATUALIZAR_ESTADO") {
+            atualizarPlanta();
+        }
+    });
+
+    inicializar();
+});
+</script>
+{% endblock %}

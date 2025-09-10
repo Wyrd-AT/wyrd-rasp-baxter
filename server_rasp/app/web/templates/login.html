@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+</head>
+<body class="login-page">
+
+    <div class="login-background-image"></div>
+
+    <main class="login-card">
+        
+        <header class="login-header">
+            <img src="{{ url_for('static', path='icons/logo_completo.svg') }}" alt="Logo da Empresa">
+            <p>Utilize suas credenciais para realizar o login</p>
+        </header>
+
+        <form class="login-form" method="post" action="{{ url_for('login') }}"> <div class="form-fields">
+                <div class="form-group">
+                    <label for="username">Email</label>
+                    <input type="email" id="username" name="username" placeholder="saude@baxter.com.br" required>
+                    <div class="input-line"></div>
+                </div>
+                <div class="form-group">
+                    <label for="password">Senha</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="password" name="password" placeholder="••••••••" required>
+                        <img id="password-icon" src="{{ url_for('static', path='icons/olho_abrir.svg') }}" class="eye-icon" alt="Mostrar/Ocultar Senha" onclick="togglePassword()">
+                    </div>
+                    <div class="input-line"></div>
+                </div>
+                <a href="#" class="forgot-password">Esqueceu sua senha?</a>
+            </div>
+            
+            <button type="submit" class="login-button">ENTRAR</button>
+        </form>
+        
+    </main>
+
+    <script>
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const passwordIcon = document.getElementById('password-icon');
+
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                passwordIcon.src = "{{ url_for('static', path='icons/olho_fechar.svg') }}";
+            } else {
+                passwordInput.type = 'password';
+                passwordIcon.src = "{{ url_for('static', path='icons/olho_abrir.svg') }}";
+            }
+        }
+    </script>
+
+</body>
+</html>
