@@ -60,8 +60,8 @@ def on_message(client, userdata, msg):
                 update_data = {
                     "last_seen": datetime.now(timezone.utc)
                 }
-                if 'wifi_signal' in payload:
-                    update_data["wifi_signal"] = payload['wifi_signal']
+                if 'w' in payload:
+                    update_data["wifi_signal"] = payload['w']
                 
                 _esp_status_cache[esp_id] = update_data
 

@@ -796,7 +796,7 @@ def list_assets(
 def create_asset(
     request: Request, 
     nome_ativo: str = Form(...), 
-    mac_address: str = Form(None),  
+    mac_address: str = Form(...),  
     mac_beacon: str = Form(...),
     # --- NOVOS CAMPOS DO FORMULÁRIO ---
     tipo_ativo: str = Form(None),
@@ -806,7 +806,7 @@ def create_asset(
 ):
     asset = Asset(
         nome_ativo=nome_ativo, 
-        mac_address=mac_address.lower() if mac_address else None,  
+        mac_address=mac_address.lower(),  
         mac_beacon=mac_beacon.lower(),
         # --- NOVOS DADOS PARA SALVAR ---
         tipo_ativo=tipo_ativo,
@@ -841,7 +841,7 @@ def update_asset(
     request: Request, 
     asset_id: int, 
     nome_ativo: str = Form(...), 
-    mac_address: str = Form(None),
+    mac_address: str = Form(...),
     mac_beacon: str = Form(...),
     # --- NOVOS CAMPOS DO FORMULÁRIO ---
     tipo_ativo: str = Form(None),
@@ -852,7 +852,7 @@ def update_asset(
     asset = db.query(Asset).get(asset_id)
     if asset:
         asset.nome_ativo = nome_ativo
-        asset.mac_address = mac_address.lower() if mac_address else None 
+        mac_address=mac_address.lower()
         asset.mac_beacon = mac_beacon.lower()
         # --- ATUALIZANDO OS NOVOS DADOS ---
         asset.tipo_ativo = tipo_ativo

@@ -18,7 +18,7 @@ ARQUIVO: app/web/templates/asset_form.html
             </div>
             <div class="form-group">
                 <label for="mac_address">MAC Address do Wi-Fi</label>
-                <input type="text" id="mac_address" name="mac_address" value="{{ asset.mac_address if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX (Opcional)">
+                <input type="text" id="mac_address" name="mac_address" value="{{ asset.mac_address if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
             </div>
         </div>
         
@@ -96,6 +96,10 @@ ARQUIVO: app/web/templates/assets_list.html
             <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
                 {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'mac_address' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='mac_address', order=sort_order) }}">MAC WI-FI</a>
+                {% if current_filters.sort_by == 'mac_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
             {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
                 {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -124,6 +128,7 @@ ARQUIVO: app/web/templates/assets_list.html
             <td>{{ asset.fabricante or '---' }}</td>
             
             <td>{{ asset.mac_beacon }}</td>
+            <td>{{ asset.mac_address }}</td>
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
         </tr>
         {% endfor %}
@@ -192,7 +197,7 @@ ARQUIVO: app/web/templates/base.html
 
         // 2. Lógica da Sidebar e do Overlay (fundo escurecido).
         const sidebar = document.getElementById('sidebar');
-        const toggleButton = document.getElementById('sidebar-toggle');
+        const toggleButton = document.getElementById('sidebar-toggle-btn');
         const overlay = document.getElementById('overlay');
 
         if (toggleButton && sidebar && overlay) {
@@ -203,72 +208,7 @@ ARQUIVO: app/web/templates/base.html
             toggleButton.addEventListener('click', toggleSidebar);
             overlay.addEventListener('click', toggleSidebar);
         }
-
-        // 3. Lógica de Interatividade da Tabela (para Ativos e Embarcados).
-        const table = document.querySelector('.data-table');
-        // Só continua se a página atual TIVER uma tabela com a classe '.data-table'.
-        if (table) {
-            const editBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Editar"]');
-            const deleteBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
-            let selectedRow = null;
-
-            table.addEventListener('click', (event) => {
-                const row = event.target.closest('.selectable-row');
-                if (!row) return;
-
-                if (selectedRow) {
-                    selectedRow.style.backgroundColor = '';
-                }
-                row.style.backgroundColor = '#e0eafc'; // Cor de seleção
-                selectedRow = row;
-            });
-
-            if (editBtn) {
-                editBtn.addEventListener('click', () => {
-                    if (!selectedRow) {
-                        alert('Por favor, selecione um item na tabela para editar.');
-                        return;
-                    }
-                    const itemId = selectedRow.dataset.id;
-                    const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                    let editUrl = '';
-
-                    if (pageTitle.includes('ativos')) {
-                        editUrl = `/assets/${itemId}/edit`;
-                    } else if (pageTitle.includes('embarcados')) {
-                        editUrl = `/embarcados/${itemId}/edit`;
-                    }
-
-                    if (editUrl) {
-                        window.location.href = editUrl;
-                    }
-                });
-            }
-
-            if (deleteBtn) {
-                deleteBtn.addEventListener('click', () => {
-                    if (!selectedRow) {
-                        alert('Por favor, selecione um item na tabela para apagar.');
-                        return;
-                    }
-                    if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
-                        const itemId = selectedRow.dataset.id;
-                        const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                        let deleteUrl = '';
-
-                        if (pageTitle.includes('ativos')) {
-                            deleteUrl = `/assets/${itemId}/delete`; 
-                        } else if (pageTitle.includes('embarcados')) {
-                            deleteUrl = `/embarcados/${itemId}/delete`;
-                        }
-
-                        if (deleteUrl) {
-                            window.location.href = deleteUrl;
-                        }
-                    }
-                });
-            }
-        }
+        
         function conectarWebSocket() {
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
@@ -284,6 +224,15 @@ ARQUIVO: app/web/templates/base.html
                 if (event.data === "ping") {
                     return;
                 }
+
+                if (event.data === "ATUALIZAR_ESTADO") {
+                    console.log("Recebido sinal para atualizar. Recarregando a página...");
+                    // Adiciona um pequeno delay para garantir que o banco de dados foi atualizado
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500); // 500ms de delay
+                }   
+
                 try {
                     const data = JSON.parse(event.data);
                     // Verifica se é a mensagem especial de conexão para receber o nosso "crachá"
@@ -438,8 +387,20 @@ ARQUIVO: app/web/templates/embarcados_list.html
                 <th><a href="{{ request.url.replace_query_params(sort_by='wifi_signal', order=sort_order) }}">SINAL WI-FI</a>
                     {% if current_filters.sort_by == 'wifi_signal' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
-                <th>MAC ADDRESS</th>
-                <th>IP ADDRESS</th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'mac_address' and current_filters.order == 'desc' else 'desc' %}
+                <th>
+                    <a href="{{ request.url.replace_query_params(sort_by='mac_address', order=sort_order) }}">
+                        MAC ADDRESS {% if current_filters.sort_by == 'mac_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                    </a>
+                </th>
+
+                {# Coluna IP Address agora ordenável #}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'ip_address' and current_filters.order == 'desc' else 'desc' %}
+                <th>
+                    <a href="{{ request.url.replace_query_params(sort_by='ip_address', order=sort_order) }}">
+                        IP ADDRESS {% if current_filters.sort_by == 'ip_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                    </a>
+                </th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'rssi_min' and current_filters.order == 'desc' else 'desc' %}
                 <th><a href="{{ request.url.replace_query_params(sort_by='rssi_min', order=sort_order) }}">RSSI MÍN.</a>
                     {% if current_filters.sort_by == 'rssi_min' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -576,6 +537,7 @@ ARQUIVO: app/web/templates/events_list.html
     <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">DOWNLOAD CSV</a>
 </div>
 
+{# Seção de Filtros (sem alterações) #}
 <form class="filters-toolbar" method="get" action="{{ url_for('list_events') }}">
     <div class="filter-group-left">
         <select name="filter_ativo" class="filter-dropdown-main" onchange="this.form.submit()">
@@ -585,7 +547,6 @@ ARQUIVO: app/web/templates/events_list.html
             {% endfor %}
         </select>
     </div>
-
     <div class="filter-group-right">
         <select name="time_filter" class="filter-btn" onchange="this.form.submit()">
             <option value="all" {% if not current_filters.time_filter or current_filters.time_filter == 'all' %}selected{% endif %}>Data e Hora</option>
@@ -593,7 +554,6 @@ ARQUIVO: app/web/templates/events_list.html
             <option value="weekly" {% if current_filters.time_filter == 'weekly' %}selected{% endif %}>Últimos 7 dias</option>
             <option value="monthly" {% if current_filters.time_filter == 'monthly' %}selected{% endif %}>Últimos 30 dias</option>
         </select>
-
         <select name="filter_andar" class="filter-btn" onchange="this.form.submit()">
             <option value="">Andar</option>
             {% for andar in all_andares %}
@@ -606,27 +566,25 @@ ARQUIVO: app/web/templates/events_list.html
             <option value="{{ quarto }}" {% if current_filters.quarto == quarto %}selected{% endif %}>{{ quarto }}</option>
             {% endfor %}
         </select>
-
         <select name="filter_action" class="filter-btn" onchange="this.form.submit()">
           <option value="">Ação</option>
           {% for value, name in all_action_options %}
           <option value="{{ value }}" {% if current_filters.action == value %}selected{% endif %}>{{ name }}</option>
           {% endfor %}
         </select>
-
         <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
           <option value="">Status</option>
           {% for status_option in all_status_options %}
           <option value="{{ status_option }}" {% if current_filters.status == status_option %}selected{% endif %}>{{ status_option }}</option>
           {% endfor %}
         </select>
-
         <a href="{{ url_for('list_events') }}" class="filter-reset-btn" title="Limpar Filtros">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/reiniciar.svg') }})"></span>
         </a>
     </div>
 </form>
 
+{# Seção de Eventos Pendentes (sem alterações) #}
 {% if pending_events %}
 <div class="pending-events-section">
     <h2>Eventos Pendentes (Aguardando Wi-Fi)</h2>
@@ -669,14 +627,15 @@ ARQUIVO: app/web/templates/events_list.html
     </div>
 </div>
 {% endif %}
+
+{# Seção da Tabela de Histórico (COM AS CORREÇÕES) #}
 <div class="history-table-container">
     <table class="data-table history-table">
         <thead>
             <tr>
-                {# Lógica para inverter a ordem ao clicar e para mostrar o indicador (seta) #}
                 {% set sort_order = 'asc' if current_filters.sort_by == 'data_on' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='data_on', order=sort_order) }}">DATA</a>
-                    {% if current_filters.sort_by == 'data_on' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='data_on', order=sort_order) }}">
+                    DATA {% if current_filters.sort_by == 'data_on' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a>
                 </th>
                 <th>HORA</th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'ativo' and current_filters.order == 'desc' else 'desc' %}
@@ -687,6 +646,14 @@ ARQUIVO: app/web/templates/events_list.html
                 <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO</a>
                     {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
+                
+                {# === INÍCIO DAS MUDANÇAS === #}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'andar' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='andar', order=sort_order) }}">ANDAR</a>
+                    {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {# === FIM DAS MUDANÇAS === #}
+
                 {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
                 <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
                     {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -712,7 +679,11 @@ ARQUIVO: app/web/templates/events_list.html
                 <td>{{ event.hora_str }}</td>
                 <td>{{ event.nome_ativo }}</td>
                 <td>{{ event.quarto }}</td>
-                <td>{{ event.andar }}</td>
+
+                {# === INÍCIO DAS MUDANÇAS === #}
+                <td>{{ event.andar_nome or '---' }}</td>
+                {# === FIM DAS MUDANÇAS === #}
+
                 <td>
                     {% if event.action == 'GET' %}
                         <span class="action-get">Conectar</span>
@@ -740,13 +711,75 @@ ARQUIVO: app/web/templates/events_list.html
     </table>
 </div>
 
-
 <div class="pagination">
     {% if page > 1 %}<a href="{{ request.url.replace_query_params(page=page-1) }}">Anterior</a>{% endif %}
     <span>Página {{ page }}</span>
     {% if has_next %}<a href="{{ request.url.replace_query_params(page=page+1) }}">Próxima</a>{% endif %}
 </div>
 {% endblock %}
+
+
+========================================
+ARQUIVO: app/web/templates/login.html
+========================================
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+</head>
+<body class="login-page">
+
+    <div class="login-background-image"></div>
+
+    <main class="login-card">
+        
+        <header class="login-header">
+            <img src="{{ url_for('static', path='icons/logo_completo.svg') }}" alt="Logo da Empresa">
+            <p>Utilize suas credenciais para realizar o login</p>
+        </header>
+
+        <form class="login-form" method="post" action="{{ url_for('login') }}"> <div class="form-fields">
+                <div class="form-group">
+                    <label for="username">Email</label>
+                    <input type="email" id="username" name="username" placeholder="saude@baxter.com.br" required>
+                    <div class="input-line"></div>
+                </div>
+                <div class="form-group">
+                    <label for="password">Senha</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="password" name="password" placeholder="••••••••" required>
+                        <img id="password-icon" src="{{ url_for('static', path='icons/olho_abrir.svg') }}" class="eye-icon" alt="Mostrar/Ocultar Senha" onclick="togglePassword()">
+                    </div>
+                    <div class="input-line"></div>
+                </div>
+                <a href="#" class="forgot-password">Esqueceu sua senha?</a>
+            </div>
+            
+            <button type="submit" class="login-button">ENTRAR</button>
+        </form>
+        
+    </main>
+
+    <script>
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const passwordIcon = document.getElementById('password-icon');
+
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                passwordIcon.src = "{{ url_for('static', path='icons/olho_fechar.svg') }}";
+            } else {
+                passwordInput.type = 'password';
+                passwordIcon.src = "{{ url_for('static', path='icons/olho_abrir.svg') }}";
+            }
+        }
+    </script>
+
+</body>
+</html>
 
 
 ========================================
@@ -777,13 +810,177 @@ ARQUIVO: app/web/templates/main.html
 
 
 ========================================
+ARQUIVO: app/web/templates/planta_baixa.html
+========================================
+{% extends "base.html" %}
+
+{% block title %}Planta Baixa{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Planta Baixa</h1>
+</div>
+
+<div class="planta-container-unica">
+    <div id="planta-pontos-container">
+        </div>
+</div>
+
+<div class="planta-sumario" id="planta-sumario">
+    <div class="sumario-card card-quartos">
+        <div class="sumario-icon">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
+        </div>
+        <div class="sumario-texto">
+            <div class="sumario-numero">--</div>
+            <div class="sumario-label">Quartos Online</div>
+        </div>
+    </div>
+    <div class="sumario-card card-ativos">
+        <div class="sumario-icon">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
+        </div>
+        <div class="sumario-texto">
+            <div class="sumario-numero">--</div>
+            <div class="sumario-label">Ativos na Planta</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const pontosContainer = document.getElementById('planta-pontos-container');
+    const plantaSumario = document.getElementById('planta-sumario');
+
+    // Coordenadas fixas para os 4 quartos.
+    // **AJUSTE ESTES VALORES PARA POSICIONAR OS PONTOS NA SUA PLANTA**
+    const coordenadasDosQuartos = {
+        'quarto-1': { top: '31%', left: '20.5%' },
+        'quarto-2': { top: '31%', left: '45.8%' },
+        'quarto-3': { top: '31%', left: '67.7%' },
+        'quarto-4': { top: '31%', left: '92.5%' },
+        // Adicione mais quartos conforme necessário:
+        // 'quarto-5': { top: 'X%', left: 'Y%' },
+    };
+
+    function atualizarPlanta() {
+        fetch("{{ url_for('get_planta_dados') }}")
+            .then(response => response.json())
+            .then(data => {
+                // --- ATUALIZAÇÃO DO SUMÁRIO ---
+                // Encontra os elementos de número dentro dos cards existentes
+                const quartosOnlineNumero = plantaSumario.querySelector('.card-quartos .sumario-numero');
+                const ativosNaPlantaNumero = plantaSumario.querySelector('.card-ativos .sumario-numero');
+
+                // Garante que 'data.sumario' exista e tenha as propriedades corretas
+                const sumarioData = data.sumario || { quartos_online: '--', total_ativos: '--' };
+
+                if (quartosOnlineNumero) {
+                    quartosOnlineNumero.textContent = sumarioData.quartos_online;
+                }
+                if (ativosNaPlantaNumero) {
+                    ativosNaPlantaNumero.textContent = sumarioData.total_ativos;
+                }
+
+                // --- RENDERIZAÇÃO DOS PONTOS ---
+                pontosContainer.innerHTML = ''; // Limpa apenas os pontos antigos
+
+                const dadosQuartos = data.quartos || []; // Garante que é um array, mesmo que vazio
+
+                dadosQuartos.forEach(quarto => {
+                    // 1. Cria o container principal para o marcador inteiro (Nomes + Bolinha)
+                    const pontoContainer = document.createElement('div');
+                    pontoContainer.className = 'ponto-quarto-container';
+
+                    // 2. Aplica as coordenadas ao container principal
+                    const coords = coordenadasDosQuartos[quarto.id_quarto] || { display: 'none' };
+                    pontoContainer.style.top = coords.top;
+                    pontoContainer.style.left = coords.left;
+
+                    // 3. Cria e adiciona o NOME DO QUARTO
+                    const nomeQuartoSpan = document.createElement('span');
+                    nomeQuartoSpan.className = 'ponto-nome-quarto';
+                    nomeQuartoSpan.textContent = quarto.nome_quarto;
+                    pontoContainer.appendChild(nomeQuartoSpan);
+
+                    // 4. Cria e adiciona a BOLINHA de status
+                    const pontoStatusDiv = document.createElement('div');
+                    pontoStatusDiv.className = 'ponto-quarto-status';
+                    // Lógica de cor
+                    if (quarto.status_embarcado === 'Offline') {
+                        pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza
+                    } else if (quarto.numero_ativos > 0) {
+                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde
+                    } else {
+                        pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho
+                    }
+                    pontoContainer.appendChild(pontoStatusDiv);
+
+                    // 6. Cria e adiciona o NOME DA CAMA (com lógica)
+                    const nomeCamaSpan = document.createElement('span');
+                    nomeCamaSpan.className = 'ponto-nome-cama';
+
+                    if (quarto.status_embarcado === 'Offline') {
+                        nomeCamaSpan.textContent = '(Offline)';
+                        nomeCamaSpan.classList.add('cama-livre');
+                    } else if (quarto.numero_ativos > 0) {
+                        // Pega o nome do primeiro ativo (cama) no quarto.
+                        // Garante que 'ativos' é um array e tem pelo menos um elemento.
+                        nomeCamaSpan.textContent = quarto.ativos && quarto.ativos.length > 0 ? quarto.ativos[0].nome : 'Ativo(s)';
+                    } else {
+                        nomeCamaSpan.textContent = 'Livre';
+                        nomeCamaSpan.classList.add('cama-livre');
+                    }
+                    pontoContainer.appendChild(nomeCamaSpan);
+
+                    // 7. Adiciona o tooltip ao container principal
+                    let tooltipText = `${quarto.nome_quarto}`;
+                    if (quarto.status_embarcado === 'Offline') {
+                        tooltipText += `\n(Embarcado Offline)`;
+                    } else if (quarto.numero_ativos > 0) {
+                        quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.horario_entrada})`; });
+                    } else {
+                        tooltipText += `\nLivre`;
+                    }
+                    pontoContainer.title = tooltipText;
+
+                    // 8. Adiciona o marcador completo à planta
+                    pontosContainer.appendChild(pontoContainer);
+                });
+            });
+    }
+
+    // O resto do script permanece igual
+    function inicializar() {
+        console.log("Inicializando a planta baixa...");
+        atualizarPlanta();
+    }
+
+    window.addEventListener('websocket_open', inicializar);
+    window.addEventListener('websocket_message', (event) => {
+        if (event.detail === "ATUALIZAR_ESTADO") {
+            atualizarPlanta();
+        }
+    });
+
+    inicializar();
+});
+</script>
+{% endblock %}
+
+
+========================================
 ARQUIVO: app/web/templates/sidebar.html
 ========================================
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-        <button class="icon-btn" id="sidebar-toggle" title="Menu">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/menu.svg') }})"></span>
-        </button>
+        {# O botão foi substituído por este container clicável com os logos #}
+        <div id="sidebar-logo-toggle" title="Menu">
+            <img src="{{ url_for('static', path='icons/logo_icone.svg') }}" alt="Ícone do Logo" class="logo-sidebar" id="logo-icone">
+            <img src="{{ url_for('static', path='icons/logo_completo.svg') }}" alt="Logo Completo" class="logo-sidebar" id="logo-completo">
+        </div>
     </div>
     <nav class="sidebar-nav">
         <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
@@ -800,13 +997,27 @@ ARQUIVO: app/web/templates/sidebar.html
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
             <span class="nav-text">Camas</span>
         </a>
-    </nav>
-    <div class="sidebar-footer">
-        <a href="#" class="nav-item" title="Sair">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/sair.svg') }})"></span>
-            <span class="nav-text">Sair</span>
+        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
+            <span class="nav-text">Planta</span>
         </a>
-    </div>
+    </nav>
+    <button id="sidebar-toggle-btn" title="Alternar menu">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+    </button>
+
+    <a href="{{ url_for('login_page') }}" class="nav-item" title="Sair">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/sair.svg') }})"></span>
+        <span class="nav-text">Sair</span>
+    </a>
+
+    <div class="sidebar-footer">
+    {# --- INÍCIO DA MUDANÇA --- #}
+    <div class="footer-brand">
+        <span class="brand-icon">V.0.4.0</span> <span class="brand-full">WH Connect v0.4.0</span> </div>    
+</div>
 </aside>
 
 

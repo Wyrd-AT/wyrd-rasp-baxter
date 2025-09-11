@@ -82,7 +82,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .sidebar { position: fixed; top: 0; left: 0; height: 100%; z-index: 1000; width: 83px; background-color: var(--sidebar-bg); padding: 1.5rem 0; display: flex; flex-direction: column; align-items: center; transition: width 0.3s ease; border-right: 1px solid var(--border-color); }
 .sidebar-header { padding-bottom: 2rem; }
 .sidebar-nav { flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 2rem; margin-top: 2rem; }
-.nav-item { display: flex; justify-content: center; align-items: center; width: 50px; height: 50px; border-radius: 8px; text-decoration: none; color: var(--text-primary); }
+.nav-item { display: flex; justify-content: center; align-itetims: center; width: 50px; height: 50px; border-radius: 8px; text-decoration: none; color: var(--text-primary); }
 .nav-item.active { background-color: var(--active-nav-bg); }
 .nav-item.active .feather, .nav-item.active .emoji-icon, .nav-item.active .svg-icon { color: white; stroke: white; fill: white; }
 .nav-item .feather, .nav-item svg { width: 28px; height: 28px; }
@@ -533,8 +533,8 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 /* 5. A Bolinha de Status (ajustada) */
 .ponto-quarto-status {
-    width: 40px;
-    height: 40px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     color: white;
     font-weight: bold;
@@ -555,7 +555,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
     font-size: 16px; /* Aumentado de 14px para 16px */
     font-weight: 600;
     color: var(--primary-dark);
-    margin-bottom: 24px; /* Aumentado de 8px para 12px para mais espaço */
+    margin-bottom: 28px; /* Aumentado de 8px para 12px para mais espaço */
     white-space: nowrap;
 }
 

@@ -46,6 +46,10 @@
             <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
                 {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'mac_address' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='mac_address', order=sort_order) }}">MAC WI-FI</a>
+                {% if current_filters.sort_by == 'mac_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
             {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
                 {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -74,6 +78,7 @@
             <td>{{ asset.fabricante or '---' }}</td>
             
             <td>{{ asset.mac_beacon }}</td>
+            <td>{{ asset.mac_address }}</td>
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
         </tr>
         {% endfor %}

@@ -104,14 +104,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     }
                     pontoContainer.appendChild(pontoStatusDiv);
 
-                    // 5. Cria e adiciona o NÚMERO dentro da bolinha
-                    const numeroAtivosSpan = document.createElement('span');
-                    numeroAtivosSpan.className = 'ponto-numero-ativos';
-                    if (quarto.status_embarcado !== 'Offline') {
-                        numeroAtivosSpan.textContent = quarto.numero_ativos;
-                    }
-                    pontoStatusDiv.appendChild(numeroAtivosSpan);
-
                     // 6. Cria e adiciona o NOME DA CAMA (com lógica)
                     const nomeCamaSpan = document.createElement('span');
                     nomeCamaSpan.className = 'ponto-nome-cama';

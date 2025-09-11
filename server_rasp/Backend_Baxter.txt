@@ -62,6 +62,7 @@ class AssetState:
         self.readings = {}
         self.last_known_ema = {}
         self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000}
+        self.last_known_wifi_signal = None
         self.candidate_quarto_id = None
         self.candidate_since = None
         self.disappeared_since = None
@@ -81,6 +82,8 @@ class AssetState:
         self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema, "wifi_signal": wifi_signal}
         self.last_known_ema[esp_id] = new_ema
         self.disappearance_count = 0
+        if wifi_signal is not None: 
+            self.last_known_wifi_signal = wifi_signal
 
     def cleanup_old_readings(self):
         now = time.time()
@@ -142,10 +145,14 @@ async def _consume_scan_data_queue():
             item = await scan_data_queue.get()
             signal_logger.info(json.dumps(item))
             esp_id, payload = item.get("esp_id"), item.get("payload", {})
-            beacons = payload.get("beacons", [])
-            wifi_signal = payload.get("wifi_signal")
-            for beacon in beacons:
-                mac = beacon.get("mac", "").lower()
+
+            # --- MUDANÇA 1: Obter o objeto "b" e o sinal wifi "w" ---
+            beacons_obj = payload.get("b", {})
+            wifi_signal = payload.get("w") # Extrai o valor da chave 'w'
+
+            # --- MUDANÇA 2: Iterar sobre os itens do objeto (mac, rssi) ---
+            for mac, rssi in beacons_obj.items():
+                mac = mac.lower()
                 if not mac or mac not in _asset_map: continue
 
                 asset_info = _asset_map.get(mac)
@@ -160,7 +167,10 @@ async def _consume_scan_data_queue():
                 
                 if mac not in _asset_realtime_state:
                     _asset_realtime_state[mac] = AssetState(mac)
-                _asset_realtime_state[mac].update_reading(esp_id, beacon.get("rssi"), time.time(), wifi_signal)
+
+                # --- MUDANÇA 3: Usar as variáveis mac, rssi e wifi_signal diretamente ---
+                # (Assumindo que sua função update_reading agora aceita o parâmetro wifi_signal)
+                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time(), wifi_signal)
     finally:
         if db:
             db.commit()
@@ -294,9 +304,14 @@ async def _processar_localizacoes():
                             "new_quarto_id": None,
                             "source_esp_id": state.last_strongest_signal.get('esp_id') or "server_inertia_out",
                             "rssi": state.last_strongest_signal.get('rssi', -1000),
+                            "wifi_signal": state.last_known_wifi_signal,
                             "details": f"Sinal permaneceu fraco ou ausente por mais de {_config['inertia_saida_ms']}ms."
                         })
-                        if mac in _asset_realtime_state: del _asset_realtime_state[mac]
+                        if mac in _asset_realtime_state:
+                            state.disappeared_since = None
+                            state.candidate_quarto_id = None
+                            state.candidate_since = None
+                            logger.info(f"Estado de saída para o ativo {mac} foi resetado, mantendo o histórico de sinal.")
                         continue
 
             # 3.3: Lógica de Gestão de Candidato para ENTRADA (Apenas para ativos livres)
@@ -367,7 +382,7 @@ async def _processar_localizacoes():
 
                         logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {state.candidate_quarto_id}. Criando novo evento e iniciando verificação.")
                         quarto_pendente = db.query(Quarto).get(state.candidate_quarto_id)
-                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], data_on=datetime.now(timezone.utc), raw=strongest_candidate)
+                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], wifi=strongest_candidate.get('wifi_signal'), data_on=datetime.now(timezone.utc), raw=strongest_candidate)
                         db.add(pending_event)
                         db.commit()
                         db.refresh(pending_event)
@@ -910,7 +925,23 @@ async def websocket_endpoint(websocket: WebSocket):
         
         manager.disconnect(client_id)
         logger.info("[WebSocket] Conexão com o cliente %s limpa e encerrada.", client_id)
-    
+
+
+@app.get("/login", name="login_page")
+def display_login_page(request: Request):
+    """
+    Esta rota apenas exibe a página de login.
+    """
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login", name="login")
+def handle_login(request: Request, username: str = Form(...), password: str = Form(...)):
+    """
+    Esta rota processa os dados do formulário de login.
+    Por enquanto, ela apenas redireciona para a planta, como pedido.
+    """
+    return RedirectResponse(url=request.url_for("view_planta"), status_code=303)
+
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
@@ -925,7 +956,7 @@ def get_server_time():
 
 @app.get("/", name="main")
 def main_page(request: Request):
-    return RedirectResponse(url=request.url_for("list_events"), status_code=303)
+    return RedirectResponse(url=request.url_for("login_page"), status_code=303)
 
 # Em main.py
 # @app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
@@ -1312,7 +1343,8 @@ def list_embarcados(
     # --- LÓGICA DE ORDENAÇÃO ---
     sortable_columns = {
         "id_esp": Embarcado.id_esp, "andar": Andar.nome, "quarto": Quarto.nome,
-        "status": Embarcado.status_rede, "wifi_signal": Embarcado.wifi_signal, "rssi_min": Embarcado.rssi_threshold
+        "status": Embarcado.status_rede, "wifi_signal": Embarcado.wifi_signal, "rssi_min": Embarcado.rssi_threshold,
+        "mac_address": Embarcado.mac_address, "ip_address": Embarcado.ip_address
     }
     # Adiciona joins necessários para a ordenação
     if sort_by in ["andar", "quarto"]:
@@ -1411,7 +1443,8 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
         "available_quartos": available_quartos, # <-- Passa a lista filtrada
         "form_action": request.url_for("update_embarcado", embarcado_id=embarcado_id),
         "embarcado": emb_para_editar,
-        "search": None, "global_settings": get_global_settings(db)
+        "search": None, "global_settings": get_global_settings(db),
+        "current_filters": {"search": None, "sort_by": "id_esp", "order": "asc"}
     })
 
 # Em main.py
@@ -1495,7 +1528,7 @@ def list_assets(
 def create_asset(
     request: Request, 
     nome_ativo: str = Form(...), 
-    mac_address: str = Form(None),  
+    mac_address: str = Form(...),  
     mac_beacon: str = Form(...),
     # --- NOVOS CAMPOS DO FORMULÁRIO ---
     tipo_ativo: str = Form(None),
@@ -1505,7 +1538,7 @@ def create_asset(
 ):
     asset = Asset(
         nome_ativo=nome_ativo, 
-        mac_address=mac_address.lower() if mac_address else None,  
+        mac_address=mac_address.lower(),  
         mac_beacon=mac_beacon.lower(),
         # --- NOVOS DADOS PARA SALVAR ---
         tipo_ativo=tipo_ativo,
@@ -1531,7 +1564,8 @@ def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     return templates.TemplateResponse("assets_list.html", {
         "request": request, "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
         "form_action": request.url_for("update_asset", asset_id=asset_id),
-        "asset": db.query(Asset).get(asset_id), "search": None
+        "asset": db.query(Asset).get(asset_id), "search": None,
+        "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"}
     })
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")
@@ -1539,7 +1573,7 @@ def update_asset(
     request: Request, 
     asset_id: int, 
     nome_ativo: str = Form(...), 
-    mac_address: str = Form(None),
+    mac_address: str = Form(...),
     mac_beacon: str = Form(...),
     # --- NOVOS CAMPOS DO FORMULÁRIO ---
     tipo_ativo: str = Form(None),
@@ -1550,7 +1584,7 @@ def update_asset(
     asset = db.query(Asset).get(asset_id)
     if asset:
         asset.nome_ativo = nome_ativo
-        asset.mac_address = mac_address.lower() if mac_address else None 
+        mac_address=mac_address.lower()
         asset.mac_beacon = mac_beacon.lower()
         # --- ATUALIZANDO OS NOVOS DADOS ---
         asset.tipo_ativo = tipo_ativo
@@ -1570,6 +1604,76 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
         db.commit()
         aggregator.flag_for_reload()
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
+
+# ===================================================================
+# SEÇÃO 4.5: ROTAS DA PLANTA BAIXA
+# ===================================================================
+
+@app.get("/planta", name="view_planta")
+def view_planta(request: Request, db: Session = Depends(get_db)):
+    """
+    Renderiza a página da planta baixa interativa.
+    """
+    return templates.TemplateResponse("planta_baixa.html", {"request": request})
+
+@app.get("/api/planta/dados", name="get_planta_dados")
+def get_planta_dados(db: Session = Depends(get_db)):
+    """
+    Endpoint de API que fornece os dados de ocupação para os 4 primeiros quartos
+    e um sumário com os totais.
+    """
+    # Pega apenas os 4 primeiros quartos ordenados pelo ID
+    quartos_db = db.query(Quarto).options(
+        joinedload(Quarto.assets),
+        joinedload(Quarto.embarcados)
+    ).order_by(Quarto.id).limit(4).all()
+
+    lista_quartos_data = []
+    sumario = {"quartos_online": 0, "total_ativos": 0}
+
+    now_utc = datetime.now(timezone.utc)
+    sao_paulo_tz = timezone(timedelta(hours=-3))
+
+    for quarto in quartos_db:
+        status_embarcado = "Offline"
+        if quarto.embarcados:
+            embarcado = quarto.embarcados[0]
+            if embarcado.last_seen:
+                last_seen_utc = embarcado.last_seen.replace(tzinfo=timezone.utc)
+                if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
+                    status_embarcado = "Online"
+
+        if status_embarcado == "Online":
+            sumario["quartos_online"] += 1
+        sumario["total_ativos"] += len(quarto.assets)
+
+        ativos_detalhados = []
+        for asset in quarto.assets:
+            # Busca pelo último evento GET confirmado para o ativo
+            ultimo_evento = db.query(ReceivedEvent).filter(
+                ReceivedEvent.ativo == asset.mac_beacon,
+                ReceivedEvent.action == 'GET',
+                ReceivedEvent.status == 'OK' # Usamos 'OK' no Baxter
+            ).order_by(desc(ReceivedEvent.data_on)).first()
+
+            horario = "N/A"
+            if ultimo_evento and ultimo_evento.data_on:
+                horario = ultimo_evento.data_on.astimezone(sao_paulo_tz).strftime("%H:%M:%S")
+
+            ativos_detalhados.append({"nome": asset.nome_ativo, "horario_entrada": horario})
+
+        lista_quartos_data.append({
+            "id_quarto": f"quarto-{quarto.id}",
+            "nome_quarto": quarto.nome,
+            "numero_ativos": len(quarto.assets),
+            "status_embarcado": status_embarcado,
+            "ativos": ativos_detalhados
+        })
+
+    return JSONResponse(content={
+        "quartos": lista_quartos_data,
+        "sumario": sumario
+    })
 
 # ===================================================================
 # SEÇÃO 5: HISTÓRICO DE EVENTOS E DOWNLOADS
@@ -1617,7 +1721,7 @@ def list_events(
             
     # --- LÓGICA DE ORDENAÇÃO ---
     sortable_columns = {
-        "data_on": ReceivedEvent.data_on, "ativo": ReceivedEvent.ativo, "quarto": ReceivedEvent.quarto_nome,
+        "data_on": ReceivedEvent.data_on, "ativo": ReceivedEvent.ativo, "quarto": ReceivedEvent.quarto_nome, "andar": ReceivedEvent.andar_nome,
         "action": ReceivedEvent.action, "status": ReceivedEvent.status, "rssi": ReceivedEvent.rssi, "wifi": ReceivedEvent.wifi
     }
     sort_column = sortable_columns.get(sort_by, ReceivedEvent.data_on)
@@ -1626,6 +1730,8 @@ def list_events(
     # Paginação e enriquecimento dos dados...
     total = history_query.count()
     events = history_query.offset((page - 1) * EVENT_PAGE_SIZE).limit(EVENT_PAGE_SIZE).all()
+
+    has_next = (page * EVENT_PAGE_SIZE) < total
 
     # --- Função de Enriquecimento para AMBAS as listas ---
     sao_paulo_tz = timezone(timedelta(hours=-3))
@@ -2006,8 +2112,8 @@ def on_message(client, userdata, msg):
                 update_data = {
                     "last_seen": datetime.now(timezone.utc)
                 }
-                if 'wifi_signal' in payload:
-                    update_data["wifi_signal"] = payload['wifi_signal']
+                if 'w' in payload:
+                    update_data["wifi_signal"] = payload['w']
                 
                 _esp_status_cache[esp_id] = update_data
 
@@ -2205,7 +2311,7 @@ from datetime import datetime, timezone, timedelta
 
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload 
 
 from . import mqtt_client
 from . import aggregator  # Permite que os serviços interajam com o estado do agregador
@@ -2241,7 +2347,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             action = "OUT" if new_quarto_id is None else "GET"
             
             # Prepara dados para o evento e para o dispatcher
-            novo_quarto_obj = db.query(Quarto).get(new_quarto_id) if new_quarto_id else None
+            novo_quarto_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first() if new_quarto_id else None
             nome_quarto_evento = novo_quarto_obj.nome if novo_quarto_obj else (asset.quarto.nome if asset.quarto else "N/A")
             nome_andar_evento = novo_quarto_obj.andar.nome if novo_quarto_obj and novo_quarto_obj.andar else None
             change.update({"nome_ativo": asset.nome_ativo, "quarto_nome": nome_quarto_evento, "action": action})
