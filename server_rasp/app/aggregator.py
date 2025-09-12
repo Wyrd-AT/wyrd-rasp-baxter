@@ -46,6 +46,7 @@ _config = {
 PENDING_WARNING_TIMEOUT_SEC = int(settings.get('pending_warning_timeout_sec', 300))
 PENDING_EXPIRATION_TIMEOUT_SEC = int(settings.get('pending_expiration_timeout_sec', 900))
 DISAPPEARANCE_TOLERANCE_CYCLES = int(settings.get('disappearance_tolerance_cycles', 10))
+WIFI_FAILURE_INERTIA_SEC = int(settings.get('wifi_failure_inertia_sec', 180))
 
 # --- CLASSE DE ESTADO DO ATIVO ---
 class AssetState:
@@ -57,6 +58,7 @@ class AssetState:
         self.disappearance_count = 0; self.pending_wifi_check_since = None
         self.pending_quarto_id = None; self.pending_event_details = {}
         self.warning_stage = 0; self.last_warning_time = None 
+        self.wifi_unseen_since = None
 
     def update_reading(self, esp_id, rssi, timestamp, wifi_signal=None):
         old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi); alpha = _config["ema_alpha"]
@@ -81,6 +83,7 @@ def clear_asset_candidate_state(mac_beacon_to_clear: str):
         state.candidate_quarto_id = None; state.candidate_since = None
         state.pending_wifi_check_since = None; state.pending_quarto_id = None
         state.pending_event_details = {}; 
+        state.wifi_unseen_since = None
         state.warning_stage = 0; state.last_warning_time = None
         logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
         return True
@@ -285,17 +288,53 @@ async def _processar_localizacoes():
             asset_info = _asset_map.get(mac, {}); asset_id = asset_info.get("id")
             quarto_id_atual = asset_info.get("quarto_id")
 
-            # ESTADO 3: ALOCADO (DENTRO DE UM QUARTO)
+            # ESTADO 3: ALOCADO (DENTRO DE UM QUARTO) - LÓGICA REFEITA
             if quarto_id_atual is not None:
+                # Verificação 1: O sinal BLE ainda é consistente com o quarto atual?
                 if candidate_quarto_id == quarto_id_atual:
-                    state.disappeared_since = None
+                    state.disappeared_since = None # Se sim, reseta a inércia de saída do BLE.
                 else:
                     if state.disappeared_since is None:
-                        logger.info(f"Sinal para {mac} no quarto {quarto_id_atual} inconsistente/fraco. Iniciando inércia de saída.")
+                        logger.info(f"[BLE] Sinal para {mac} no quarto {quarto_id_atual} inconsistente. Iniciando inércia de saída.")
                         state.disappeared_since = now
                     elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
-                        logger.info(f"EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual}.")
-                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "wifi_signal": state.last_known_wifi_signal, "details": "Sinal inconsistente com o quarto atual."})
+                        logger.info(f"[BLE] EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} por sinal BLE fraco.")
+                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "details": "Sinal BLE inconsistente com o quarto atual."})
+                        continue # Pula para o próximo ativo
+
+                # Verificação 2: O Wi-Fi do ativo ainda está presente na rede?
+                is_wifi_present = _wifi_presence_cache.get(mac, True) # Default True para segurança
+                if is_wifi_present:
+                    state.wifi_unseen_since = None # Se sim, reseta a inércia de falha do Wi-Fi.
+                else:
+                    if state.wifi_unseen_since is None:
+                        logger.warning(f"[WIFI] Wi-Fi para {mac} no quarto {quarto_id_atual} ausente. Iniciando inércia de falha.")
+                        state.wifi_unseen_since = now
+                    elif (now - state.wifi_unseen_since) > WIFI_FAILURE_INERTIA_SEC:
+                        logger.error(f"[WIFI] EVENTO OUT (INÉRCIA): Ativo {mac} ausente do Wi-Fi por mais de {WIFI_FAILURE_INERTIA_SEC}s. Forçando remoção.")
+                        
+                        # Criação do Alerta com TODAS as informações (incluindo o andar)
+                        asset_obj = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
+                        if asset_obj and asset_obj.quarto:
+                            alerta = ReceivedEvent(
+                                esp_id="aggregator_wifi_monitor", ativo=mac,
+                                quarto_nome=asset_obj.quarto.nome,
+                                andar_nome=asset_obj.quarto.andar.nome if asset_obj.quarto.andar else None,
+                                action="ALERTA", status="OK",
+                                status_detail=f"Ativo '{asset_info.get('nome_ativo')}' desapareceu da rede Wi-Fi enquanto estava no quarto.",
+                                data_on=datetime.now(timezone.utc), raw={}
+                            )
+                            db.add(alerta)
+                            # Opcional: Despachar o alerta para o servidor final
+                            # loop = asyncio.get_running_loop()
+                            # dispatch_payload = {"quarto": asset_obj.quarto.nome, "cama": asset_info.get('nome_ativo'), "status": "ALERTA", ...}
+                            # await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+
+                        changes_to_commit.append({
+                            "asset_id": asset_id, "new_quarto_id": None,
+                            "source_esp_id": "aggregator_wifi_monitor",
+                            "details": f"Removido por ausência de Wi-Fi superior a {WIFI_FAILURE_INERTIA_SEC}s."
+                        })
                 continue
 
             # ESTADO 4: LIVRE (FORA DE UM QUARTO E NÃO PENDENTE)

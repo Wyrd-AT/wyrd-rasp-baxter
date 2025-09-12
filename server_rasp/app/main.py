@@ -54,7 +54,6 @@ logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 HISTORY_RETENTION_DAYS = int(settings.get('history_retention_days', 7))
 EVENT_PAGE_SIZE = int(settings.get('event_page_size', 25))
 CLEANUP_INTERVAL_SEC = int(settings.get('cleanup_interval_sec', 3600))
-MONITOR_WIFI_INTERVAL_SEC = int(settings.get('monitor_wifi_interval_sec', 60))
 ESP_TIMEOUT_SEC = int(settings.get('esp_timeout_sec', 150)) 
 WIFI_FAILURE_TOLERANCE = int(settings.get('wifi_failure_tolerance', 3)) 
 ESP_STATUS_UPDATE_INTERVAL_SEC = 60
@@ -520,102 +519,6 @@ async def batch_update_esp_status():
 
         except Exception as e:
             logger.error(f"[BATCH-UPDATE-ESP] Erro ao atualizar status dos embarcados: {e}", exc_info=True)
-            db.rollback()
-        finally:
-            db.close()
-
-
-async def monitor_assigned_assets_wifi():
-    """
-    Tarefa de background que monitora continuamente a presença Wi-Fi de ativos
-    que estão atualmente associados a um quarto. AGORA GERA ALERTAS.
-    """
-    logger.info("[MONITOR-WIFI] Guardião de Wi-Fi de ativos iniciou.")
-    await asyncio.sleep(30) # Espera inicial para o sistema estabilizar
-
-    while True:
-        await asyncio.sleep(MONITOR_WIFI_INTERVAL_SEC)
-        
-        db = SessionLocal()
-        try:
-            # Pega todos os ativos que estão num quarto e têm um MAC de Wi-Fi
-            # O joinedload(Asset.quarto) otimiza a query para já trazer os dados do quarto
-            assets_a_verificar = db.query(Asset).options(joinedload(Asset.quarto)).filter(
-                Asset.quarto_id.isnot(None),
-                Asset.mac_address.isnot(None)
-            ).all()
-
-            if not assets_a_verificar:
-                _wifi_failure_counts.clear()
-                continue
-
-            loop = asyncio.get_running_loop()
-            for asset in assets_a_verificar:
-                is_present = await check_presence(asset.mac_address)
-                if is_present:
-                    if asset.mac_address in _wifi_failure_counts:
-                        logger.info(f"[MONITOR-WIFI] Wi-Fi do ativo '{asset.nome_ativo}' ({asset.mac_address}) restabelecido.")
-                        del _wifi_failure_counts[asset.mac_address]
-                else:
-                    _wifi_failure_counts[asset.mac_address] += 1
-                    logger.warning(
-                        f"[MONITOR-WIFI] Falha na verificação de Wi-Fi para o ativo '{asset.nome_ativo}'. "
-                        f"Contagem de falhas: {_wifi_failure_counts[asset.mac_address]}"
-                    )
-
-                    if _wifi_failure_counts[asset.mac_address] >= WIFI_FAILURE_TOLERANCE:
-                        logger.error(
-                            f"[MONITOR-WIFI] Wi-Fi do ativo '{asset.nome_ativo}' ausente de forma consistente. "
-                            f"GERANDO ALERTA e forçando remoção do quarto {asset.quarto_id}."
-                        )
-                        
-                        # ===== INÍCIO DA NOVA LÓGICA DE ALERTA =====
-                        
-                        # 1. Cria o evento de ALERTA no histórico
-                        warning_event = ReceivedEvent(
-                            esp_id="monitor_wifi", # Identifica a origem do alerta
-                            ativo=asset.mac_beacon,
-                            quarto_nome=asset.quarto.nome if asset.quarto else "N/A",
-                            action="ALERTA",
-                            status="OK",
-                            status_detail=f"Ativo '{asset.nome_ativo}' desapareceu da rede Wi-Fi enquanto estava confirmado no quarto.",
-                            data_on=datetime.now(timezone.utc),
-                            raw={"reason": "Liveness check failed by monitor"}
-                        )
-                        db.add(warning_event)
-                        
-                        # 2. Prepara e envia o ALERTA para o dispatcher
-                        dispatch_payload = {
-                            "quarto": asset.quarto.nome if asset.quarto else "N/A",
-                            "cama":   asset.nome_ativo,
-                            "status": "ALERTA",
-                            "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-                        }
-                        logger.info(f"[MONITOR-WIFI] A despachar ALERTA para o servidor final: {dispatch_payload}")
-                        await loop.run_in_executor(None, dispatch_event, dispatch_payload)
-                        
-                        # Salva o evento de alerta no banco ANTES de prosseguir
-                        db.commit()
-
-                        # ===== FIM DA NOVA LÓGICA DE ALERTA =====
-
-                        # 3. Prepara a "mudança" para forçar a saída (lógica original)
-                        change_info = {
-                            "asset_id": asset.id,
-                            "new_quarto_id": None,
-                            "source_esp_id": "monitor_wifi",
-                            "rssi": -100,
-                            "details": f"Removido por falha de conexão Wi-Fi ({asset.mac_address}) enquanto estava no quarto."
-                        }
-                        
-                        # 4. Usa o serviço para processar a saída (lógica original)
-                        await batch_update_asset_assignments(db, [change_info])
-                        
-                        # 5. Limpa o contador de falhas após a ação (lógica original)
-                        del _wifi_failure_counts[asset.mac_address]
-
-        except Exception as e:
-            logger.error(f"[MONITOR-WIFI] Erro crítico na tarefa de monitoramento de Wi-Fi: {e}", exc_info=True)
             db.rollback()
         finally:
             db.close()
@@ -1335,7 +1238,6 @@ async def on_startup():
     logger.info("[main] Startup: Iniciando serviços em background.")
     running_tasks["aggregator"] = asyncio.create_task(main_aggregator_loop())
     running_tasks["liveness_check"] = asyncio.create_task(check_esp_liveness())
-    running_tasks["wifi_monitor"] = asyncio.create_task(monitor_assigned_assets_wifi())
     running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     running_tasks["guardian_unificado"] = asyncio.create_task(main_guardian_loop())
