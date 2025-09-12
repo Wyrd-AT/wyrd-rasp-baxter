@@ -456,11 +456,8 @@ ARQUIVO: app/web/templates/embarcados_list.html
                     {% endif %}
                 </td>
 
-                {# 7. MAC Address #}
-                <td>{{ emb.mac_address or '---' }}</td>
-
-                {# 8. IP Address #}
-                <td>{{ emb.ip_address or '---' }}</td>
+                <td>{% if emb.status_rede == 'online' %}{{ emb.mac_address or '---' }}{% else %}---{% endif %}</td>
+                <td>{% if emb.status_rede == 'online' %}{{ emb.ip_address or '---' }}{% else %}---{% endif %}</td>
 
                 {# 9. RSSI Mín. #}
                 <td>
@@ -699,45 +696,45 @@ ARQUIVO: app/web/templates/events_list.html
 <script>
 document.addEventListener('DOMContentLoaded', function () {
 
+    const pendingSectionContainer = document.getElementById('pending-section-container');
     const pendingBody = document.getElementById('pending-events-tbody');
-    const placeholder = document.getElementById('pending-events-placeholder');
 
     function renderPendingEvents(events) {
-        // Limpa a tabela antes de adicionar novas linhas
-        pendingBody.innerHTML = ''; 
-
         if (!events || events.length === 0) {
-            placeholder.style.display = 'table-row';
-            placeholder.querySelector('td').textContent = 'Nenhum evento pendente no momento.';
-            pendingBody.appendChild(placeholder);
+            pendingSectionContainer.style.display = 'none';
             return;
         }
 
-        placeholder.style.display = 'none';
+        pendingSectionContainer.style.display = 'block';
+        pendingBody.innerHTML = '';
+
+        // === INÍCIO DA CORREÇÃO ===
+        // 1. Criamos um "molde" da URL no servidor, com um placeholder.
+        const cancelUrlTemplate = "{{ url_for('cancel_pending_event', asset_mac='PLACEHOLDER') }}";
+        // === FIM DA CORREÇÃO ===
 
         events.forEach(event => {
             const row = document.createElement('tr');
             
-            // Coluna TEMPO PENDENTE
+            // ... (criação das outras células timeCell, camaCell, etc. continua igual)
             const timeCell = document.createElement('td');
             timeCell.textContent = `${event.tempo_pendente_sec}s`;
 
-            // Coluna CAMA
             const camaCell = document.createElement('td');
             camaCell.textContent = event.nome_ativo;
 
-            // Coluna QUARTO
             const quartoCell = document.createElement('td');
             quartoCell.textContent = event.quarto_nome;
 
-            // Coluna DETALHES
             const detailsCell = document.createElement('td');
             detailsCell.textContent = event.detalhes;
             
-            // Coluna AÇÕES (com o botão de cancelar)
             const actionsCell = document.createElement('td');
-            // ATENÇÃO: A URL agora é construída dinamicamente com o MAC do ativo
-            const cancelUrl = `{{ url_for('list_events') }}../events/${event.ativo_mac}/cancel`;
+
+            // === INÍCIO DA CORREÇÃO ===
+            // 2. Usamos o molde e substituímos o placeholder pelo MAC real do ativo.
+            const cancelUrl = cancelUrlTemplate.replace('PLACEHOLDER', event.ativo_mac);
+            // === FIM DA CORREÇÃO ===
             
             actionsCell.innerHTML = `
                 <form action="${cancelUrl}" method="post" onsubmit="return confirm('Tem certeza que deseja cancelar esta verificação para ${event.nome_ativo}?');">
@@ -767,16 +764,12 @@ document.addEventListener('DOMContentLoaded', function () {
             renderPendingEvents(events);
         } catch (error) {
             console.error("Erro ao buscar eventos pendentes:", error);
-            placeholder.style.display = 'table-row';
-            placeholder.querySelector('td').textContent = 'Erro ao carregar dados.';
-            pendingBody.innerHTML = '';
-            pendingBody.appendChild(placeholder);
+            pendingSectionContainer.style.display = 'none';
         }
     }
 
-    // Busca os dados quando a página carrega e depois a cada 10 segundos
     fetchPendingEvents();
-    setInterval(fetchPendingEvents, 10000); 
+    setInterval(fetchPendingEvents, 30000); 
 });
 </script>
 {% endblock %}
@@ -1003,7 +996,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (quarto.status_embarcado === 'Offline') {
                         tooltipText += `\n(Embarcado Offline)`;
                     } else if (quarto.numero_ativos > 0) {
-                        quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.horario_entrada})`; });
+                        quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.texto_conexao})`; });
                     } else {
                         tooltipText += `\nLivre`;
                     }
