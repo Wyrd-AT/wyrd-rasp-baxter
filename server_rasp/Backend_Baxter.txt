@@ -8,9 +8,10 @@ ARQUIVO: app/__init__.py
 ARQUIVO: app/aggregator.py
 ========================================
 # ==============================================================================
-# ARQUIVO: aggregator.py
+# ARQUIVO: aggregator.py (VERSÃO COMPLETA E CORRIGIDA)
 # FUNÇÃO:  Cérebro do sistema RTLS. Processa dados brutos de sinal, aplica
 #          regras de negócio e determina a localização final dos ativos.
+# LÓGICA DE PENDENTES E QUARENTENA EM MEMÓRIA IMPLEMENTADA CORRETAMENTE.
 # ==============================================================================
 
 # ===== SEÇÃO 1: IMPORTS E LOGGING =============================================
@@ -18,7 +19,7 @@ import asyncio
 import time
 import json
 import logging
-from datetime import datetime, timezone, timedelta 
+from datetime import datetime, timezone, timedelta
 
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
@@ -38,16 +39,17 @@ _asset_map = {}
 _asset_realtime_state = {}
 _config_needs_reload = asyncio.Event()
 
-# --- Configurações padrão, carregadas na inicialização e atualizadas via DB ---
 _config = {
     "process_interval_sec": float(settings.get('process_interval_sec', 2.0)),
     "reading_timeout_sec": int(settings.get('reading_timeout_sec', 10)),
-    "default_rssi_threshold": -75, 
+    "default_rssi_threshold": -75,
     "conflict_margin_db": 5,
-    "inertia_entrada_ms": 3000,   
-    "inertia_saida_ms": 10000,    
+    "inertia_entrada_ms": 3000,
+    "inertia_saida_ms": 10000,
     "ema_alpha": float(settings.get('ema_alpha', 0.4)),
-    "max_assets_per_room": 1       
+    "max_assets_per_room": 1,
+    "base_quarantine_sec": 60,
+    "max_quarantine_sec": 3600
 }
 
 PENDING_WIFI_CHECK_INTERVAL_SEC = int(settings.get('pending_wifi_check_interval_sec', 10))
@@ -68,12 +70,13 @@ class AssetState:
         self.disappeared_since = None
         self.disappearance_count = 0
         self.weak_signal_since = None
-        self.pending_wifi_check_since = None  
-        self.pending_quarto_id = None   
-        self.pending_event_details = {} 
-        self.pending_event_db_id = None 
+        self.pending_wifi_check_since = None
+        self.pending_quarto_id = None
+        self.pending_event_details = {}
         self.last_wifi_check_at = 0
         self.warning_issued = False
+        self.wifi_failure_count = 0
+        self.quarantined_until = None
 
     def update_reading(self, esp_id, rssi, timestamp, wifi_signal=None):
         old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi)
@@ -82,7 +85,7 @@ class AssetState:
         self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema, "wifi_signal": wifi_signal}
         self.last_known_ema[esp_id] = new_ema
         self.disappearance_count = 0
-        if wifi_signal is not None: 
+        if wifi_signal is not None:
             self.last_known_wifi_signal = wifi_signal
 
     def cleanup_old_readings(self):
@@ -92,42 +95,22 @@ class AssetState:
 
 # ===== SEÇÃO 4: FUNÇÕES DE INTERFACE E CONTROLE ===============================
 def clear_asset_candidate_state(mac_beacon_to_clear: str):
-    """Função de controle para limpar o estado de um ativo, chamada externamente (cancelamento manual) ou internamente (cancelamento automático)."""
+    """Função de controle para limpar o estado PENDENTE de um ativo na memória."""
     if mac_beacon_to_clear in _asset_realtime_state:
         state = _asset_realtime_state[mac_beacon_to_clear]
-        event_id_to_cancel = state.pending_event_db_id
-
-        # Limpeza completa do estado em memória
         state.candidate_quarto_id = None
         state.candidate_since = None
         state.pending_wifi_check_since = None
         state.pending_quarto_id = None
         state.pending_event_details = {}
-        state.pending_event_db_id = None
         state.warning_issued = False
         state.last_wifi_check_at = 0
-        
-        # Atualiza o evento no DB se ele existia
-        if event_id_to_cancel:
-            db = SessionLocal()
-            try:
-                event = db.query(ReceivedEvent).get(event_id_to_cancel)
-                if event and event.status == "Pendente":
-                    event.status = "Cancelado"
-                    event.status_detail = "Cancelado pelo operador ou por nova detecção."
-                    db.commit()
-            finally:
-                db.close()
-        
         logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
         return True
     return False
 
 def update_asset_cache(mac_beacon: str, new_quarto_id: int | None):
-    """
-    (NOVA FUNÇÃO) Atualiza o quarto de um ativo no cache em memória do agregador.
-    Garante a consistência entre o DB e o estado em tempo real.
-    """
+    """Atualiza o quarto de um ativo no cache em memória do agregador."""
     if mac_beacon in _asset_map:
         _asset_map[mac_beacon]["quarto_id"] = new_quarto_id
         logger.info(f"Cache do agregador atualizado para o ativo {mac_beacon}: novo quarto_id é {new_quarto_id}.")
@@ -146,31 +129,26 @@ async def _consume_scan_data_queue():
             signal_logger.info(json.dumps(item))
             esp_id, payload = item.get("esp_id"), item.get("payload", {})
 
-            # --- MUDANÇA 1: Obter o objeto "b" e o sinal wifi "w" ---
             beacons_obj = payload.get("b", {})
-            wifi_signal = payload.get("w") # Extrai o valor da chave 'w'
+            wifi_signal = payload.get("w")
 
-            # --- MUDANÇA 2: Iterar sobre os itens do objeto (mac, rssi) ---
             for mac, rssi in beacons_obj.items():
                 mac = mac.lower()
                 if not mac or mac not in _asset_map: continue
 
-                asset_info = _asset_map.get(mac)
+                if mac not in _asset_realtime_state:
+                    _asset_realtime_state[mac] = AssetState(mac)
+
+                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time(), wifi_signal)
                 
-                if asset_info.get("status") == 'Offline':
+                asset_info = _asset_map.get(mac)
+                if asset_info and asset_info.get("status") == 'Offline':
                     logger.info(f"Ativo '{asset_info.get('nome_ativo')}' ({mac}) está de volta. Marcando como Online.")
-                    if db is None: db = SessionLocal() 
+                    if db is None: db = SessionLocal()
                     asset_db = db.query(Asset).get(asset_info.get("id"))
                     if asset_db:
                         asset_db.status = 'Online'
                     _asset_map[mac]['status'] = 'Online'
-                
-                if mac not in _asset_realtime_state:
-                    _asset_realtime_state[mac] = AssetState(mac)
-
-                # --- MUDANÇA 3: Usar as variáveis mac, rssi e wifi_signal diretamente ---
-                # (Assumindo que sua função update_reading agora aceita o parâmetro wifi_signal)
-                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time(), wifi_signal)
     finally:
         if db:
             db.commit()
@@ -185,11 +163,10 @@ async def _processar_localizacoes():
     db = SessionLocal()
     try:
         for mac, state in list(_asset_realtime_state.items()):
-            
-            # --- ESTÁGIO 1: PROCESSAR ATIVOS EM ESTADO PENDENTE ---
-            if state.pending_wifi_check_since is not None:
-                if state.pending_wifi_check_since is None: continue # Proteção contra race condition
+            if state.quarantined_until and now < state.quarantined_until:
+                continue
 
+            if state.pending_wifi_check_since is not None:
                 if (now - state.last_wifi_check_at) > PENDING_WIFI_CHECK_INTERVAL_SEC:
                     state.last_wifi_check_at = now
                     asset_info = _asset_map.get(mac, {})
@@ -197,14 +174,15 @@ async def _processar_localizacoes():
 
                     if wifi_mac_address and await check_presence(wifi_mac_address):
                         logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id}.")
-                        changes_to_commit.append({**state.pending_event_details, "new_quarto_id": state.pending_quarto_id, "event_to_update_id": state.pending_event_db_id})
-                        if mac in _asset_map: _asset_map[mac]["quarto_id"] = state.pending_quarto_id
-                        state.pending_wifi_check_since = None
-                        state.pending_quarto_id = None
-                        state.pending_event_details = {}
-                        state.pending_event_db_id = None
-                        state.warning_issued = False
-                        state.last_wifi_check_at = 0
+                        changes_to_commit.append({**state.pending_event_details, "new_quarto_id": state.pending_quarto_id})
+                        
+                        if state.wifi_failure_count > 0:
+                            logger.info(f"Ativo {mac} respondeu ao Wi-Fi. Resetando contador de falhas e quarentena.")
+                            state.wifi_failure_count = 0
+                            state.quarantined_until = None
+                        
+                        clear_asset_candidate_state(mac)
+                        continue
 
                 if state.pending_wifi_check_since and (now - state.pending_wifi_check_since) > PENDING_WARNING_TIMEOUT_SEC and not state.warning_issued:
                     logger.warning(f"EVENTO ALERTA (PENDENTE): Wi-Fi para {mac} ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.")
@@ -219,26 +197,38 @@ async def _processar_localizacoes():
                     await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 
                 elif state.pending_wifi_check_since and (now - state.pending_wifi_check_since) > PENDING_EXPIRATION_TIMEOUT_SEC:
-                    logger.error(f"EVENTO VENCIDO (TIMEOUT): Verificação de Wi-Fi para {mac} excedeu o tempo limite de {PENDING_EXPIRATION_TIMEOUT_SEC}s.")
-                    event = db.query(ReceivedEvent).get(state.pending_event_db_id)
-                    if event and event.status == "Pendente":
-                        event.status = "Vencido"
-                        event.status_detail = f"Verificação de Wi-Fi excedeu o tempo limite de {PENDING_EXPIRATION_TIMEOUT_SEC} segundos."
-                    clear_asset_candidate_state(mac)
-                continue
+                    logger.error(f"EVENTO VENCIDO (TIMEOUT): Verificação de Wi-Fi para {mac} excedeu o tempo limite.")
+                    
+                    state.wifi_failure_count += 1
+                    base_quarantine_sec = _config["base_quarantine_sec"]
+                    max_quarantine_sec = _config["max_quarantine_sec"]
+                    quarantine_duration = min(base_quarantine_sec * (2 ** (state.wifi_failure_count - 1)), max_quarantine_sec)
+                    state.quarantined_until = time.time() + quarantine_duration
+                    quarantine_end_time_str = datetime.fromtimestamp(state.quarantined_until, FUSO_HORARIO_BRASIL).strftime('%H:%M:%S')
 
-            # --- ESTÁGIO 2: PROCESSAR SAÍDAS (Ativos que não estão pendentes) ---
+                    logger.warning(f"QUARENTENA: Ativo {mac} falhou {state.wifi_failure_count} vez(es). Colocado em quarentena por {quarantine_duration / 60:.1f} minutos, até {quarantine_end_time_str}.")
+
+                    quarto_pendente = db.query(Quarto).get(state.pending_quarto_id)
+                    failure_event = ReceivedEvent(
+                        esp_id=state.pending_event_details.get("source_esp_id", "aggregator"),
+                        ativo=mac,
+                        quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
+                        action="GET", status="Erro_Quarentena",
+                        status_detail=f"Wi-Fi não encontrado. Ativo em quarentena por {quarantine_duration / 60:.1f} min devido a {state.wifi_failure_count} falhas.",
+                        rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc),
+                        raw={"reason": "Pending Wi-Fi check timeout"}
+                    )
+                    db.add(failure_event)
+                    
+                    clear_asset_candidate_state(mac)
+                    continue
+
             if not state.cleanup_old_readings():
                 state.disappearance_count += 1
-                
-                logger.debug(f"Ativo {mac} sem sinal. Contagem de desaparecimento: {state.disappearance_count}/{DISAPPEARANCE_TOLERANCE_CYCLES}.")
-
                 if state.disappearance_count >= DISAPPEARANCE_TOLERANCE_CYCLES:
                     asset_info = _asset_map.get(mac, {})
-                    
                     if asset_info.get("status") == 'Online':
-                        logger.warning(f"Ativo '{asset_info.get('nome_ativo')}' ({mac}) desapareceu consistentemente. Marcando como Offline.")
-                        
+                        logger.warning(f"Ativo '{asset_info.get('nome_ativo')}' ({mac}) desapareceu. Marcando como Offline.")
                         if asset_info.get("quarto_id") is not None:
                             changes_to_commit.append({
                                 "asset_id": asset_info.get("id"), "new_quarto_id": None,
@@ -246,25 +236,19 @@ async def _processar_localizacoes():
                                 "rssi": state.last_strongest_signal.get("rssi", -1000),
                                 "details": f"Ativo desapareceu do radar BLE consistentemente."
                             })
-                        
                         asset_db = db.query(Asset).get(asset_info.get("id"))
                         if asset_db:
                             asset_db.status = 'Offline'
                         if mac in _asset_map:
                             _asset_map[mac]['status'] = 'Offline'
-
-                    # Remove da monitorização em tempo real após a ação ser tomada
                     del _asset_realtime_state[mac]
+                continue
 
-                continue # Pula para o próximo ativo
-
-            # --- ESTÁGIO 3: PROCESSAR ENTRADAS E CANDIDATOS ---
             asset_info = _asset_map.get(mac, {})
             asset_id = asset_info.get("id")
             quarto_id_atual = asset_info.get("quarto_id")
             wifi_mac_address = asset_info.get("wifi_mac")
 
-            # 3.1: Encontrar o Sinal Mais Forte (Candidato)
             strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None, "wifi_signal": None}
             for esp_id, reading in state.readings.items():
                 if esp_id not in _esp_map: continue
@@ -279,29 +263,18 @@ async def _processar_localizacoes():
                 state.last_strongest_signal = {"esp_id": top_esp, "rssi": top_read['rssi'], "ema_rssi": top_read['ema_rssi']}
             candidate_quarto_id = strongest_candidate["quarto_id"]
 
-            # 3.2: Lógica de Saída Unificada (Sinal Fraco ou Desaparecimento)
             if quarto_id_atual is not None:
-                # CONDIÇÃO A: O ativo ainda é um candidato válido para seu quarto?
                 if candidate_quarto_id == quarto_id_atual:
-                    # Se sim, e se um timer de saída estava a correr, ele é cancelado.
                     if state.disappeared_since is not None:
-                        logger.info(f"Sinal para o ativo {mac} no quarto atual ({quarto_id_atual}) restabelecido. Cancelando inércia de saída.")
                         state.disappeared_since = None
-                
-                # CONDIÇÃO B: O ativo NÃO é mais um candidato válido.
                 else:
-                    # Se o timer de saída ainda não foi iniciado, inicia-o AGORA.
                     if state.disappeared_since is None:
-                        logger.info(f"Ativo {mac} não é mais candidato para o quarto atual ({quarto_id_atual}). Iniciando inércia de saída.")
                         state.disappeared_since = now
-                    
-                    # Se o timer JÁ estava a correr, verifica se o tempo expirou.
                     elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
-                        clear_asset_candidate_state(mac) # Cancela qualquer pendência antes de sair
+                        clear_asset_candidate_state(mac)
                         logger.info(f"EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} após inércia de saída.")
                         changes_to_commit.append({
-                            "asset_id": asset_id, 
-                            "new_quarto_id": None,
+                            "asset_id": asset_id, "new_quarto_id": None,
                             "source_esp_id": state.last_strongest_signal.get('esp_id') or "server_inertia_out",
                             "rssi": state.last_strongest_signal.get('rssi', -1000),
                             "wifi_signal": state.last_known_wifi_signal,
@@ -309,36 +282,73 @@ async def _processar_localizacoes():
                         })
                         if mac in _asset_realtime_state:
                             state.disappeared_since = None
-                            state.candidate_quarto_id = None
-                            state.candidate_since = None
-                            logger.info(f"Estado de saída para o ativo {mac} foi resetado, mantendo o histórico de sinal.")
                         continue
 
-            # 3.3: Lógica de Gestão de Candidato para ENTRADA (Apenas para ativos livres)
-            if quarto_id_atual is None:
-                if candidate_quarto_id != state.candidate_quarto_id:
-                    state.candidate_quarto_id = candidate_quarto_id
-                    state.candidate_since = now
+            if quarto_id_atual is None and state.pending_wifi_check_since is None:
 
-            # 3.4: Transição para o Estado PENDENTE
+                # CASO 1: O ATIVO TEM UM CANDIDATO VÁLIDO NESTE CICLO
+                if candidate_quarto_id is not None:
+                    # Se o candidato mudou em relação ao ciclo anterior, reinicia o cronômetro
+                    if candidate_quarto_id != state.candidate_quarto_id:
+                        logger.debug(f"Ativo {mac} tem um novo candidato: Quarto {candidate_quarto_id}. Reiniciando inércia.")
+                        state.candidate_quarto_id = candidate_quarto_id
+                        state.candidate_since = now
+                    
+                    # Se o cronômetro foi iniciado e o tempo de inércia passou...
+                    if state.candidate_since and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
+                        
+                        # VERIFICAÇÕES FINAIS ANTES DE IR PARA PENDENTE
+                        is_stable = (state.candidate_quarto_id == candidate_quarto_id)
+                        ativos_no_quarto = [a for a in _asset_map.values() if a.get("quarto_id") == state.candidate_quarto_id]
+                        is_room_free = len(ativos_no_quarto) < _config.get("max_assets_per_room", 1)
+                        
+                        # Meritocracia: Verifica se há um concorrente PENDENTE mais forte
+                        strongest_competitor_signal = -1000
+                        for other_mac, other_state in _asset_realtime_state.items():
+                            if other_mac != mac and other_state.pending_quarto_id == state.candidate_quarto_id:
+                                competitor_signal = other_state.last_strongest_signal.get('ema_rssi', -1000)
+                                if competitor_signal > strongest_competitor_signal:
+                                    strongest_competitor_signal = competitor_signal
+                        
+                        is_strongest_candidate = strongest_candidate['ema_rssi'] > strongest_competitor_signal
+
+                        if is_stable and is_room_free and is_strongest_candidate:
+                            logger.info(f"EVENTO PENDENTE (em memória): Ativo {mac} -> Quarto {state.candidate_quarto_id} após inércia.")
+                            
+                            state.pending_quarto_id = state.candidate_quarto_id
+                            state.pending_wifi_check_since = now
+                            state.warning_issued = False
+                            state.last_wifi_check_at = 0
+                            state.pending_event_details = {
+                                "asset_id": asset_id,
+                                "source_esp_id": strongest_candidate['esp_id'],
+                                "rssi": strongest_candidate['rssi'],
+                                "wifi_signal": strongest_candidate['wifi_signal'],
+                                "details": f"Wi-Fi confirmado via {strongest_candidate['esp_id']} (EMA {strongest_candidate['ema_rssi']:.1f})."
+                            }
+                            
+                            # Limpa o estado de candidato para finalizar a transição
+                            state.candidate_since = None
+                            state.candidate_quarto_id = None
+                
+                # CASO 2: O ATIVO NÃO TEM UM CANDIDATO VÁLIDO (SINAL FRACO OU NULO)
+                else:
+                    # Se ele perdeu o candidato que tinha, limpa o estado para garantir.
+                    if state.candidate_quarto_id is not None:
+                        logger.debug(f"Ativo {mac} perdeu seu candidato. Limpando estado de candidatura.")
+                        state.candidate_quarto_id = None
+                        state.candidate_since = None
+                        
             if state.candidate_since and state.candidate_quarto_id is not None and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
                 if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
                     
-                    # 1ª Verificação: O ativo está livre?
                     if quarto_id_atual is not None:
-                        logger.info(f"[RTLS] Atribuição para {mac} BLOQUEADA. Ativo já está no quarto {quarto_id_atual} e precisa de um evento 'OUT' primeiro.")
-                        state.candidate_since = None
-                        continue 
-
+                        state.candidate_since = None; continue
                     
-                    # 2ª Verificação: O quarto de destino tem vaga?
                     ativos_no_quarto = [a for a in _asset_map.values() if a.get("quarto_id") == state.candidate_quarto_id]
                     if len(ativos_no_quarto) >= _config.get("max_assets_per_room", 1):
-                        logger.warning(f"[RTLS] Atribuição para {mac} BLOQUEADA. Quarto {state.candidate_quarto_id} já atingiu o limite de ocupação.")
-                        state.candidate_since = None
-                        continue
+                        state.candidate_since = None; continue
                         
-                    # 3ª Verificação (Meritocracia): Existe um concorrente pendente mais forte?
                     strongest_competitor_state = None
                     strongest_competitor_signal = -1000
                     for other_mac, other_state in _asset_realtime_state.items():
@@ -349,13 +359,9 @@ async def _processar_localizacoes():
                                 strongest_competitor_state = other_state
 
                     if strongest_competitor_state and strongest_candidate['ema_rssi'] <= strongest_competitor_signal:
-                        logger.info(f"[RTLS] Atribuição para {mac} BLOQUEADA. Concorrente pendente '{strongest_competitor_state.mac}' tem sinal mais forte ou igual ({strongest_competitor_signal:.1f}dBm vs {strongest_candidate['ema_rssi']:.1f}dBm).")
-                        state.candidate_since = None
-                        continue
+                        state.candidate_since = None; continue
                                         
-                    # Cancela os concorrentes mais fracos, se houver
                     if strongest_competitor_state:
-                        logger.warning(f"[RTLS] Ativo {mac} tem o sinal mais forte. Cancelando outros concorrentes pendentes para o Quarto {state.candidate_quarto_id}.")
                         for other_mac, other_state in list(_asset_realtime_state.items()):
                             if other_mac != mac and other_state.pending_quarto_id == state.candidate_quarto_id:
                                 clear_asset_candidate_state(other_mac)
@@ -363,47 +369,33 @@ async def _processar_localizacoes():
                     if not wifi_mac_address:
                         logger.warning(f"Ativo {mac} não tem MAC de Wi-Fi. Confirmando entrada...")
                         changes_to_commit.append({
-                            "asset_id": asset_id, 
-                            "new_quarto_id": state.candidate_quarto_id, 
-                            "source_esp_id": strongest_candidate['esp_id'], 
-                            "rssi": strongest_candidate['rssi'], 
+                            "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
+                            "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'],
                             "wifi_signal": strongest_candidate['wifi_signal'],
                             "details": f"Localizado via {strongest_candidate['esp_id']} (Sem verificação de Wi-Fi)."
                         })
-                        if mac in _asset_map: _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
                         state.candidate_since = None
                     elif state.pending_wifi_check_since is None:
-                        if state.pending_event_db_id is not None:
-                            logger.info(f"Ativo {mac} tem novo candidato. Cancelando evento pendente anterior (ID: {state.pending_event_db_id}).")
-                            event_antigo = db.query(ReceivedEvent).get(state.pending_event_db_id)
-                            if event_antigo and event_antigo.status == "Pendente":
-                                event_antigo.status = "Cancelado"
-                                event_antigo.status_detail = "Cancelado automaticamente por nova detecção mais estável."
-
-                        logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {state.candidate_quarto_id}. Criando novo evento e iniciando verificação.")
-                        quarto_pendente = db.query(Quarto).get(state.candidate_quarto_id)
-                        pending_event = ReceivedEvent(esp_id=strongest_candidate['esp_id'], ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Pendente", status_detail=f"Aguardando Wi-Fi ({wifi_mac_address}).", rssi=strongest_candidate['rssi'], wifi=strongest_candidate.get('wifi_signal'), data_on=datetime.now(timezone.utc), raw=strongest_candidate)
-                        db.add(pending_event)
-                        db.commit()
-                        db.refresh(pending_event)
+                        logger.info(f"EVENTO PENDENTE (em memória): Ativo {mac} -> Quarto {state.candidate_quarto_id}.")
                         
-                        state.pending_event_db_id = pending_event.id
                         state.pending_quarto_id = state.candidate_quarto_id
                         state.pending_wifi_check_since = now
-                        state.last_wifi_check_at = 0
                         state.warning_issued = False
+                        state.last_wifi_check_at = 0
                         state.pending_event_details = {
-                                        "asset_id": asset_id, 
-                                        "source_esp_id": strongest_candidate['esp_id'], 
-                                        "rssi": strongest_candidate['rssi'], 
-                                        "wifi_signal": strongest_candidate['wifi_signal'], 
-                                        "details": f"Wi-Fi confirmado via {strongest_candidate['esp_id']} (EMA {strongest_candidate['ema_rssi']:.1f})."
-                                    }                        
+                            "asset_id": asset_id,
+                            "source_esp_id": strongest_candidate['esp_id'],
+                            "rssi": strongest_candidate['rssi'],
+                            "wifi_signal": strongest_candidate['wifi_signal'],
+                            "details": f"Wi-Fi confirmado via {strongest_candidate['esp_id']} (EMA {strongest_candidate['ema_rssi']:.1f})."
+                        }
+                        
                         state.candidate_since = None
                         state.candidate_quarto_id = None
         
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)
+        
         db.commit()
     finally:
         db.close()
@@ -420,13 +412,9 @@ def _load_maps_from_db():
         assets = db.query(Asset).all()
         _asset_map = {
             a.mac_beacon: {
-                "id": a.id, 
-                "nome_ativo": a.nome_ativo, 
-                "quarto_id": a.quarto_id, 
-                "wifi_mac": a.mac_address,
-                "status": a.status 
-            } 
-            for a in assets
+                "id": a.id, "nome_ativo": a.nome_ativo, "quarto_id": a.quarto_id,
+                "wifi_mac": a.mac_address, "status": a.status
+            } for a in assets
         }
         
         settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
@@ -440,6 +428,25 @@ def _load_maps_from_db():
         logger.info(f"[RTLS] Cache (re)carregado: {len(_esp_map)} ESPs, {len(_asset_map)} Ativos.")
     finally:
         db.close()
+
+def get_pending_states_for_ui():
+    """
+    Nova função para expor os eventos pendentes em memória para a API.
+    RETORNA APENAS OS DADOS BRUTOS DA MEMÓRIA, SEM ACESSAR O DB.
+    """
+    pending_list = []
+    now = time.time()
+    for mac, state in _asset_realtime_state.items():
+        if state.pending_wifi_check_since is not None:
+            asset_info = _asset_map.get(mac, {})
+            pending_list.append({
+                "ativo_mac": mac,
+                "nome_ativo": asset_info.get("nome_ativo", mac),
+                "pending_quarto_id": state.pending_quarto_id,
+                "tempo_pendente_sec": int(now - state.pending_wifi_check_since),
+                "detalhes": f"Aguardando Wi-Fi ({asset_info.get('wifi_mac', 'N/A')})"
+            })
+    return pending_list
 
 async def main_aggregator_loop():
     """Ponto de entrada principal. Roda para sempre, orquestrando o motor RTLS."""
@@ -1675,6 +1682,31 @@ def get_planta_dados(db: Session = Depends(get_db)):
         "sumario": sumario
     })
 
+@app.get("/api/aggregator/pending_events", name="get_pending_events")
+def get_pending_events_from_memory(db: Session = Depends(get_db)): # <-- Adiciona a dependência do DB
+    """
+    Endpoint que consulta o estado da memória do agregador, enriquece os dados
+    com o nome do quarto vindo do DB, e retorna a lista para a UI.
+    """
+    # 1. Pega os dados brutos da memória do agregador
+    pending_states_raw = aggregator.get_pending_states_for_ui()
+    
+    # 2. Se não houver nada, retorna uma lista vazia
+    if not pending_states_raw:
+        return JSONResponse(content=[])
+        
+    quarto_ids = {state['pending_quarto_id'] for state in pending_states_raw if state['pending_quarto_id']}
+    
+    quartos_map = {q.id: q.nome for q in db.query(Quarto).filter(Quarto.id.in_(quarto_ids)).all()}
+    
+    response_data = []
+    for state in pending_states_raw:
+        quarto_id = state.get('pending_quarto_id')
+        state['quarto_nome'] = quartos_map.get(quarto_id, "N/A")
+        response_data.append(state)
+        
+    return JSONResponse(content=response_data)
+
 # ===================================================================
 # SEÇÃO 5: HISTÓRICO DE EVENTOS E DOWNLOADS
 # ===================================================================
@@ -1776,16 +1808,17 @@ def list_events(
 
 
 # Em main.py
-@app.post("/events/{event_id}/cancel", name="cancel_pending_event")
-def cancel_pending_event(request: Request, event_id: int, db: Session = Depends(get_db)):
-    event = db.query(ReceivedEvent).filter(ReceivedEvent.id == event_id, ReceivedEvent.status == 'Pendente').first()
-
-    if not event:
-        # Se o evento não for encontrado ou não estiver pendente, apenas redireciona.
-        return RedirectResponse(request.url_for("list_events"), status_code=303)
-
-    clear_asset_candidate_state(mac_beacon_to_clear=event.ativo)
+# Em main.py
+@app.post("/events/{asset_mac}/cancel", name="cancel_pending_event")
+def cancel_pending_event(request: Request, asset_mac: str):
+    # A função agora chama diretamente o clear_asset_candidate_state,
+    # que limpa o estado pendente da memória. Não precisa mais do DB.
     
+    success = aggregator.clear_asset_candidate_state(mac_beacon_to_clear=asset_mac)
+    
+    if not success:
+        logger.warning(f"Tentativa de cancelar evento pendente para o MAC {asset_mac}, mas não foi encontrado em estado pendente.")
+
     return RedirectResponse(request.url_for("list_events"), status_code=303)
 
 @app.get("/events/download", name="download_events_csv")

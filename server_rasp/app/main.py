@@ -58,9 +58,11 @@ MONITOR_WIFI_INTERVAL_SEC = int(settings.get('monitor_wifi_interval_sec', 60))
 ESP_TIMEOUT_SEC = int(settings.get('esp_timeout_sec', 150)) 
 WIFI_FAILURE_TOLERANCE = int(settings.get('wifi_failure_tolerance', 3)) 
 ESP_STATUS_UPDATE_INTERVAL_SEC = 60
+WIFI_GUARDIAN_INTERVAL_SEC = 30
 
 pending_rssi_requests = {} 
 _wifi_failure_counts = defaultdict(int)
+_wifi_presence_cache = {}
 
 try:
     base_path = sys._MEIPASS
@@ -346,6 +348,44 @@ def update_settings(
 LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
+async def wifi_guardian_task():
+    """
+    (NOVA TAREFA) O "Guardião de Wi-Fi". Roda continuamente para verificar
+    a presença de TODOS os ativos na rede de forma paralela e manter um
+    cache em memória que o agregador irá consumir.
+    """
+    logger.info("[WIFI-GUARDIAN] Serviço de monitoramento global de Wi-Fi iniciado.")
+    while True:
+        await asyncio.sleep(WIFI_GUARDIAN_INTERVAL_SEC)
+        
+        db = SessionLocal()
+        try:
+            assets_to_check = db.query(Asset.mac_beacon, Asset.mac_address).filter(Asset.mac_address.isnot(None)).all()
+            if not assets_to_check:
+                continue
+
+            # Cria uma lista de tarefas de verificação (uma para cada ativo)
+            tasks = [check_presence(mac_wifi) for mac_beacon, mac_wifi in assets_to_check]
+            
+            # Executa TODAS as tarefas de verificação em paralelo
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Atualiza o cache com os resultados
+            for (mac_beacon, mac_wifi), result in zip(assets_to_check, results):
+                if isinstance(result, Exception):
+                    logger.error(f"[WIFI-GUARDIAN] Erro ao verificar {mac_wifi}: {result}")
+                    _wifi_presence_cache[mac_beacon] = False
+                else:
+                    _wifi_presence_cache[mac_beacon] = result
+
+            aggregator.update_wifi_presence_cache(_wifi_presence_cache)
+
+        except Exception as e:
+            logger.error(f"[WIFI-GUARDIAN] Erro crítico na tarefa do guardião: {e}", exc_info=True)
+        finally:
+            db.close()
+
+
 async def check_esp_liveness():
     """
     Tarefa de background que verifica na base de dados por ESPs offline.
@@ -359,8 +399,6 @@ async def check_esp_liveness():
             now_utc = datetime.now(timezone.utc)
             cutoff_time = now_utc - timedelta(seconds=ESP_TIMEOUT_SEC)
             
-            # 1. A query agora busca apenas os ESPs que o sistema considera 'online'.
-            #    Isto substitui a verificação do set '_esps_em_quarentena'.
             esps_a_verificar = db.query(Embarcado).filter(
                 Embarcado.last_seen != None,
                 Embarcado.status_rede == 'online'
@@ -368,7 +406,6 @@ async def check_esp_liveness():
 
             esps_que_ficaram_offline = []
             for emb in esps_a_verificar:
-                # A lógica de verificação do tempo é a mesma
                 last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
                 if last_seen_utc < cutoff_time:
                     esps_que_ficaram_offline.append(emb)
@@ -381,7 +418,6 @@ async def check_esp_liveness():
                     
                     emb.status_rede = 'offline'
                 
-                # 3. Commit final para salvar todas as alterações de status na base de dados.
                 db.commit()
         
         except Exception as e:
@@ -943,6 +979,31 @@ def get_planta_dados(db: Session = Depends(get_db)):
         "sumario": sumario
     })
 
+@app.get("/api/aggregator/pending_events", name="get_pending_events")
+def get_pending_events_from_memory(db: Session = Depends(get_db)): # <-- Adiciona a dependência do DB
+    """
+    Endpoint que consulta o estado da memória do agregador, enriquece os dados
+    com o nome do quarto vindo do DB, e retorna a lista para a UI.
+    """
+    # 1. Pega os dados brutos da memória do agregador
+    pending_states_raw = aggregator.get_pending_states_for_ui()
+    
+    # 2. Se não houver nada, retorna uma lista vazia
+    if not pending_states_raw:
+        return JSONResponse(content=[])
+        
+    quarto_ids = {state['pending_quarto_id'] for state in pending_states_raw if state['pending_quarto_id']}
+    
+    quartos_map = {q.id: q.nome for q in db.query(Quarto).filter(Quarto.id.in_(quarto_ids)).all()}
+    
+    response_data = []
+    for state in pending_states_raw:
+        quarto_id = state.get('pending_quarto_id')
+        state['quarto_nome'] = quartos_map.get(quarto_id, "N/A")
+        response_data.append(state)
+        
+    return JSONResponse(content=response_data)
+
 # ===================================================================
 # SEÇÃO 5: HISTÓRICO DE EVENTOS E DOWNLOADS
 # ===================================================================
@@ -1044,16 +1105,17 @@ def list_events(
 
 
 # Em main.py
-@app.post("/events/{event_id}/cancel", name="cancel_pending_event")
-def cancel_pending_event(request: Request, event_id: int, db: Session = Depends(get_db)):
-    event = db.query(ReceivedEvent).filter(ReceivedEvent.id == event_id, ReceivedEvent.status == 'Pendente').first()
-
-    if not event:
-        # Se o evento não for encontrado ou não estiver pendente, apenas redireciona.
-        return RedirectResponse(request.url_for("list_events"), status_code=303)
-
-    clear_asset_candidate_state(mac_beacon_to_clear=event.ativo)
+# Em main.py
+@app.post("/events/{asset_mac}/cancel", name="cancel_pending_event")
+def cancel_pending_event(request: Request, asset_mac: str):
+    # A função agora chama diretamente o clear_asset_candidate_state,
+    # que limpa o estado pendente da memória. Não precisa mais do DB.
     
+    success = aggregator.clear_asset_candidate_state(mac_beacon_to_clear=asset_mac)
+    
+    if not success:
+        logger.warning(f"Tentativa de cancelar evento pendente para o MAC {asset_mac}, mas não foi encontrado em estado pendente.")
+
     return RedirectResponse(request.url_for("list_events"), status_code=303)
 
 @app.get("/events/download", name="download_events_csv")
@@ -1203,6 +1265,7 @@ async def on_startup():
     running_tasks["wifi_monitor"] = asyncio.create_task(monitor_assigned_assets_wifi())
     running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
+    running_tasks["wifi_guardian"] = asyncio.create_task(wifi_guardian_task())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 

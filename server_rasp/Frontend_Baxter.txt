@@ -584,49 +584,26 @@ ARQUIVO: app/web/templates/events_list.html
     </div>
 </form>
 
-{# Seção de Eventos Pendentes (sem alterações) #}
-{% if pending_events %}
-<div class="pending-events-section">
+{# A seção de pendentes agora começa escondida por padrão com style="display: none;" #}
+<div id="pending-section-container" class="pending-events-section" style="display: none;">
     <h2>Eventos Pendentes (Aguardando Wi-Fi)</h2>
     <div class="history-table-container">
         <table class="data-table history-table">
             <thead>
                 <tr>
-                    <th>HORA</th>
+                    <th>TEMPO PENDENTE</th>
                     <th>CAMA</th>
                     <th>QUARTO DETECTADO</th>
-                    <th>AÇÃO</th>
-                    <th>STATUS</th>
-                    <th>AÇÕES</th> 
+                    <th>DETALHES</th>
+                    <th>AÇÕES</th>
                 </tr>
             </thead>
-            <tbody>
-                {% for event in pending_events %}
-                <tr>
-                    <td>{{ event.hora_str }}</td>
-                    <td>{{ event.nome_cama }}</td>
-                    <td>{{ event.quarto }}</td>
-                    <td><span class="action-get">Conectar</span></td>
-                    <td>
-                        <span class="status-box status-pendente" 
-                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
-                            Pendente
-                        </span>
-                    </td>
-                    <td>
-                        <form action="{{ url_for('cancel_pending_event', event_id=event.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja cancelar esta verificação?');">
-                            <button type="submit" class="btn-cancel" title="Cancelar verificação em segundo plano">
-                                Cancelar
-                            </button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
+            <tbody id="pending-events-tbody">
+                {# O conteúdo será inserido aqui pelo JavaScript #}
             </tbody>
         </table>
     </div>
 </div>
-{% endif %}
 
 {# Seção da Tabela de Histórico (COM AS CORREÇÕES) #}
 <div class="history-table-container">
@@ -716,6 +693,92 @@ ARQUIVO: app/web/templates/events_list.html
     <span>Página {{ page }}</span>
     {% if has_next %}<a href="{{ request.url.replace_query_params(page=page+1) }}">Próxima</a>{% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const pendingBody = document.getElementById('pending-events-tbody');
+    const placeholder = document.getElementById('pending-events-placeholder');
+
+    function renderPendingEvents(events) {
+        // Limpa a tabela antes de adicionar novas linhas
+        pendingBody.innerHTML = ''; 
+
+        if (!events || events.length === 0) {
+            placeholder.style.display = 'table-row';
+            placeholder.querySelector('td').textContent = 'Nenhum evento pendente no momento.';
+            pendingBody.appendChild(placeholder);
+            return;
+        }
+
+        placeholder.style.display = 'none';
+
+        events.forEach(event => {
+            const row = document.createElement('tr');
+            
+            // Coluna TEMPO PENDENTE
+            const timeCell = document.createElement('td');
+            timeCell.textContent = `${event.tempo_pendente_sec}s`;
+
+            // Coluna CAMA
+            const camaCell = document.createElement('td');
+            camaCell.textContent = event.nome_ativo;
+
+            // Coluna QUARTO
+            const quartoCell = document.createElement('td');
+            quartoCell.textContent = event.quarto_nome;
+
+            // Coluna DETALHES
+            const detailsCell = document.createElement('td');
+            detailsCell.textContent = event.detalhes;
+            
+            // Coluna AÇÕES (com o botão de cancelar)
+            const actionsCell = document.createElement('td');
+            // ATENÇÃO: A URL agora é construída dinamicamente com o MAC do ativo
+            const cancelUrl = `{{ url_for('list_events') }}../events/${event.ativo_mac}/cancel`;
+            
+            actionsCell.innerHTML = `
+                <form action="${cancelUrl}" method="post" onsubmit="return confirm('Tem certeza que deseja cancelar esta verificação para ${event.nome_ativo}?');">
+                    <button type="submit" class="btn-cancel" title="Cancelar verificação em segundo plano">
+                        Cancelar
+                    </button>
+                </form>
+            `;
+
+            row.appendChild(timeCell);
+            row.appendChild(camaCell);
+            row.appendChild(quartoCell);
+            row.appendChild(detailsCell);
+            row.appendChild(actionsCell);
+            
+            pendingBody.appendChild(row);
+        });
+    }
+
+    async function fetchPendingEvents() {
+        try {
+            const response = await fetch("{{ url_for('get_pending_events') }}");
+            if (!response.ok) {
+                throw new Error('Falha ao buscar eventos pendentes');
+            }
+            const events = await response.json();
+            renderPendingEvents(events);
+        } catch (error) {
+            console.error("Erro ao buscar eventos pendentes:", error);
+            placeholder.style.display = 'table-row';
+            placeholder.querySelector('td').textContent = 'Erro ao carregar dados.';
+            pendingBody.innerHTML = '';
+            pendingBody.appendChild(placeholder);
+        }
+    }
+
+    // Busca os dados quando a página carrega e depois a cada 10 segundos
+    fetchPendingEvents();
+    setInterval(fetchPendingEvents, 10000); 
+});
+</script>
 {% endblock %}
 
 
