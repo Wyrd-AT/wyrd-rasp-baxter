@@ -978,22 +978,31 @@ def view_planta(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/planta/dados", name="get_planta_dados")
 def get_planta_dados(db: Session = Depends(get_db)):
     """
-    Endpoint de API que fornece os dados de ocupação para os 4 primeiros quartos
-    e um sumário com os totais.
+    (VERSÃO MODIFICADA) Endpoint de API que fornece os dados de ocupação,
+    INCLUINDO o status de ativos pendentes para a planta baixa.
     """
-    # Pega apenas os 4 primeiros quartos ordenados pelo ID
+    # 1. Busca os quartos e os ativos já confirmados (como antes)
     quartos_db = db.query(Quarto).options(
         joinedload(Quarto.assets),
         joinedload(Quarto.embarcados)
-    ).order_by(Quarto.id).limit(4).all()
+    ).order_by(Quarto.id).all()
+
+    # 2. Busca os ativos pendentes da memória do agregador
+    pending_states_raw = aggregator.get_pending_states_for_ui()
+    pending_map = {
+        state['pending_quarto_id']: {
+            "nome": state.get("nome_ativo", state.get("ativo_mac")),
+            "status": "pendente"
+        } for state in pending_states_raw
+    }
 
     lista_quartos_data = []
     sumario = {"quartos_online": 0, "total_ativos": 0}
-
     now_utc = datetime.now(timezone.utc)
     sao_paulo_tz = timezone(timedelta(hours=-3))
 
     for quarto in quartos_db:
+        # Lógica de status do embarcado (sem alterações)
         status_embarcado = "Offline"
         if quarto.embarcados:
             embarcado = quarto.embarcados[0]
@@ -1001,18 +1010,18 @@ def get_planta_dados(db: Session = Depends(get_db)):
                 last_seen_utc = embarcado.last_seen.replace(tzinfo=timezone.utc)
                 if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
                     status_embarcado = "Online"
-
+        
         if status_embarcado == "Online":
             sumario["quartos_online"] += 1
-        sumario["total_ativos"] += len(quarto.assets)
-
+        
+        # 3. Monta a lista de ativos do quarto, unindo confirmados e pendentes
         ativos_detalhados = []
         for asset in quarto.assets:
-            # Busca pelo último evento GET confirmado para o ativo
+            # Busca pelo último evento para pegar a data/hora
             ultimo_evento = db.query(ReceivedEvent).filter(
                 ReceivedEvent.ativo == asset.mac_beacon,
                 ReceivedEvent.action == 'GET',
-                ReceivedEvent.status == 'OK' # Usamos 'OK' no Baxter
+                ReceivedEvent.status == 'OK'
             ).order_by(desc(ReceivedEvent.data_on)).first()
 
             texto_conexao = "Horário indisponível"
@@ -1020,13 +1029,24 @@ def get_planta_dados(db: Session = Depends(get_db)):
                 data_utc = ultimo_evento.data_on.replace(tzinfo=timezone.utc)
                 data_local = data_utc.astimezone(sao_paulo_tz)
                 texto_conexao = data_local.strftime("desde %d/%m às %H:%M")
+            
+            ativos_detalhados.append({"nome": asset.nome_ativo, "status": "confirmado", "texto_conexao": texto_conexao})
 
-            ativos_detalhados.append({"nome": asset.nome_ativo, "texto_conexao": texto_conexao})
+        # Adiciona o ativo pendente, se houver um para este quarto
+        if quarto.id in pending_map:
+            pending_asset = pending_map[quarto.id]
+            ativos_detalhados.append({
+                "nome": pending_asset["nome"], 
+                "status": "pendente",
+                "texto_conexao": "Aguardando Wi-Fi"
+            })
+
+        sumario["total_ativos"] += len(ativos_detalhados)
 
         lista_quartos_data.append({
             "id_quarto": f"quarto-{quarto.id}",
             "nome_quarto": quarto.nome,
-            "numero_ativos": len(quarto.assets),
+            "numero_ativos": len(ativos_detalhados),
             "status_embarcado": status_embarcado,
             "ativos": ativos_detalhados
         })
