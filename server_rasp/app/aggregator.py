@@ -362,7 +362,7 @@ async def _processar_localizacoes():
                 continue
 
             # ESTADO 4: LIVRE (FORA DE UM QUARTO E NÃO PENDENTE)
-            if candidate_quarto_id is not None:
+            if quarto_id_atual is None and candidate_quarto_id is not None:
                 if candidate_quarto_id != state.candidate_quarto_id:
                     state.candidate_quarto_id = candidate_quarto_id
                     state.candidate_since = now
@@ -376,6 +376,8 @@ async def _processar_localizacoes():
                         state.pending_quarto_id = candidate_quarto_id
                         state.pending_wifi_check_since = now
                         state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Wi-Fi confirmado via cache."}
+                    
+                    clear_asset_candidate_state(mac)
             else:
                 # LÓGICA DE ABORTO DE PENDENTE CORRIGIDA
                 if state.candidate_quarto_id is not None:
