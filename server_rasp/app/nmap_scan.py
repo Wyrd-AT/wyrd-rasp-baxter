@@ -83,8 +83,8 @@ async def is_host_online_async(ip_address: str) -> bool:
     is_online = await loop.run_in_executor(None, _worker_is_host_online, ip_address)
     
     if is_online:
-        logger.info(f"[nmap_scan_async] SUCESSO: Host {ip_address} está online.")
+        logger.debug(f"[nmap_scan_async] SUCESSO: Host {ip_address} está online.")
     else:
-        logger.info(f"[nmap_scan_async] FALHA: Host {ip_address} parece estar offline.")
+        logger.debug(f"[nmap_scan_async] FALHA: Host {ip_address} parece estar offline.")
         
     return is_online

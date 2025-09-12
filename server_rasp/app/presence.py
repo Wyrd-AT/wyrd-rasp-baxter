@@ -48,5 +48,5 @@ async def check_presence(mac: str) -> bool:
         return await is_host_online_async(target_ip)
     
     # 5. Se mesmo após forçar a atualização o MAC não foi encontrado, ele está offline
-    logger.info(f"[presence_async] MAC {target_mac} não foi encontrado no mapa da rede. Considerado offline.")
+    logger.debug(f"[presence_async] MAC {target_mac} não foi encontrado no mapa da rede. Considerado offline.")
     return False

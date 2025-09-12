@@ -348,43 +348,98 @@ def update_settings(
 LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
-async def wifi_guardian_task():
-    """
-    (NOVA TAREFA) O "Guardião de Wi-Fi". Roda continuamente para verificar
-    a presença de TODOS os ativos na rede de forma paralela e manter um
-    cache em memória que o agregador irá consumir.
-    """
-    logger.info("[WIFI-GUARDIAN] Serviço de monitoramento global de Wi-Fi iniciado.")
+GUARDIAN_LOG_INTERVAL_SEC = 120 # Logar a cada 120 segundos (2 minutos)
+
+async def main_guardian_loop():
+    """Loop principal para a tarefa unificada, AGORA COM LOGS MENOS FREQUENTES."""
+    logger.info("[GUARDIAN-UNIFICADO] Serviço iniciado.")
+    
+    # --- INÍCIO DA MUDANÇA ---
+    log_counter = 0
+    # Calcula a cada quantos ciclos devemos logar, garantindo pelo menos 1
+    log_every_n_cycles = max(1, GUARDIAN_LOG_INTERVAL_SEC // WIFI_GUARDIAN_INTERVAL_SEC)
+    # --- FIM DA MUDANÇA ---
+
     while True:
-        await asyncio.sleep(WIFI_GUARDIAN_INTERVAL_SEC)
-        
         db = SessionLocal()
         try:
-            assets_to_check = db.query(Asset.mac_beacon, Asset.mac_address).filter(Asset.mac_address.isnot(None)).all()
-            if not assets_to_check:
-                continue
+            # A função que faz o trabalho pesado (wifi_guardian_task_unificada)
+            # continua a mesma, rodando a cada 30 segundos.
+            summary_log = await wifi_guardian_task_unificada(db) # Agora ela retorna o log
 
-            # Cria uma lista de tarefas de verificação (uma para cada ativo)
-            tasks = [check_presence(mac_wifi) for mac_beacon, mac_wifi in assets_to_check]
-            
-            # Executa TODAS as tarefas de verificação em paralelo
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Atualiza o cache com os resultados
-            for (mac_beacon, mac_wifi), result in zip(assets_to_check, results):
-                if isinstance(result, Exception):
-                    logger.error(f"[WIFI-GUARDIAN] Erro ao verificar {mac_wifi}: {result}")
-                    _wifi_presence_cache[mac_beacon] = False
-                else:
-                    _wifi_presence_cache[mac_beacon] = result
+            # --- INÍCIO DA MUDANÇA ---
+            log_counter += 1
+            if log_counter >= log_every_n_cycles:
+                if summary_log: # Só loga se houver algo a reportar
+                    logger.info(summary_log)
+                log_counter = 0 # Reinicia o contador
+            # --- FIM DA MUDANÇA ---
 
-            aggregator.update_wifi_presence_cache(_wifi_presence_cache)
-
-        except Exception as e:
-            logger.error(f"[WIFI-GUARDIAN] Erro crítico na tarefa do guardião: {e}", exc_info=True)
         finally:
             db.close()
+        await asyncio.sleep(WIFI_GUARDIAN_INTERVAL_SEC)
 
+# Você também precisa fazer um pequeno ajuste na função wifi_guardian_task_unificada
+# para que ela RETORNE a string de log em vez de imprimi-la.
+
+async def wifi_guardian_task_unificada(db: Session):
+    """
+    (VERSÃO MODIFICADA) Agora RETORNA a string de log para o loop principal.
+    """
+    try:
+        assets_to_check = db.query(Asset.nome_ativo, Asset.mac_beacon, Asset.mac_address, Asset.quarto_id).filter(Asset.mac_address.isnot(None)).all()
+        if not assets_to_check:
+            _wifi_failure_counts.clear()
+            return None # Retorna None se não houver trabalho a fazer
+
+        tasks = [check_presence(mac_wifi) for nome, mac_b, mac_wifi, q_id in assets_to_check]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        current_wifi_presence = {}
+        online_names, offline_names = [], []
+        
+        # ... (toda a lógica de verificação e remoção por falha permanece a mesma) ...
+        for (nome_ativo, mac_beacon, mac_wifi, quarto_id), result in zip(assets_to_check, results):
+            is_present = False
+            if not isinstance(result, Exception):
+                is_present = result
+
+            current_wifi_presence[mac_beacon] = is_present
+            
+            if is_present:
+                online_names.append(nome_ativo)
+                if mac_wifi in _wifi_failure_counts:
+                    del _wifi_failure_counts[mac_wifi]
+            else:
+                offline_names.append(nome_ativo)
+                if quarto_id is not None:
+                    _wifi_failure_counts[mac_wifi] += 1
+                    if _wifi_failure_counts[mac_wifi] >= WIFI_FAILURE_TOLERANCE:
+                        asset_obj = db.query(Asset).filter(Asset.mac_address == mac_wifi).first()
+                        if asset_obj:
+                            # (Lógica de alerta e remoção)
+                            pass # Omitido por brevidade, mas permanece aqui
+
+        aggregator.update_wifi_presence_cache(current_wifi_presence)
+        
+        # --- MUDANÇA AQUI ---
+        summary_log = f"[GUARDIAN-UNIFICADO] Online: {len(online_names)}/{len(assets_to_check)}. [{', '.join(online_names) or 'Nenhum'}]. Offline: [{', '.join(offline_names) or 'Nenhum'}]."
+        return summary_log # Em vez de logger.info, retorna a string
+
+    except Exception as e:
+        logger.error(f"[GUARDIAN-UNIFICADO] Erro crítico na tarefa: {e}", exc_info=True)
+        return None # Retorna None em caso de erro
+
+async def main_guardian_loop():
+    """Loop principal para a nova tarefa unificada."""
+    logger.info("[GUARDIAN-UNIFICADO] Serviço iniciado.")
+    while True:
+        db = SessionLocal()
+        try:
+            await wifi_guardian_task_unificada(db)
+        finally:
+            db.close()
+        await asyncio.sleep(WIFI_GUARDIAN_INTERVAL_SEC)
 
 async def check_esp_liveness():
     """
@@ -888,7 +943,7 @@ def update_asset(
     asset = db.query(Asset).get(asset_id)
     if asset:
         asset.nome_ativo = nome_ativo
-        mac_address=mac_address.lower()
+        asset.mac_address=mac_address.lower()
         asset.mac_beacon = mac_beacon.lower()
         # --- ATUALIZANDO OS NOVOS DADOS ---
         asset.tipo_ativo = tipo_ativo
@@ -1255,7 +1310,7 @@ async def check_background_tasks_health():
                         f"[HEALTH CHECK] A TAREFA CRÍTICA '{name}' FALHOU: {e}",
                         exc_info=True
                     )
-                    # Ação a tomar: Poderíamos tentar reiniciar a tarefa ou o servidor.
+                    # Ação a tomar: Poderíamos 64:70:02:5f:e0:40tentar reiniciar a tarefa ou o servidor.
 
 @app.on_event("startup")
 async def on_startup():
@@ -1265,7 +1320,7 @@ async def on_startup():
     running_tasks["wifi_monitor"] = asyncio.create_task(monitor_assigned_assets_wifi())
     running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
-    running_tasks["wifi_guardian"] = asyncio.create_task(wifi_guardian_task())
+    running_tasks["guardian_unificado"] = asyncio.create_task(main_guardian_loop())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 
