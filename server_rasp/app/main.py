@@ -472,6 +472,8 @@ async def check_esp_liveness():
                     await release_assets_for_offline_esp(db, emb.id_esp)
                     
                     emb.status_rede = 'offline'
+                    emb.mac_address = None  # Limpa o MAC Address
+                    emb.ip_address = None
                 
                 db.commit()
         

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
-    (FUNÇÃO PRINCIPAL) Ponto de entrada ÚNICO para persistir mudanças de estado.
+    (VERSÃO CORRIGIDA) Ponto de entrada ÚNICO para persistir mudanças de estado.
     Processa uma lista de mudanças, atualiza/cria eventos no DB, atualiza a
     localização dos ativos e notifica os sistemas externos e a UI.
     """
@@ -38,51 +38,59 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             asset_id = change.get("asset_id")
             if not asset_id: continue
 
-            asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
+            asset = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
             if not asset: continue
 
-            new_quarto_id = change["new_quarto_id"]
-            quarto_anterior_id = asset.quarto_id
+            new_quarto_id = change.get("new_quarto_id")
             action = "OUT" if new_quarto_id is None else "GET"
-            
-            # Prepara dados para o evento e para o dispatcher
-            novo_quarto_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first() if new_quarto_id else None
-            nome_quarto_evento = novo_quarto_obj.nome if novo_quarto_obj else (asset.quarto.nome if asset.quarto else "N/A")
-            nome_andar_evento = novo_quarto_obj.andar.nome if novo_quarto_obj and novo_quarto_obj.andar else None
-            change.update({"nome_ativo": asset.nome_ativo, "quarto_nome": nome_quarto_evento, "action": action})
 
-            # Atualiza um evento pendente ou cria um novo
-            event_to_update_id = change.get("event_to_update_id")
-            if event_to_update_id:
-                event = db.query(ReceivedEvent).get(event_to_update_id)
-                if event:
-                    event.status = "OK"
-                    event.status_detail = change["details"]
-                    event.rssi = change.get("rssi")
-                    event.wifi = change.get("wifi_signal")
-                    event.andar_nome = nome_andar_evento 
-            else:
-                event = ReceivedEvent(
-                    esp_id=change["source_esp_id"], ativo=asset.mac_beacon,
-                    quarto_nome=nome_quarto_evento, andar_nome=nome_andar_evento,
-                    action=action, status="OK",
-                    status_detail=change["details"], rssi=change.get("rssi"),
-                    wifi=change.get("wifi_signal"),
-                    data_on=datetime.now(timezone.utc),
-                    raw={"source": "services_batch", "old_quarto_id": quarto_anterior_id}
-                )
-                db.add(event)
+            # --- INÍCIO DA LÓGICA CORRIGIDA ---
+
+            # Prepara os dados do evento de forma mais robusta
+            quarto_evento = None
+            andar_evento = None
+
+            if action == "GET":
+                # Para eventos de ENTRADA, usamos o novo quarto
+                novo_quarto_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first()
+                if novo_quarto_obj:
+                    quarto_evento = novo_quarto_obj.nome
+                    if novo_quarto_obj.andar:
+                        andar_evento = novo_quarto_obj.andar.nome
+            else: # action == "OUT"
+                # Para eventos de SAÍDA, usamos o quarto anterior (de onde ele saiu)
+                if asset.quarto:
+                    quarto_evento = asset.quarto.nome
+                    if asset.quarto.andar:
+                        andar_evento = asset.quarto.andar.nome
+
+            # Cria o objeto do evento com TODOS os dados
+            event = ReceivedEvent(
+                esp_id=change.get("source_esp_id", "server"),
+                ativo=asset.mac_beacon,
+                quarto_nome=quarto_evento,
+                andar_nome=andar_evento, # <-- CORRIGIDO
+                action=action,
+                status="OK",
+                status_detail=change.get("details"),
+                rssi=change.get("rssi"), # <-- CORRIGIDO
+                wifi=change.get("wifi_signal"), # <-- CORRIGIDO
+                data_on=datetime.now(timezone.utc),
+                raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
+            )
+            db.add(event)
             
+            # --- FIM DA LÓGICA CORRIGIDA ---
+            
+            # Atualiza a localização do ativo
             asset.quarto_id = new_quarto_id
 
         db.commit()
         
+        # O restante da função (atualização de cache, notificação da UI, etc.) permanece o mesmo...
         for change in changes:
             asset_id = change.get("asset_id")
             if not asset_id: continue
-            
-            # Precisamos do MAC do beacon para atualizar o cache, então buscamos o asset novamente.
-            # Como o commit já foi feito, esta é uma operação rápida.
             asset_db = db.query(Asset).get(asset_id)
             if asset_db:
                 aggregator.update_asset_cache(
@@ -90,7 +98,6 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                     new_quarto_id=change["new_quarto_id"]
                 )
 
-        # Despacha os eventos confirmados e notifica a UI
         logger.info(f"Lote de {len(changes)} mudanças processado. Notificando sistemas.")
         loop = asyncio.get_running_loop()
         for change in changes:
