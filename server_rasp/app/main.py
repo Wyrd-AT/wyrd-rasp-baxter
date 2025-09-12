@@ -472,9 +472,7 @@ async def check_esp_liveness():
                     await release_assets_for_offline_esp(db, emb.id_esp)
                     
                     emb.status_rede = 'offline'
-                    emb.mac_address = None  # Limpa o MAC Address
-                    emb.ip_address = None
-                
+                    
                 db.commit()
         
         except Exception as e:
@@ -1019,7 +1017,9 @@ def get_planta_dados(db: Session = Depends(get_db)):
 
             texto_conexao = "Horário indisponível"
             if ultimo_evento and ultimo_evento.data_on:
-                texto_conexao = ultimo_evento.data_on.astimezone(sao_paulo_tz).strftime("desde %d/%m às %H:%M")
+                data_utc = ultimo_evento.data_on.replace(tzinfo=timezone.utc)
+                data_local = data_utc.astimezone(sao_paulo_tz)
+                texto_conexao = data_local.strftime("desde %d/%m às %H:%M")
 
             ativos_detalhados.append({"nome": asset.nome_ativo, "texto_conexao": texto_conexao})
 

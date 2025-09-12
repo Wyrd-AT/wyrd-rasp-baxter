@@ -139,11 +139,8 @@
                     {% endif %}
                 </td>
 
-                {# 7. MAC Address #}
-                <td>{{ emb.mac_address or '---' }}</td>
-
-                {# 8. IP Address #}
-                <td>{{ emb.ip_address or '---' }}</td>
+                <td>{% if emb.status_rede == 'online' %}{{ emb.mac_address or '---' }}{% else %}---{% endif %}</td>
+                <td>{% if emb.status_rede == 'online' %}{{ emb.ip_address or '---' }}{% else %}---{% endif %}</td>
 
                 {# 9. RSSI Mín. #}
                 <td>
