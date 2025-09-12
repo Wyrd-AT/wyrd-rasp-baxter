@@ -70,7 +70,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 quarto_nome=quarto_evento,
                 andar_nome=andar_evento,        # <-- Dado do ANDAR agora presente no OUT
                 action=action,
-                status="OK",
+                status=change.get("status", "OK"),
                 status_detail=change.get("details"),
                 rssi=change.get("rssi"),        # <-- Dado do SINAL BLE agora presente no OUT
                 wifi=change.get("wifi_signal"), # <-- Dado do SINAL WI-FI agora presente em TODOS

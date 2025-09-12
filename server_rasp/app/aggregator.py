@@ -10,6 +10,7 @@ import time
 import json
 import logging
 from datetime import datetime, timezone, timedelta
+from sqlalchemy.orm import Session, joinedload
 
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
@@ -28,6 +29,9 @@ _asset_map = {}
 _asset_realtime_state = {}
 _config_needs_reload = asyncio.Event()
 _wifi_presence_cache = {}
+
+SIGNAL_LOG_INTERVAL_SEC = 15.0
+_last_signal_log_times_per_esp = {}
 
 # --- CONFIGURAÇÕES ---
 _config = {
@@ -88,13 +92,57 @@ def update_asset_cache(mac_beacon: str, new_quarto_id: int | None):
 def flag_for_reload():
     _config_needs_reload.set()
 
+def cancel_and_log_manual_pending_event(mac_beacon_to_cancel: str) -> bool:
+    """
+    Encontra um ativo em estado pendente, cria um evento de cancelamento manual
+    no banco de dados e depois limpa seu estado da memória.
+    """
+    if mac_beacon_to_cancel in _asset_realtime_state:
+        state = _asset_realtime_state[mac_beacon_to_cancel]
+        
+        # Procede apenas se o ativo estiver realmente em estado pendente
+        if state.pending_wifi_check_since is not None:
+            db = SessionLocal()
+            try:
+                logger.info(f"Cancelamento manual para {mac_beacon_to_cancel}. Registrando evento.")
+                quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
+                
+                cancel_event = ReceivedEvent(
+                    esp_id="operator_ui",
+                    ativo=mac_beacon_to_cancel,
+                    quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
+                    andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
+                    action="GET",
+                    status="Cancelado",
+                    status_detail="Cancelado manualmente pelo operador.",
+                    rssi=state.last_strongest_signal.get('rssi'),
+                    data_on=datetime.now(timezone.utc),
+                    raw={"reason": "manual_cancel"}
+                )
+                db.add(cancel_event)
+                db.commit()
+            finally:
+                db.close()
+            
+            # Agora, limpa o estado da memória
+            clear_asset_candidate_state(mac_beacon_to_cancel)
+            return True
+    return False
+
 # --- FUNÇÕES INTERNAS DO MOTOR RTLS ---
 async def _consume_scan_data_queue():
     db = None
     try:
         while not scan_data_queue.empty():
             item = await scan_data_queue.get()
-            signal_logger.info(json.dumps(item))
+            esp_id_from_item = item.get("esp_id")
+            if esp_id_from_item:
+                now = time.time() 
+                last_log_time = _last_signal_log_times_per_esp.get(esp_id_from_item, 0) 
+
+                if (now - last_log_time) > SIGNAL_LOG_INTERVAL_SEC: 
+                    signal_logger.info(json.dumps(item)) 
+                    _last_signal_log_times_per_esp[esp_id_from_item] = now 
             esp_id, payload = item.get("esp_id"), item.get("payload", {})
             beacons_obj = payload.get("b", {}); wifi_signal = payload.get("w")
             for mac, rssi in beacons_obj.items():
@@ -140,23 +188,49 @@ async def _processar_localizacoes():
             # ESTADO 1: PENDENTE (AGUARDANDO WI-FI)
             if state.pending_wifi_check_since is not None:
                 if candidate_quarto_id != state.pending_quarto_id:
-                    logger.info(f"PENDENTE CANCELADO: Ativo {mac} perdeu a candidatura para o quarto {state.pending_quarto_id}.")
+                    logger.info(f"PENDENTE CANCELADO: Ativo {mac} perdeu a candidatura para o quarto {state.pending_quarto_id}. Registrando evento.")
+                    
+                    # Busca o nome do quarto e do andar para o registro histórico
+                    quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
+                    
+                    # Cria o evento de cancelamento diretamente no banco
+                    cancel_event = ReceivedEvent(
+                        esp_id=state.pending_event_details.get("source_esp_id", "aggregator"),
+                        ativo=mac,
+                        quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
+                        andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
+                        action="GET",
+                        status="Cancelado",
+                        status_detail="Ativo perdeu o sinal de candidato para o quarto enquanto estava pendente.",
+                        rssi=state.last_strongest_signal.get('rssi'),
+                        data_on=datetime.now(timezone.utc),
+                        raw={"reason": "candidate_lost"}
+                    )
+                    db.add(cancel_event)
+                    
                     clear_asset_candidate_state(mac)
                     continue
 
                 if _wifi_presence_cache.get(mac, False):
                     logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via cache.")
-                    changes_to_commit.append({**state.pending_event_details, "new_quarto_id": state.pending_quarto_id})
+                    change_details = {
+                        **state.pending_event_details, 
+                        "new_quarto_id": state.pending_quarto_id,
+                        "status": "Confirmado",
+                        "details": f"Entrada confirmada após pendência (Wi-Fi detectado)."
+                    }
+                    changes_to_commit.append(change_details)
                     clear_asset_candidate_state(mac)
                 pending_duration_sec = now - state.pending_wifi_check_since
                 
                 def issue_warning(detail_text):
                     logger.warning(f"ALERTA PERSISTENTE: Wi-Fi para {mac} ausente. Detalhe: {detail_text}")
-                    quarto_pendente = db.query(Quarto).get(state.pending_quarto_id)
+                    quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
                     warning_event = ReceivedEvent(
                         esp_id=state.pending_event_details.get("source_esp_id", "aggregator"),
                         ativo=mac,
                         quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
+                        andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
                         action="ALERTA",
                         status="OK",
                         status_detail=f"Ativo detectado, mas Wi-Fi ausente. ({detail_text})",

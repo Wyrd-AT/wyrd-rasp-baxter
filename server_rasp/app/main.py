@@ -1181,14 +1181,10 @@ def list_events(
     })
 
 
-# Em main.py
-# Em main.py
 @app.post("/events/{asset_mac}/cancel", name="cancel_pending_event")
 def cancel_pending_event(request: Request, asset_mac: str):
-    # A função agora chama diretamente o clear_asset_candidate_state,
-    # que limpa o estado pendente da memória. Não precisa mais do DB.
-    
-    success = aggregator.clear_asset_candidate_state(mac_beacon_to_clear=asset_mac)
+    # A função agora chama a nova lógica no agregador que LOGA e DEPOIS limpa.
+    success = aggregator.cancel_and_log_manual_pending_event(mac_beacon_to_cancel=asset_mac)
     
     if not success:
         logger.warning(f"Tentativa de cancelar evento pendente para o MAC {asset_mac}, mas não foi encontrado em estado pendente.")
