@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
-    (VERSÃO CORRIGIDA) Ponto de entrada ÚNICO para persistir mudanças de estado.
-    Processa uma lista de mudanças, atualiza/cria eventos no DB, atualiza a
-    localização dos ativos e notifica os sistemas externos e a UI.
+    (VERSÃO FINAL CORRIGIDA) Ponto de entrada ÚNICO para persistir mudanças de estado.
+    Processa uma lista de mudanças, cria eventos no DB com TODOS os dados,
+    atualiza a localização dos ativos e notifica os sistemas.
     """
     if not changes:
         return
@@ -38,56 +38,54 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             asset_id = change.get("asset_id")
             if not asset_id: continue
 
+            # Carrega o ativo e seu quarto/andar de origem para ter o contexto completo
             asset = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
             if not asset: continue
 
             new_quarto_id = change.get("new_quarto_id")
             action = "OUT" if new_quarto_id is None else "GET"
 
-            # --- INÍCIO DA LÓGICA CORRIGIDA ---
-
-            # Prepara os dados do evento de forma mais robusta
+            # --- INÍCIO DA LÓGICA CORRIGIDA E ROBUSTA ---
             quarto_evento = None
             andar_evento = None
 
             if action == "GET":
-                # Para eventos de ENTRADA, usamos o novo quarto
+                # Para ENTRADA, usamos os dados do novo quarto
                 novo_quarto_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first()
                 if novo_quarto_obj:
                     quarto_evento = novo_quarto_obj.nome
                     if novo_quarto_obj.andar:
                         andar_evento = novo_quarto_obj.andar.nome
-            else: # action == "OUT"
-                # Para eventos de SAÍDA, usamos o quarto anterior (de onde ele saiu)
+            else:  # action == "OUT"
+                # Para SAÍDA, usamos os dados do quarto de onde o ativo saiu
                 if asset.quarto:
                     quarto_evento = asset.quarto.nome
                     if asset.quarto.andar:
                         andar_evento = asset.quarto.andar.nome
 
-            # Cria o objeto do evento com TODOS os dados
+            # Cria o objeto do evento garantindo que todos os campos sejam preenchidos
             event = ReceivedEvent(
                 esp_id=change.get("source_esp_id", "server"),
                 ativo=asset.mac_beacon,
                 quarto_nome=quarto_evento,
-                andar_nome=andar_evento, # <-- CORRIGIDO
+                andar_nome=andar_evento,        # <-- Dado do ANDAR agora presente no OUT
                 action=action,
                 status="OK",
                 status_detail=change.get("details"),
-                rssi=change.get("rssi"), # <-- CORRIGIDO
-                wifi=change.get("wifi_signal"), # <-- CORRIGIDO
+                rssi=change.get("rssi"),        # <-- Dado do SINAL BLE agora presente no OUT
+                wifi=change.get("wifi_signal"), # <-- Dado do SINAL WI-FI agora presente em TODOS
                 data_on=datetime.now(timezone.utc),
                 raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
             )
             db.add(event)
-            
             # --- FIM DA LÓGICA CORRIGIDA ---
-            
-            # Atualiza a localização do ativo
+
+            # Atualiza a localização do ativo no banco
             asset.quarto_id = new_quarto_id
 
         db.commit()
-        
-        # O restante da função (atualização de cache, notificação da UI, etc.) permanece o mesmo...
+
+        # O restante da função (atualização de cache, notificação, etc.) permanece o mesmo...
         for change in changes:
             asset_id = change.get("asset_id")
             if not asset_id: continue

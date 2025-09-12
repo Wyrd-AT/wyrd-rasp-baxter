@@ -1017,11 +1017,11 @@ def get_planta_dados(db: Session = Depends(get_db)):
                 ReceivedEvent.status == 'OK' # Usamos 'OK' no Baxter
             ).order_by(desc(ReceivedEvent.data_on)).first()
 
-            horario = "N/A"
+            texto_conexao = "Horário indisponível"
             if ultimo_evento and ultimo_evento.data_on:
-                horario = ultimo_evento.data_on.astimezone(sao_paulo_tz).strftime("%H:%M:%S")
+                texto_conexao = ultimo_evento.data_on.astimezone(sao_paulo_tz).strftime("desde %d/%m às %H:%M")
 
-            ativos_detalhados.append({"nome": asset.nome_ativo, "horario_entrada": horario})
+            ativos_detalhados.append({"nome": asset.nome_ativo, "texto_conexao": texto_conexao})
 
         lista_quartos_data.append({
             "id_quarto": f"quarto-{quarto.id}",

@@ -126,7 +126,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (quarto.status_embarcado === 'Offline') {
                         tooltipText += `\n(Embarcado Offline)`;
                     } else if (quarto.numero_ativos > 0) {
-                        quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.horario_entrada})`; });
+                        quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.texto_conexao})`; });
                     } else {
                         tooltipText += `\nLivre`;
                     }
