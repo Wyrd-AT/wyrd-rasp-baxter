@@ -329,6 +329,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .status-confirmado { background-color: #17a2b8; }
 .status-resolvido { background-color: #068523; }
 .status-enfileirado { background-color: #6c757d; }
+.status-vencido {background-color: #966a0b}
 .action-get { color: #28a745; font-weight: bold; }
 .action-out { color: #dc3545; font-weight: bold; }
 .action-warning { color: #fd7e14; font-weight: bold; }

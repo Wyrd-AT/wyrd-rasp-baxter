@@ -136,31 +136,27 @@ async def _processar_localizacoes():
                     top_esp, top_read = max(state.readings.items(), key=lambda i: i[1]['ema_rssi'])
                     state.last_strongest_signal = {"esp_id": top_esp, "rssi": top_read['rssi'], "ema_rssi": top_read['ema_rssi']}
 
-            # --- MÁQUINA DE ESTADOS ---
-
             # ESTADO 1: PENDENTE (AGUARDANDO WI-FI)
             if state.pending_wifi_check_since is not None:
-                # CONDIÇÃO DE CANCELAMENTO ROBUSTA: O ativo ainda é o melhor candidato para o quarto pendente?
                 if candidate_quarto_id != state.pending_quarto_id:
-                    logger.info(f"PENDENTE CANCELADO: Ativo {mac} perdeu a candidatura para o quarto {state.pending_quarto_id}. Abortando entrada.")
+                    logger.info(f"PENDENTE CANCELADO: Ativo {mac} perdeu a candidatura para o quarto {state.pending_quarto_id}.")
                     clear_asset_candidate_state(mac)
                     continue
 
-                # Se a candidatura for mantida, prossegue com as verificações de Wi-Fi e timeouts
                 if _wifi_presence_cache.get(mac, False):
                     logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via cache.")
                     changes_to_commit.append({**state.pending_event_details, "new_quarto_id": state.pending_quarto_id})
                     clear_asset_candidate_state(mac)
                 elif (now - state.pending_wifi_check_since) > PENDING_EXPIRATION_TIMEOUT_SEC:
-                    logger.error(f"EVENTO VENCIDO (TIMEOUT): Ativo {mac} excedeu o tempo limite de espera pelo Wi-Fi.")
+                    logger.error(f"EVENTO VENCIDO (TIMEOUT): Ativo {mac} excedeu o tempo limite.")
                     quarto_pendente = db.query(Quarto).get(state.pending_quarto_id)
-                    failure_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Vencido", status_detail=f"Wi-Fi não detectado no tempo limite.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc), raw={})
+                    failure_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Vencido", status_detail="Wi-Fi não detectado no tempo limite.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc), raw={})
                     db.add(failure_event)
                     clear_asset_candidate_state(mac)
                 elif (now - state.pending_wifi_check_since) > PENDING_WARNING_TIMEOUT_SEC and not state.warning_issued:
                     logger.warning(f"EVENTO ALERTA (PENDENTE): Wi-Fi para {mac} ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.")
                     quarto_pendente = db.query(Quarto).get(state.pending_quarto_id)
-                    warning_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="ALERTA", status="OK", status_detail=f"Ativo detectado, mas Wi-Fi ausente.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc), raw={})
+                    warning_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="ALERTA", status="OK", status_detail="Ativo detectado, mas Wi-Fi ausente.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc), raw={})
                     db.add(warning_event)
                     state.warning_issued = True
                 continue
@@ -179,22 +175,20 @@ async def _processar_localizacoes():
                     del _asset_realtime_state[mac]
                 continue
             
-            # --- A PARTIR DAQUI, O ATIVO TEM SINAL BLE ---
             asset_info = _asset_map.get(mac, {}); asset_id = asset_info.get("id")
             quarto_id_atual = asset_info.get("quarto_id")
 
             # ESTADO 3: ALOCADO (DENTRO DE UM QUARTO)
             if quarto_id_atual is not None:
-                strongest_signal_esp_quarto_id = _esp_map.get(state.last_strongest_signal["esp_id"], (None, None))[0]
-                if strongest_signal_esp_quarto_id != quarto_id_atual:
+                if candidate_quarto_id == quarto_id_atual:
+                    state.disappeared_since = None
+                else:
                     if state.disappeared_since is None:
-                        logger.info(f"Sinal para {mac} no quarto {quarto_id_atual} inconsistente. Iniciando inércia de saída.")
+                        logger.info(f"Sinal para {mac} no quarto {quarto_id_atual} inconsistente/fraco. Iniciando inércia de saída.")
                         state.disappeared_since = now
                     elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
                         logger.info(f"EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual}.")
                         changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "wifi_signal": state.last_known_wifi_signal, "details": "Sinal inconsistente com o quarto atual."})
-                else:
-                    state.disappeared_since = None
                 continue
 
             # ESTADO 4: LIVRE (FORA DE UM QUARTO E NÃO PENDENTE)
@@ -212,9 +206,11 @@ async def _processar_localizacoes():
                         state.pending_quarto_id = candidate_quarto_id
                         state.pending_wifi_check_since = now
                         state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Wi-Fi confirmado via cache."}
+                    clear_asset_candidate_state(mac)
             else:
+                # LÓGICA DE ABORTO DE PENDENTE CORRIGIDA
                 if state.candidate_quarto_id is not None:
-                    logger.info(f"Ativo {mac} perdeu seu sinal de candidato. Abortando qualquer processo de entrada.")
+                    logger.info(f"Ativo {mac} perdeu seu sinal de candidato para o quarto {state.candidate_quarto_id}. Abortando processo de entrada.")
                     clear_asset_candidate_state(mac)
 
         if changes_to_commit:
