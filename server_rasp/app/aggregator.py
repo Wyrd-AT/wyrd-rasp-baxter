@@ -177,6 +177,9 @@ async def _processar_localizacoes():
                     if esp_id not in _esp_map: continue
                     q_id, q_rssi = _esp_map[esp_id]
                     if any(om != mac and oa.get("quarto_id") == q_id for om, oa in _asset_map.items()): continue
+
+                    if any(om != mac and o_state.pending_quarto_id == q_id for om, o_state in _asset_realtime_state.items()): continue
+                    
                     threshold = q_rssi if q_rssi is not None else _config["default_rssi_threshold"]
                     if reading["ema_rssi"] > threshold and reading["ema_rssi"] > strongest_candidate["ema_rssi"]:
                         strongest_candidate.update({"esp_id": esp_id, "rssi": reading["rssi"], "ema_rssi": reading["ema_rssi"], "quarto_id": q_id, "wifi_signal": reading.get("wifi_signal")})
@@ -221,6 +224,7 @@ async def _processar_localizacoes():
                     }
                     changes_to_commit.append(change_details)
                     clear_asset_candidate_state(mac)
+                    continue
                 pending_duration_sec = now - state.pending_wifi_check_since
                 
                 def issue_warning(detail_text):
