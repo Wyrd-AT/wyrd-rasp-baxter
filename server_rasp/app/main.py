@@ -692,19 +692,11 @@ def list_embarcados(
     sort_by: Optional[str] = Query("id_esp"),
     order: Optional[str] = Query("asc")
 ):
-    query = query.outerjoin(Embarcado.quarto).outerjoin(Quarto.andar)
-    
-    # 3. A lógica de busca agora funciona sem precisar adicionar o join
+    query = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar))
     if search:
         search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                Embarcado.id_esp.ilike(search_term), 
-                Quarto.nome.ilike(search_term), 
-                Andar.nome.ilike(search_term), 
-                Embarcado.mac_address.ilike(search_term), 
-                Embarcado.ip_address.ilike(search_term)
-            )
+        query = query.join(Embarcado.quarto).join(Quarto.andar).filter(
+            or_(Embarcado.id_esp.ilike(search_term), Quarto.nome.ilike(search_term), Andar.nome.ilike(search_term), Embarcado.mac_address.ilike(search_term), Embarcado.ip_address.ilike(search_term))
         )
     
     # --- LÓGICA DE ORDENAÇÃO ---
@@ -864,38 +856,23 @@ def list_assets(
     order: Optional[str] = Query("asc")
 ):
     query = db.query(Asset).options(joinedload(Asset.quarto))
-
-    # 2. APLICAMOS O OUTERJOIN DE FORMA INCONDICIONAL E ÚNICA AQUI
-    #    Isso garante que a tabela Quarto esteja sempre disponível.
-    query = query.outerjoin(Asset.quarto)
-
-    # 3. A lógica de busca agora funciona sem precisar adicionar o join
     if search:
         search_term = f"%{search}%"
-        query = query.filter(
-            or_(
-                Asset.nome_ativo.ilike(search_term),
-                Asset.mac_beacon.ilike(search_term),
-                Asset.mac_address.ilike(search_term),
-                Quarto.nome.ilike(search_term),
-                Asset.tipo_ativo.ilike(search_term),
-                Asset.modelo.ilike(search_term),
-                Asset.fabricante.ilike(search_term)
-            )
+        query = query.outerjoin(Asset.quarto).filter(
+            or_(Asset.nome_ativo.ilike(search_term), Asset.mac_beacon.ilike(search_term), Asset.mac_address.ilike(search_term), Quarto.nome.ilike(search_term), Asset.tipo_ativo.ilike(search_term), Asset.modelo.ilike(search_term), Asset.fabricante.ilike(search_term))
         )
 
-    # 4. A lógica de ordenação também fica mais simples
+    # --- LÓGICA DE ORDENAÇÃO ---
     sortable_columns = {
         "nome_ativo": Asset.nome_ativo, "tipo_ativo": Asset.tipo_ativo, "modelo": Asset.modelo,
-        "fabricante": Asset.fabricante, "mac_beacon": Asset.mac_beacon, "mac_address": Asset.mac_address,
-        "quarto": Quarto.nome
+        "fabricante": Asset.fabricante, "mac_beacon": Asset.mac_beacon, "quarto": Quarto.nome
     }
-    
-    # O if que adicionava o join para ordenação foi removido, pois não é mais necessário.
-    
+    # Adiciona join se necessário (outerjoin para não excluir ativos sem quarto)
+    if sort_by == "quarto":
+        query = query.outerjoin(Asset.quarto)
+        
     sort_column = sortable_columns.get(sort_by, Asset.nome_ativo)
-    # A ordenação pode dar erro se a coluna for nula, então tratamos isso
-    query = query.order_by(asc(sort_column).nulls_last() if order == "asc" else desc(sort_column).nulls_first())
+    query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
 
     assets = query.all()
     

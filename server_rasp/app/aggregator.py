@@ -52,7 +52,7 @@ class AssetState:
         self.candidate_since = None; self.disappeared_since = None
         self.disappearance_count = 0; self.pending_wifi_check_since = None
         self.pending_quarto_id = None; self.pending_event_details = {}
-        self.warning_issued = False
+        self.warning_stage = 0; self.last_warning_time = None 
 
     def update_reading(self, esp_id, rssi, timestamp, wifi_signal=None):
         old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi); alpha = _config["ema_alpha"]
@@ -76,7 +76,8 @@ def clear_asset_candidate_state(mac_beacon_to_clear: str):
         state = _asset_realtime_state[mac_beacon_to_clear]
         state.candidate_quarto_id = None; state.candidate_since = None
         state.pending_wifi_check_since = None; state.pending_quarto_id = None
-        state.pending_event_details = {}; state.warning_issued = False
+        state.pending_event_details = {}; 
+        state.warning_stage = 0; state.last_warning_time = None
         logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
         return True
     return False
@@ -147,19 +148,47 @@ async def _processar_localizacoes():
                     logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via cache.")
                     changes_to_commit.append({**state.pending_event_details, "new_quarto_id": state.pending_quarto_id})
                     clear_asset_candidate_state(mac)
-                elif (now - state.pending_wifi_check_since) > PENDING_EXPIRATION_TIMEOUT_SEC:
-                    logger.error(f"EVENTO VENCIDO (TIMEOUT): Ativo {mac} excedeu o tempo limite.")
+                pending_duration_sec = now - state.pending_wifi_check_since
+                
+                def issue_warning(detail_text):
+                    logger.warning(f"ALERTA PERSISTENTE: Wi-Fi para {mac} ausente. Detalhe: {detail_text}")
                     quarto_pendente = db.query(Quarto).get(state.pending_quarto_id)
-                    failure_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="GET", status="Vencido", status_detail="Wi-Fi não detectado no tempo limite.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc), raw={})
-                    db.add(failure_event)
-                    clear_asset_candidate_state(mac)
-                elif (now - state.pending_wifi_check_since) > PENDING_WARNING_TIMEOUT_SEC and not state.warning_issued:
-                    logger.warning(f"EVENTO ALERTA (PENDENTE): Wi-Fi para {mac} ausente por mais de {PENDING_WARNING_TIMEOUT_SEC}s.")
-                    quarto_pendente = db.query(Quarto).get(state.pending_quarto_id)
-                    warning_event = ReceivedEvent(esp_id=state.pending_event_details.get("source_esp_id", "aggregator"), ativo=mac, quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A", action="ALERTA", status="OK", status_detail="Ativo detectado, mas Wi-Fi ausente.", rssi=state.pending_event_details.get("rssi"), data_on=datetime.now(timezone.utc), raw={})
+                    warning_event = ReceivedEvent(
+                        esp_id=state.pending_event_details.get("source_esp_id", "aggregator"),
+                        ativo=mac,
+                        quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
+                        action="ALERTA",
+                        status="OK",
+                        status_detail=f"Ativo detectado, mas Wi-Fi ausente. ({detail_text})",
+                        rssi=state.pending_event_details.get("rssi"),
+                        data_on=datetime.now(timezone.utc),
+                        raw={}
+                    )
                     db.add(warning_event)
-                    state.warning_issued = True
-                continue
+                    state.last_warning_time = now
+
+                # Estágio 1: 5 minutos
+                if state.warning_stage == 0 and pending_duration_sec > 300: # 5 minutos
+                    issue_warning("Pendente há mais de 5 minutos")
+                    state.warning_stage = 1
+                
+                # Estágio 2: 15 minutos
+                elif state.warning_stage == 1 and pending_duration_sec > 900: # 15 minutos
+                    issue_warning("Pendente há mais de 15 minutos")
+                    state.warning_stage = 2
+
+                # Estágio 3: 1 hora
+                elif state.warning_stage == 2 and pending_duration_sec > 3600: # 1 hora
+                    issue_warning("Pendente há mais de 1 hora")
+                    state.warning_stage = 3
+                
+                # Estágio 4 e seguintes: a cada 6 horas
+                elif state.warning_stage >= 3 and (now - state.last_warning_time) > 21600: # 6 horas
+                    horas_pendente = ((state.warning_stage - 3) * 6) + 6
+                    issue_warning(f"Pendente há mais de {horas_pendente} horas")
+                    state.warning_stage += 1
+                
+                continue # Continua para o próximo ativo, mantendo o estado pendente
 
             # ESTADO 2: DESAPARECIDO (SEM SINAL BLE HÁ MUITO TEMPO)
             if not state.readings:
