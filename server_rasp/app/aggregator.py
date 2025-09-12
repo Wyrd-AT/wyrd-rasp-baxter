@@ -246,6 +246,21 @@ async def _processar_localizacoes():
                         raw={}
                     )
                     db.add(warning_event)
+                    
+                    # --- INÍCIO DA MUDANÇA ---
+                    # Despacha o alerta para o servidor final
+                    logger.info(f"[PENDING-ALERT] Despachando ALERTA para o servidor final para o ativo {mac}.")
+                    loop = asyncio.get_running_loop()
+                    dispatch_payload = {
+                        "quarto": quarto_pendente.nome if quarto_pendente else "N/A",
+                        "cama":   _asset_map.get(mac, {}).get("nome_ativo", mac),
+                        "status": "ALERTA",
+                        "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
+                        "wifi":   state.pending_event_details.get("wifi_signal") # Sinal Wi-Fi do ESP
+                    }
+                    loop.run_in_executor(None, dispatch_event, dispatch_payload)
+                    # --- FIM DA MUDANÇA ---
+                    
                     state.last_warning_time = now
 
                 # Estágio 1: 5 minutos
@@ -325,10 +340,19 @@ async def _processar_localizacoes():
                                 data_on=datetime.now(timezone.utc), raw={}
                             )
                             db.add(alerta)
-                            # Opcional: Despachar o alerta para o servidor final
-                            # loop = asyncio.get_running_loop()
-                            # dispatch_payload = {"quarto": asset_obj.quarto.nome, "cama": asset_info.get('nome_ativo'), "status": "ALERTA", ...}
-                            # await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+                            
+                            # --- INÍCIO DA CORREÇÃO ---
+                            # Despacha o alerta para o servidor final
+                            logger.info(f"[WIFI-MONITOR] Despachando ALERTA para o servidor final para o ativo {mac}.")
+                            loop = asyncio.get_running_loop()
+                            dispatch_payload = {
+                                "quarto": asset_obj.quarto.nome,
+                                "cama":   asset_info.get("nome_ativo"),
+                                "status": "ALERTA",
+                                "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+                            }
+                            await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+                            # --- FIM DA CORREÇÃO ---
 
                         changes_to_commit.append({
                             "asset_id": asset_id, "new_quarto_id": None,

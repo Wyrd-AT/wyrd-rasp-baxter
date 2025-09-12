@@ -515,7 +515,7 @@ async def batch_update_esp_status():
             
             db.commit()
             # <-- LOG 3: CONFIRMA QUE A OPERAÇÃO FOI BEM-SUCEDIDA
-            logger.info(f"[BATCH-UPDATE-ESP] {updated_count} registros de embarcados foram atualizados com sucesso.")
+            #logger.info(f"[BATCH-UPDATE-ESP] {updated_count} registros de embarcados foram atualizados com sucesso.")
 
         except Exception as e:
             logger.error(f"[BATCH-UPDATE-ESP] Erro ao atualizar status dos embarcados: {e}", exc_info=True)

@@ -10,13 +10,13 @@ from datetime import datetime, timezone, timedelta
 
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
-from sqlalchemy.orm import Session, joinedload 
+from sqlalchemy.orm import Session, joinedload
 
 from . import mqtt_client
 from . import aggregator  # Permite que os serviços interajam com o estado do agregador
 from .connection_manager import manager
 from .dispatcher import dispatch_event
-from .models import Asset, Embarcado, Quarto, ReceivedEvent
+from .models import Asset, Embarcado, Quarto, ReceivedEvent, SessionLocal
 from .config import settings
 
 DISPATCH_DELAY_SEC = int(settings.get('dispatch_delay_after_wifi_sec', 15))
@@ -26,100 +26,104 @@ logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
-    (VERSÃO FINAL CORRIGIDA) Ponto de entrada ÚNICO para persistir mudanças de estado.
-    Processa uma lista de mudanças, cria eventos no DB com TODOS os dados,
-    atualiza a localização dos ativos e notifica os sistemas.
+    (VERSÃO FINAL REVISADA) Ponto de entrada para persistir e despachar mudanças.
+    Cria eventos no DB, tenta enviar para o sistema externo via dispatcher e
+    atualiza o status do evento local em caso de falha no envio.
     """
     if not changes:
         return
 
+    events_created = []
+    assets_to_update = []
+
     try:
+        # --- ETAPA 1: Preparar todas as mudanças e eventos em memória ---
         for change in changes:
             asset_id = change.get("asset_id")
             if not asset_id: continue
 
-            # Carrega o ativo e seu quarto/andar de origem para ter o contexto completo
             asset = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
             if not asset: continue
 
+            assets_to_update.append({"asset": asset, "new_quarto_id": change.get("new_quarto_id")})
+            
             new_quarto_id = change.get("new_quarto_id")
-            action = "OUT" if new_quarto_id is None else "GET"
-
-            # --- INÍCIO DA LÓGICA CORRIGIDA E ROBUSTA ---
-            quarto_evento = None
-            andar_evento = None
-
+            action = "GET" if new_quarto_id is not None else "OUT"
+            
+            quarto_evento_obj = None
             if action == "GET":
-                # Para ENTRADA, usamos os dados do novo quarto
-                novo_quarto_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first()
-                if novo_quarto_obj:
-                    quarto_evento = novo_quarto_obj.nome
-                    if novo_quarto_obj.andar:
-                        andar_evento = novo_quarto_obj.andar.nome
-            else:  # action == "OUT"
-                # Para SAÍDA, usamos os dados do quarto de onde o ativo saiu
+                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first()
+            else: # action == "OUT"
                 if asset.quarto:
-                    quarto_evento = asset.quarto.nome
-                    if asset.quarto.andar:
-                        andar_evento = asset.quarto.andar.nome
+                    quarto_evento_obj = asset.quarto
 
-            # Cria o objeto do evento garantindo que todos os campos sejam preenchidos
             event = ReceivedEvent(
                 esp_id=change.get("source_esp_id", "server"),
                 ativo=asset.mac_beacon,
-                quarto_nome=quarto_evento,
-                andar_nome=andar_evento,        # <-- Dado do ANDAR agora presente no OUT
+                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else None,
+                andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
                 action=action,
                 status=change.get("status", "OK"),
                 status_detail=change.get("details"),
-                rssi=change.get("rssi"),        # <-- Dado do SINAL BLE agora presente no OUT
-                wifi=change.get("wifi_signal"), # <-- Dado do SINAL WI-FI agora presente em TODOS
+                rssi=change.get("rssi"),
+                wifi=change.get("wifi_signal"),
                 data_on=datetime.now(timezone.utc),
                 raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
             )
+            events_created.append(event)
             db.add(event)
-            # --- FIM DA LÓGICA CORRIGIDA ---
 
-            # Atualiza a localização do ativo no banco
-            asset.quarto_id = new_quarto_id
-
+        # --- ETAPA 2: Persistir todas as mudanças no banco de dados ---
+        for item in assets_to_update:
+            item["asset"].quarto_id = item["new_quarto_id"]
+        
         db.commit()
 
-        # O restante da função (atualização de cache, notificação, etc.) permanece o mesmo...
-        for change in changes:
-            asset_id = change.get("asset_id")
-            if not asset_id: continue
-            asset_db = db.query(Asset).get(asset_id)
-            if asset_db:
-                aggregator.update_asset_cache(
-                    mac_beacon=asset_db.mac_beacon, 
-                    new_quarto_id=change["new_quarto_id"]
-                )
-
+        # --- ETAPA 3: Tentar despachar os eventos e registrar falhas ---
         logger.info(f"Lote de {len(changes)} mudanças processado. Notificando sistemas.")
         loop = asyncio.get_running_loop()
-        for change in changes:
-            if change.get("action") == "GET":
-                if DISPATCH_DELAY_SEC > 0:
-                    logger.info(f"Aguardando {DISPATCH_DELAY_SEC}s para estabilização do ativo antes de despachar...")
-                    await asyncio.sleep(DISPATCH_DELAY_SEC)
 
+        for event in events_created:
+            # Apenas eventos GET (Confirmado ou OK) devem ser despachados
+            if event.action == "GET":
+                db.refresh(event) # Garante que o ID do evento está carregado
+                
                 dispatch_payload = {
-                    "quarto": change.get("quarto_nome"),
-                    "cama":   change.get("nome_ativo"),
-                    "status": "GET",
-                    "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
-                    "wifi": change.get("wifi_signal")
+                    "quarto": event.quarto_nome,
+                    "cama":   _asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
+                    "status": "GET", # O status para o sistema externo é sempre GET
+                    "dataOn": event.data_on.isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
+                    "wifi":   event.wifi
                 }
-                logger.info(f"A despachar evento confirmado: {dispatch_payload}")
-                await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+                
+                logger.info(f"A despachar evento ID {event.id}: {dispatch_payload}")
+                dispatch_successful = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 
+                if not dispatch_successful:
+                    logger.error(f"FALHA FINAL ao despachar evento ID {event.id}. Atualizando status para ERRO.")
+                    # Re-query o evento em uma sessão fresca para atualização segura
+                    update_db = SessionLocal()
+                    try:
+                        event_to_update = update_db.query(ReceivedEvent).get(event.id)
+                        if event_to_update:
+                            event_to_update.status = "Erro"
+                            event_to_update.status_detail = "Falha no envio para o servidor final após 5 tentativas."
+                            update_db.commit()
+                    finally:
+                        update_db.close()
+
+        # --- ETAPA 4: Atualizar caches e notificar a interface ---
+        for item in assets_to_update:
+            aggregator.update_asset_cache(
+                mac_beacon=item["asset"].mac_beacon, 
+                new_quarto_id=item["new_quarto_id"]
+            )
+        
         await manager.broadcast("ATUALIZAR_ESTADO")
 
     except Exception as e:
         logger.error(f"ERRO na transação de atualização em lote: {e}", exc_info=True)
         db.rollback()
-
 
 async def force_asset_removal(db: Session, asset_id: int, details: str):
     """
