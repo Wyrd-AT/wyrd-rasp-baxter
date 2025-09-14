@@ -24,7 +24,7 @@ DISPATCH_DELAY_SEC = int(settings.get('dispatch_delay_after_wifi_sec', 15))
 logger = logging.getLogger(__name__)
 
 
-async def batch_update_asset_assignments(db: Session, changes: list):
+async def batch_update_asset_assignments(db: Session, changes: list, asset_map: dict):
     """
     (VERSÃO FINAL REVISADA) Ponto de entrada para persistir e despachar mudanças.
     Cria eventos no DB, tenta enviar para o sistema externo via dispatcher e
@@ -90,7 +90,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 
                 dispatch_payload = {
                     "quarto": event.quarto_nome,
-                    "cama":   _asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
+                    "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
                     "status": "GET", # O status para o sistema externo é sempre GET
                     "dataOn": event.data_on.isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
                     "wifi":   event.wifi
@@ -148,8 +148,7 @@ async def force_asset_removal(db: Session, asset_id: int, details: str):
         "rssi": -999,
         "details": details
     }]
-    await batch_update_asset_assignments(db, change_info)
-
+    await batch_update_asset_assignments(db, change_info, asset_map={})
 
 async def release_assets_for_offline_esp(db: Session, esp_id: str):
     """
@@ -185,4 +184,4 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str):
     # 3. Processa todas as saídas de uma só vez através da função principal.
     if changes_to_commit:
         logger.info(f"[LIVENESS] Processando a saída de {len(changes_to_commit)} ativos do quarto {quarto_nome}.")
-        await batch_update_asset_assignments(db, changes_to_commit)
+        await batch_update_asset_assignments(db, changes_to_commit, asset_map={})

@@ -102,6 +102,7 @@
                         <div class="actions-dropdown">
                             <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar</a>
                             <a href="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o embarcado {{ emb.id_esp }}?');">Excluir</a>
+                            <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
                             <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
                                 <button type="submit" class="menu-item-btn">Reconfigurar</button>
                             </form>
@@ -156,17 +157,27 @@
     </table>
 </div>
 
+<div id="rssi-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modal-title">Relatório de RSSI</h3>
+            <span class="close-btn" id="modal-close-btn">&times;</span>
+        </div>
+        <div class="modal-body" id="modal-body-content">
+            </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    // --- LÓGICA DO MODAL (sem alterações) ---
-    const modal = document.getElementById('rssi-modal');
-    const modalTitle = document.getElementById('modal-title');
-    const modalBody = document.getElementById('modal-body-content');
-    const closeBtn = document.getElementById('modal-close-btn');
+// Variável global para guardar nosso ID de cliente do WebSocket
+let myClientId = null;
 
+document.addEventListener('DOMContentLoaded', function () {
+    // Lógica para controlar a abertura e fechamento do modal
+    const modal = document.getElementById('rssi-modal');
+    const closeBtn = document.getElementById('modal-close-btn');
     if (modal && closeBtn) {
         closeBtn.onclick = () => { modal.style.display = "none"; };
         window.onclick = (event) => {
@@ -176,6 +187,7 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     }
 
+    // Lógica para controlar o menu de três pontinhos (sem alterações)
     document.querySelectorAll('.actions-menu-trigger').forEach(button => {
         button.addEventListener('click', function (event) {
             event.stopPropagation();
@@ -185,20 +197,84 @@ document.addEventListener('DOMContentLoaded', function () {
             this.nextElementSibling.classList.toggle('show');
         });
     });
-
     window.addEventListener('click', (event) => {
         if (!event.target.matches('.actions-menu-trigger')) {
             document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
         }
     });
-    
+
+    // --- INÍCIO DA NOVA LÓGICA ---
+    // Mapeamento de MAC para Nome do Ativo (para o relatório)
     const rssiThresholds = JSON.parse('{{ rssi_thresholds | safe }}');
     let assetNameMap = {};
-
     fetch("{{ url_for('get_assets_map') }}")
         .then(response => response.json())
         .then(data => { assetNameMap = data; });
 
+    // Adiciona o evento de clique para TODOS os botões de "Testar RSSI"
+    document.querySelectorAll('.test-rssi-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            if (!myClientId) {
+                alert("Ainda a conectar ao servidor, por favor tente novamente em segundos.");
+                return;
+            }
+            const embarcadoId = this.dataset.embarcadoId;
+
+            // Mostra um feedback visual de carregamento
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body-content');
+            modalTitle.textContent = 'Aguardando Relatório...';
+            modalBody.innerHTML = '<p style="text-align:center;">Solicitando dados do servidor...</p>';
+            modal.style.display = 'block';
+
+            // Envia o pedido para o backend
+            fetch("{{ url_for('test_rssi_esp') }}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    embarcado_id: parseInt(embarcadoId),
+                    client_id: myClientId // Envia o nosso "crachá" de conexão
+                })
+            });
+        });
+    });
+
+    // "Ouvinte" global de mensagens WebSocket, que vai receber o relatório de volta
+    window.addEventListener('websocket_message', function (event) {
+        try {
+            const data = JSON.parse(event.detail); 
+            
+            if (data.type === "RSSI_REPORT") {
+                const modalTitle = document.getElementById('modal-title');
+                const modalBody = document.getElementById('modal-body-content');
+                const esp_id = data.esp_id;
+
+                const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
+                
+                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
+                
+                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
+
+                if (data.report && data.report.length > 0) {
+                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
+                    data.report.forEach(beacon => {
+                        const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
+                        const rssiValue = beacon.rssi;
+                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
+                        
+                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
+                    });
+                } else {
+                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
+                }
+
+                reportHtml += '</tbody></table>';
+                modalBody.innerHTML = reportHtml;
+                modal.style.display = "block";
+            }
+        } catch (e) { /* Ignora outras mensagens que não sejam JSON */ }
+    });
+    // --- FIM DA NOVA LÓGICA ---
 });
 </script>
 {% endblock %}

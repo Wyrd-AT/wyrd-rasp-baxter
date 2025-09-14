@@ -41,7 +41,7 @@ from .models import (
     ReceivedEvent, GlobalSetting, Andar, init_db
 )
 from .presence import check_presence
-from .aggregator import clear_asset_candidate_state
+from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _asset_realtime_state
 from .services import force_asset_removal, release_assets_for_offline_esp
 from . import mqtt_client
 from .aggregator import main_aggregator_loop, batch_update_asset_assignments
@@ -227,45 +227,46 @@ def get_server_time():
 def main_page(request: Request):
     return RedirectResponse(url=request.url_for("login_page"), status_code=303)
 
-# Em main.py
-# @app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
-# async def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
-#     """
-#     Reseta o estado de um quarto, forçando a saída de qualquer ativo que esteja nele.
-#     """
-#     embarcado = db.query(Embarcado).get(embarcado_id)
-#     if embarcado and embarcado.quarto_id:
-#         # Encontra o ativo que está no quarto deste embarcado
-#         asset_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).first()
-        
-#         if asset_no_quarto:
-#             # Se encontrou um ativo, chama o serviço para forçar sua remoção
-#             await force_asset_removal(
-#                 db=db, 
-#                 asset_id=asset_no_quarto.id,
-#                 details=f"Remoção forçada pelo operador via reset do embarcado '{embarcado.id_esp}'."
-#             )
-#         else:
-#             logger.info(f"Reset solicitado para o embarcado '{embarcado.id_esp}', mas seu quarto já estava vazio.")
-            
-#     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+@app.post("/embarcados/test_rssi", name="test_rssi_esp")
+async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
+    """
+    (VERSÃO HSA) Gera um relatório de RSSI lendo o estado atual da memória
+    do agregador e envia para o cliente via WebSocket.
+    """
+    data = await request.json()
+    embarcado_id = data.get("embarcado_id")
+    client_id = data.get("client_id")
 
-# @app.post("/embarcados/test_rssi", name="test_rssi_esp")
-# async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
-#     data = await request.json()
-#     embarcado_id = data.get("embarcado_id")
-#     client_id = data.get("client_id")
+    if not embarcado_id or not client_id:
+        raise HTTPException(status_code=400, detail="embarcado_id e client_id são necessários.")
 
-#     if not embarcado_id or not client_id:
-#         raise HTTPException(status_code=400, detail="embarcado_id e client_id são necessários.")
+    embarcado = db.query(Embarcado).get(embarcado_id)
+    if not embarcado:
+        raise HTTPException(status_code=404, detail="Embarcado não encontrado.")
 
-#     embarcado = db.query(Embarcado).get(embarcado_id)
-#     if embarcado:
-#         logger.info("Pedido de Teste RSSI da ESP '%s' pelo cliente '%s'.", embarcado.id_esp, client_id)
-#         pending_rssi_requests[embarcado.id_esp] = client_id
-#         command = {"type": "command", "data": {"name": "RSSI_TEST"}}
-#         mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
-#     return Response(status_code=status.HTTP_202_ACCEPTED)
+    logger.info(f"Gerando relatório RSSI para a ESP '{embarcado.id_esp}' a pedido do cliente '{client_id}'.")
+
+    report_data = []
+    # Itera sobre o estado em tempo real dos ativos na memória do aggregator
+    for mac, state in _asset_realtime_state.items():
+        if embarcado.id_esp in state.readings:
+            reading = state.readings[embarcado.id_esp]
+            report_data.append({
+                "mac": mac,
+                "rssi": reading.get("rssi", -1000)
+            })
+
+    # Monta a mensagem para enviar via WebSocket
+    websocket_message = {
+        "type": "RSSI_REPORT",
+        "esp_id": embarcado.id_esp,
+        "report": report_data
+    }
+
+    # Envia o relatório de volta para o cliente específico que solicitou
+    await manager.send_to_client(client_id, json.dumps(websocket_message))
+
+    return Response(status_code=status.HTTP_200_OK)
 
 # @app.post("/rssi-report", status_code=status.HTTP_204_NO_CONTENT)
 # async def receive_rssi_report(report_data: Dict):
@@ -311,13 +312,29 @@ def reconfigure_esp(request: Request, embarcado_id: int, db: Session = Depends(g
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/embarcados/{embarcado_id}/reboot", name="reboot_esp")
-def reboot_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+async def reboot_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    """
+    (VERSÃO COMBINADA) Reseta o estado do quarto no servidor (remove a cama)
+    E envia o comando de reinicialização para o ESP.
+    """
     embarcado = db.query(Embarcado).get(embarcado_id)
     if embarcado:
+        # 1. Lógica do "Resetar Estado" (executada primeiro)
+        if embarcado.quarto_id:
+            logger.info(f"Resetando estado do quarto para o embarcado '{embarcado.id_esp}' antes de reiniciar.")
+            asset_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).first()
+            if asset_no_quarto:
+                await force_asset_removal(
+                    db=db, 
+                    asset_id=asset_no_quarto.id,
+                    details=f"Remoção forçada pelo operador via reinicialização do embarcado '{embarcado.id_esp}'."
+                )
+
+        # 2. Lógica do "Reiniciar" (executada em seguida)
         logger.info("Enviando comando 'REBOOT' para a ESP '%s'.", embarcado.id_esp)
         command = {"type": "command", "data": {"name": "REBOOT"}}
-        # Usamos a função que envia para o canal individual da ESP
         mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
+
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/settings/update", name="update_settings")
@@ -1097,51 +1114,62 @@ def cancel_pending_event(request: Request, asset_mac: str):
 @app.get("/events/download", name="download_events_csv")
 def download_events_csv(
     db: Session = Depends(get_db),
-    # Parâmetros de filtro, agora incluindo a AÇÃO
+    # Parâmetros de filtro (sem alterações)
     filter_ativo: Optional[str] = Query(None),
     filter_quarto: Optional[str] = Query(None),
     filter_status: Optional[str] = Query(None),
-    filter_action: Optional[str] = Query(None), # <-- PARÂMETRO ADICIONADO
+    filter_action: Optional[str] = Query(None), 
     time_filter: Optional[str] = Query(None)
 ):
-    embarcados_map = {emb.id_esp: emb.quarto.nome for emb in db.query(Embarcado).options(joinedload(Embarcado.quarto)).all() if emb.quarto}
+    # Lógica de busca e filtro (sem alterações)
     beacon_to_asset_name_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
-
     query = db.query(ReceivedEvent)
-
-    # Aplica todos os mesmos filtros da página de eventos
     if filter_ativo: query = query.filter(ReceivedEvent.ativo == filter_ativo)
     if time_filter:
         now = datetime.now(timezone.utc)
         if time_filter == 'daily': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
         elif time_filter == 'weekly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(weeks=1))
         elif time_filter == 'monthly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=30))
-    if filter_quarto:
-        esps_ids = [id for id, nome in embarcados_map.items() if nome == filter_quarto]
-        query = query.filter(ReceivedEvent.esp_id.in_(esps_ids)) if esps_ids else query.filter(False)
+    if filter_quarto: query = query.filter(ReceivedEvent.quarto_nome == filter_quarto)
     if filter_status: query = query.filter(ReceivedEvent.status == filter_status)
-    
-    # --- LÓGICA DE FILTRO ADICIONADA AQUI ---
-    if filter_action:
-        query = query.filter(ReceivedEvent.action == filter_action)
+    if filter_action: query = query.filter(ReceivedEvent.action == filter_action)
 
     events = query.order_by(ReceivedEvent.data_on.desc()).all()
 
     def iter_csv():
         buf = StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["Data/Hora", "Nome do Ativo", "Quarto", "Status", "Ação", "RSSI BLE", "RSSI Wi-Fi"])
+        
+        # MUDANÇA 1: Adicionada a coluna "ANDAR" ao cabeçalho
+        writer.writerow(["Data/Hora", "Nome do Ativo", "Quarto", "Andar", "Status", "Ação", "RSSI BLE", "RSSI Wi-Fi"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
-        action_map = {"GET": "Conectar", "OUT": "Desconectar"}
+        action_map = {"GET": "Conectar", "OUT": "Desconectar", "ALERTA": "Alerta"}
+        
+        # MUDANÇA 2: Definido o fuso horário local
+        fuso_local = timezone(timedelta(hours=-3))
 
         for e in events:
-            quarto = embarcados_map.get(e.esp_id, "Desconhecido")
             nome_ativo = beacon_to_asset_name_map.get(e.ativo, e.ativo)
             acao_traduzida = action_map.get(e.action, e.action)
+            
+            data_hora_local_str = ""
+            if e.data_on:
+                # MUDANÇA 3: Conversão da data/hora de UTC para o fuso local
+                data_utc = e.data_on.replace(tzinfo=timezone.utc)
+                data_local = data_utc.astimezone(fuso_local)
+                data_hora_local_str = data_local.strftime("%d/%m/%Y %H:%M:%S")
+
+            # MUDANÇA 4: Adicionado o dado do andar (e.andar_nome) na linha
             writer.writerow([
-                e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
-                nome_ativo, quarto, e.status, acao_traduzida, e.rssi, e.wifi
+                data_hora_local_str,
+                nome_ativo, 
+                e.quarto_nome or "---", 
+                e.andar_nome or "---", # <-- Dado do andar adicionado aqui
+                e.status, 
+                acao_traduzida, 
+                e.rssi, 
+                e.wifi
             ])
             yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 

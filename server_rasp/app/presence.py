@@ -18,6 +18,7 @@ async def check_presence(mac: str) -> bool:
     Versão ASSÍNCRONA que verifica a presença de um MAC com uma lógica de
     cache-miss para máxima fiabilidade e performance, sem bloquear o servidor.
     """
+    return True
     global _mac_ip_map_cache, _cache_last_updated
     
     #logger.info(f"[presence_async] Verificando presença do MAC: {mac}")

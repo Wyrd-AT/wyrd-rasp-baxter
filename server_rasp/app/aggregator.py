@@ -385,7 +385,7 @@ async def _processar_localizacoes():
                     clear_asset_candidate_state(mac)
 
         if changes_to_commit:
-            await batch_update_asset_assignments(db, changes_to_commit)
+            await batch_update_asset_assignments(db, changes_to_commit, _asset_map)
         db.commit()
     finally:
         db.close()
