@@ -54,6 +54,7 @@
             <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
                 {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+            <th>STATUS</th>
         </tr>
     </thead>
     <tbody>
@@ -80,6 +81,13 @@
             <td>{{ asset.mac_beacon }}</td>
             <td>{{ asset.mac_address }}</td>
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
+            <td>
+                {% if asset.status == 'Online' %}
+                    <span class="status-indicator online" title="Ativo online"></span> ON
+                {% else %}
+                    <span class="status-indicator offline" title="Ativo offline"></span> OFF
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>
