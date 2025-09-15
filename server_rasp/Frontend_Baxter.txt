@@ -61,7 +61,7 @@ ARQUIVO: app/web/templates/assets_list.html
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
-        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">BAIXAR DADOS</a>
     </div>
 </div>
 
@@ -327,7 +327,7 @@ ARQUIVO: app/web/templates/embarcados_list.html
             <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
-        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">BAIXAR DADOS</a>
     </div>
 </div>
 
@@ -531,7 +531,7 @@ ARQUIVO: app/web/templates/events_list.html
 {% block content %}
 <div class="content-header">
     <h1>Histórico de Eventos</h1>
-    <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">DOWNLOAD CSV</a>
+    <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">BAIXAR DADOS</a>
 </div>
 
 {# Seção de Filtros (sem alterações) #}

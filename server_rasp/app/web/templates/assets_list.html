@@ -11,12 +11,15 @@
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
-        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
+        </button>
+        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">BAIXAR DADOS</a>
     </div>
 </div>
 
 {# FORMULÁRIO MOVIDO PARA CIMA E USANDO O CONTAINER VERTICAL #}
-<div class="forms-container-vertical">
+<div class="forms-container-vertical" id="forms-container">
     {% include 'asset_form.html' %}
 </div>
 

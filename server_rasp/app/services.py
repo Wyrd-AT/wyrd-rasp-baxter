@@ -88,11 +88,15 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
             if event.action == "GET":
                 db.refresh(event) # Garante que o ID do evento está carregado
                 
+                data_utc_aware = event.data_on.replace(tzinfo=timezone.utc)
+                data_zulu = data_utc_aware.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+                # --- FIM DA CORREÇÃO ---
+
                 dispatch_payload = {
                     "quarto": event.quarto_nome,
                     "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
-                    "status": "GET", # O status para o sistema externo é sempre GET
-                    "dataOn": event.data_on.isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
+                    "status": "GET",
+                    "dataOn": data_zulu, # Usa a variável corrigida
                     "wifi":   event.wifi
                 }
                 

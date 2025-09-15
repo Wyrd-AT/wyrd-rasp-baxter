@@ -810,3 +810,70 @@ body.login-page {
 .login-page .login-button:hover {
     background: #013A7D;
 }
+
+/* --- Estilos para Formulários Recolhíveis (Versão Ícone no Cabeçalho) --- */
+
+#toggle-forms-btn {
+    margin-right: 1rem;
+    padding: 8px;
+    border: none;               /* Remove a borda */
+    background-color: transparent;  /* Remove o fundo */
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+/* O ícone (estado ATIVO / Formulários VISÍVEIS) - Cinza Escuro */
+#toggle-forms-btn .svg-icon {
+    opacity: 0.75;
+    transition: opacity 0.2s ease;
+}
+
+/* O ícone quando RECOLHIDO (INATIVO / Formulários ESCONDIDOS) - Cinza Claro */
+#toggle-forms-btn.collapsed .svg-icon {
+    opacity: 0.4;
+}
+
+/* Efeito hover: o ícone fica totalmente opaco para dar feedback */
+#toggle-forms-btn:hover .svg-icon {
+    opacity: 1;
+}
+
+
+/* Efeito hover para o estado ativo */
+#toggle-forms-btn:hover {
+    background-color: #e9ecef;
+}
+
+/* Estilo do botão quando está RECOLHIDO (INATIVO / Cinza Claro) */
+#toggle-forms-btn.collapsed {
+    background-color: #fff; /* Fundo branco */
+    border-color: #dee2e6; /* Borda bem clara */
+}
+
+/* Ícone fica mais transparente quando está recolhido */
+#toggle-forms-btn.collapsed .svg-icon {
+    opacity: 0.5;
+}
+
+/* Efeito hover para o estado inativo */
+#toggle-forms-btn.collapsed:hover {
+    background-color: #f8f9fa;
+}
+
+/* O container dos formulários */
+#forms-container {
+    transition: max-height 0.4s ease-in-out, padding 0.4s ease-in-out, margin 0.4s ease-in-out, opacity 0.3s ease-in-out;
+    overflow: hidden;
+    max-height: 1000px;
+    opacity: 1;
+}
+
+/* O estado recolhido do container */
+#forms-container.collapsed {
+    max-height: 0;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    opacity: 0;
+}

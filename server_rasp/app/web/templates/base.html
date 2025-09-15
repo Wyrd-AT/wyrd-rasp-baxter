@@ -37,6 +37,42 @@
             overlay.addEventListener('click', toggleSidebar);
         }
         
+        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
+        const formsContainer = document.getElementById('forms-container');
+
+        // Só executa se o botão e o container existirem nesta página
+        if (toggleFormsBtn && formsContainer) {
+            
+            // Função para atualizar o texto do tooltip (title) do botão
+            const updateButtonTitle = () => {
+                if (formsContainer.classList.contains('collapsed')) {
+                    toggleFormsBtn.title = 'Mostrar Formulários';
+                } else {
+                    toggleFormsBtn.title = 'Recolher Formulários';
+                }
+            };
+
+            // Ao carregar a página, verifica se o estado "recolhido" estava salvo
+            if (localStorage.getItem('formsCollapsed') === 'true') {
+                formsContainer.classList.add('collapsed');
+                toggleFormsBtn.classList.add('collapsed');
+            }
+            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+
+            // Adiciona o evento de clique ao botão
+            toggleFormsBtn.addEventListener('click', () => {
+                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
+                formsContainer.classList.toggle('collapsed');
+                toggleFormsBtn.classList.toggle('collapsed');
+
+                // Atualiza o texto do title para o novo estado
+                updateButtonTitle();
+
+                // Salva o estado atual no armazenamento local
+                localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
+            });
+        }
+        
         function conectarWebSocket() {
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
