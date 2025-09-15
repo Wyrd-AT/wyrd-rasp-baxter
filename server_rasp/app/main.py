@@ -56,8 +56,8 @@ EVENT_PAGE_SIZE = int(settings.get('event_page_size', 25))
 CLEANUP_INTERVAL_SEC = int(settings.get('cleanup_interval_sec', 3600))
 ESP_TIMEOUT_SEC = int(settings.get('esp_timeout_sec', 150)) 
 WIFI_FAILURE_TOLERANCE = int(settings.get('wifi_failure_tolerance', 3)) 
-ESP_STATUS_UPDATE_INTERVAL_SEC = 60
-WIFI_GUARDIAN_INTERVAL_SEC = 30
+ESP_STATUS_UPDATE_INTERVAL_SEC = int(settings.get('esp_status_interval_sec', 90))
+WIFI_GUARDIAN_INTERVAL_SEC = int(settings.get('monitor_wifi_interval_sec', 60))
 
 pending_rssi_requests = {} 
 _wifi_failure_counts = defaultdict(int)

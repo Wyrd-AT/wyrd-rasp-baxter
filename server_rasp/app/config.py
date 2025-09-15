@@ -40,6 +40,7 @@ def load_configuration():
             'pending_warning_timeout_sec': '300',
             'pending_expiration_timeout_sec': '600',
             'disappearance_tolerance_cycles': '10',
+            'wifi_failure_inertia_sec': '180',
             'process_interval_sec': '2.0',     
             'reading_timeout_sec': '10',        
             'ema_alpha': '0.4',
@@ -49,7 +50,9 @@ def load_configuration():
         config['Tasks'] = {
             'monitor_wifi_interval_sec': '60',
             'esp_timeout_sec': '150',         
-            'wifi_failure_tolerance': '3'    
+            'wifi_failure_tolerance': '3',
+            'esp_status_interval_sec': '90',
+            'monitor_wifi_interval_sec': '60',  
         }
 
         config['Application'] = {
