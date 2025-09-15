@@ -359,6 +359,7 @@ async def _processar_localizacoes():
                             "source_esp_id": "aggregator_wifi_monitor",
                             "details": f"Removido por ausência de Wi-Fi superior a {WIFI_FAILURE_INERTIA_SEC}s."
                         })
+                        clear_asset_candidate_state(mac)
                 continue
 
             # ESTADO 4: LIVRE (FORA DE UM QUARTO E NÃO PENDENTE)
@@ -378,6 +379,7 @@ async def _processar_localizacoes():
                         state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Wi-Fi confirmado via cache."}
                     
                     state.candidate_since = None
+                    state.candidate_quarto_id = None
             else:
                 # LÓGICA DE ABORTO DE PENDENTE CORRIGIDA
                 if state.candidate_quarto_id is not None:
