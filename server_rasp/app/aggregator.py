@@ -377,7 +377,7 @@ async def _processar_localizacoes():
                         state.pending_wifi_check_since = now
                         state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Wi-Fi confirmado via cache."}
                     
-                    clear_asset_candidate_state(mac)
+                    state.candidate_since = None
             else:
                 # LÓGICA DE ABORTO DE PENDENTE CORRIGIDA
                 if state.candidate_quarto_id is not None:

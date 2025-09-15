@@ -517,6 +517,7 @@ def load_configuration():
             'pending_warning_timeout_sec': '300',
             'pending_expiration_timeout_sec': '600',
             'disappearance_tolerance_cycles': '10',
+            'wifi_failure_inertia_sec': '180',
             'process_interval_sec': '2.0',     
             'reading_timeout_sec': '10',        
             'ema_alpha': '0.4',
@@ -526,7 +527,9 @@ def load_configuration():
         config['Tasks'] = {
             'monitor_wifi_interval_sec': '60',
             'esp_timeout_sec': '150',         
-            'wifi_failure_tolerance': '3'    
+            'wifi_failure_tolerance': '3',
+            'esp_status_interval_sec': '90',
+            'monitor_wifi_interval_sec': '60',  
         }
 
         config['Application'] = {
@@ -778,8 +781,8 @@ EVENT_PAGE_SIZE = int(settings.get('event_page_size', 25))
 CLEANUP_INTERVAL_SEC = int(settings.get('cleanup_interval_sec', 3600))
 ESP_TIMEOUT_SEC = int(settings.get('esp_timeout_sec', 150)) 
 WIFI_FAILURE_TOLERANCE = int(settings.get('wifi_failure_tolerance', 3)) 
-ESP_STATUS_UPDATE_INTERVAL_SEC = 60
-WIFI_GUARDIAN_INTERVAL_SEC = 30
+ESP_STATUS_UPDATE_INTERVAL_SEC = int(settings.get('esp_status_interval_sec', 90))
+WIFI_GUARDIAN_INTERVAL_SEC = int(settings.get('monitor_wifi_interval_sec', 60))
 
 pending_rssi_requests = {} 
 _wifi_failure_counts = defaultdict(int)
@@ -2318,7 +2321,6 @@ async def check_presence(mac: str) -> bool:
     Versão ASSÍNCRONA que verifica a presença de um MAC com uma lógica de
     cache-miss para máxima fiabilidade e performance, sem bloquear o servidor.
     """
-    return True
     global _mac_ip_map_cache, _cache_last_updated
     
     #logger.info(f"[presence_async] Verificando presença do MAC: {mac}")
