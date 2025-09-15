@@ -61,12 +61,15 @@ ARQUIVO: app/web/templates/assets_list.html
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
+        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
+        </button>
         <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">BAIXAR DADOS</a>
     </div>
 </div>
 
 {# FORMULÁRIO MOVIDO PARA CIMA E USANDO O CONTAINER VERTICAL #}
-<div class="forms-container-vertical">
+<div class="forms-container-vertical" id="forms-container">
     {% include 'asset_form.html' %}
 </div>
 
@@ -104,6 +107,7 @@ ARQUIVO: app/web/templates/assets_list.html
             <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
                 {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+            <th>STATUS</th>
         </tr>
     </thead>
     <tbody>
@@ -130,6 +134,13 @@ ARQUIVO: app/web/templates/assets_list.html
             <td>{{ asset.mac_beacon }}</td>
             <td>{{ asset.mac_address }}</td>
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
+            <td>
+                {% if asset.status == 'Online' %}
+                    <span class="status-indicator online" title="Ativo online"></span> ON
+                {% else %}
+                    <span class="status-indicator offline" title="Ativo offline"></span> OFF
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>
@@ -207,6 +218,42 @@ ARQUIVO: app/web/templates/base.html
             };
             toggleButton.addEventListener('click', toggleSidebar);
             overlay.addEventListener('click', toggleSidebar);
+        }
+        
+        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
+        const formsContainer = document.getElementById('forms-container');
+
+        // Só executa se o botão e o container existirem nesta página
+        if (toggleFormsBtn && formsContainer) {
+            
+            // Função para atualizar o texto do tooltip (title) do botão
+            const updateButtonTitle = () => {
+                if (formsContainer.classList.contains('collapsed')) {
+                    toggleFormsBtn.title = 'Mostrar Formulários';
+                } else {
+                    toggleFormsBtn.title = 'Recolher Formulários';
+                }
+            };
+
+            // Ao carregar a página, verifica se o estado "recolhido" estava salvo
+            if (localStorage.getItem('formsCollapsed') === 'true') {
+                formsContainer.classList.add('collapsed');
+                toggleFormsBtn.classList.add('collapsed');
+            }
+            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+
+            // Adiciona o evento de clique ao botão
+            toggleFormsBtn.addEventListener('click', () => {
+                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
+                formsContainer.classList.toggle('collapsed');
+                toggleFormsBtn.classList.toggle('collapsed');
+
+                // Atualiza o texto do title para o novo estado
+                updateButtonTitle();
+
+                // Salva o estado atual no armazenamento local
+                localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
+            });
         }
         
         function conectarWebSocket() {
@@ -327,12 +374,15 @@ ARQUIVO: app/web/templates/embarcados_list.html
             <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
+        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
+        </button>
         <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">BAIXAR DADOS</a>
     </div>
 </div>
 
 {# 1. FORMULÁRIOS MOVIDOS PARA CIMA #}
-<div class="forms-container-horizontal">
+<div class="forms-container-horizontal" id="forms-container">
     <div class="form-card">
         {% include 'embarcado_form.html' with context %}
     </div>
@@ -419,6 +469,7 @@ ARQUIVO: app/web/templates/embarcados_list.html
                         <div class="actions-dropdown">
                             <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar</a>
                             <a href="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o embarcado {{ emb.id_esp }}?');">Excluir</a>
+                            <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
                             <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
                                 <button type="submit" class="menu-item-btn">Reconfigurar</button>
                             </form>
@@ -473,17 +524,27 @@ ARQUIVO: app/web/templates/embarcados_list.html
     </table>
 </div>
 
+<div id="rssi-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modal-title">Relatório de RSSI</h3>
+            <span class="close-btn" id="modal-close-btn">&times;</span>
+        </div>
+        <div class="modal-body" id="modal-body-content">
+            </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    // --- LÓGICA DO MODAL (sem alterações) ---
-    const modal = document.getElementById('rssi-modal');
-    const modalTitle = document.getElementById('modal-title');
-    const modalBody = document.getElementById('modal-body-content');
-    const closeBtn = document.getElementById('modal-close-btn');
+// Variável global para guardar nosso ID de cliente do WebSocket
+let myClientId = null;
 
+document.addEventListener('DOMContentLoaded', function () {
+    // Lógica para controlar a abertura e fechamento do modal
+    const modal = document.getElementById('rssi-modal');
+    const closeBtn = document.getElementById('modal-close-btn');
     if (modal && closeBtn) {
         closeBtn.onclick = () => { modal.style.display = "none"; };
         window.onclick = (event) => {
@@ -493,6 +554,7 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     }
 
+    // Lógica para controlar o menu de três pontinhos (sem alterações)
     document.querySelectorAll('.actions-menu-trigger').forEach(button => {
         button.addEventListener('click', function (event) {
             event.stopPropagation();
@@ -502,20 +564,84 @@ document.addEventListener('DOMContentLoaded', function () {
             this.nextElementSibling.classList.toggle('show');
         });
     });
-
     window.addEventListener('click', (event) => {
         if (!event.target.matches('.actions-menu-trigger')) {
             document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
         }
     });
-    
+
+    // --- INÍCIO DA NOVA LÓGICA ---
+    // Mapeamento de MAC para Nome do Ativo (para o relatório)
     const rssiThresholds = JSON.parse('{{ rssi_thresholds | safe }}');
     let assetNameMap = {};
-
     fetch("{{ url_for('get_assets_map') }}")
         .then(response => response.json())
         .then(data => { assetNameMap = data; });
 
+    // Adiciona o evento de clique para TODOS os botões de "Testar RSSI"
+    document.querySelectorAll('.test-rssi-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            if (!myClientId) {
+                alert("Ainda a conectar ao servidor, por favor tente novamente em segundos.");
+                return;
+            }
+            const embarcadoId = this.dataset.embarcadoId;
+
+            // Mostra um feedback visual de carregamento
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body-content');
+            modalTitle.textContent = 'Aguardando Relatório...';
+            modalBody.innerHTML = '<p style="text-align:center;">Solicitando dados do servidor...</p>';
+            modal.style.display = 'block';
+
+            // Envia o pedido para o backend
+            fetch("{{ url_for('test_rssi_esp') }}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    embarcado_id: parseInt(embarcadoId),
+                    client_id: myClientId // Envia o nosso "crachá" de conexão
+                })
+            });
+        });
+    });
+
+    // "Ouvinte" global de mensagens WebSocket, que vai receber o relatório de volta
+    window.addEventListener('websocket_message', function (event) {
+        try {
+            const data = JSON.parse(event.detail); 
+            
+            if (data.type === "RSSI_REPORT") {
+                const modalTitle = document.getElementById('modal-title');
+                const modalBody = document.getElementById('modal-body-content');
+                const esp_id = data.esp_id;
+
+                const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
+                
+                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
+                
+                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
+
+                if (data.report && data.report.length > 0) {
+                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
+                    data.report.forEach(beacon => {
+                        const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
+                        const rssiValue = beacon.rssi;
+                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
+                        
+                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
+                    });
+                } else {
+                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
+                }
+
+                reportHtml += '</tbody></table>';
+                modalBody.innerHTML = reportHtml;
+                modal.style.display = "block";
+            }
+        } catch (e) { /* Ignora outras mensagens que não sejam JSON */ }
+    });
+    // --- FIM DA NOVA LÓGICA ---
 });
 </script>
 {% endblock %}
@@ -925,14 +1051,10 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch("{{ url_for('get_planta_dados') }}")
             .then(response => response.json())
             .then(data => {
-                // --- ATUALIZAÇÃO DO SUMÁRIO ---
-                // Encontra os elementos de número dentro dos cards existentes
+                // --- ATUALIZAÇÃO DO SUMÁRIO (sem alterações) ---
                 const quartosOnlineNumero = plantaSumario.querySelector('.card-quartos .sumario-numero');
                 const ativosNaPlantaNumero = plantaSumario.querySelector('.card-ativos .sumario-numero');
-
-                // Garante que 'data.sumario' exista e tenha as propriedades corretas
                 const sumarioData = data.sumario || { quartos_online: '--', total_ativos: '--' };
-
                 if (quartosOnlineNumero) {
                     quartosOnlineNumero.textContent = sumarioData.quartos_online;
                 }
@@ -940,58 +1062,61 @@ document.addEventListener('DOMContentLoaded', function () {
                     ativosNaPlantaNumero.textContent = sumarioData.total_ativos;
                 }
 
-                // --- RENDERIZAÇÃO DOS PONTOS ---
-                pontosContainer.innerHTML = ''; // Limpa apenas os pontos antigos
-
-                const dadosQuartos = data.quartos || []; // Garante que é um array, mesmo que vazio
+                // --- RENDERIZAÇÃO DOS PONTOS (com nova lógica) ---
+                pontosContainer.innerHTML = ''; 
+                const dadosQuartos = data.quartos || [];
 
                 dadosQuartos.forEach(quarto => {
-                    // 1. Cria o container principal para o marcador inteiro (Nomes + Bolinha)
                     const pontoContainer = document.createElement('div');
                     pontoContainer.className = 'ponto-quarto-container';
-
-                    // 2. Aplica as coordenadas ao container principal
                     const coords = coordenadasDosQuartos[quarto.id_quarto] || { display: 'none' };
                     pontoContainer.style.top = coords.top;
                     pontoContainer.style.left = coords.left;
 
-                    // 3. Cria e adiciona o NOME DO QUARTO
                     const nomeQuartoSpan = document.createElement('span');
                     nomeQuartoSpan.className = 'ponto-nome-quarto';
                     nomeQuartoSpan.textContent = quarto.nome_quarto;
                     pontoContainer.appendChild(nomeQuartoSpan);
 
-                    // 4. Cria e adiciona a BOLINHA de status
                     const pontoStatusDiv = document.createElement('div');
                     pontoStatusDiv.className = 'ponto-quarto-status';
-                    // Lógica de cor
+
+                    // --- INÍCIO DA NOVA LÓGICA DE COR ---
+                    const temAtivoConfirmado = quarto.ativos.some(a => a.status === 'confirmado');
+                    const temAtivoPendente = quarto.ativos.some(a => a.status === 'pendente');
+
                     if (quarto.status_embarcado === 'Offline') {
                         pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza
-                    } else if (quarto.numero_ativos > 0) {
+                    } else if (temAtivoConfirmado) {
                         pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde
+                    } else if (temAtivoPendente) {
+                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja
                     } else {
                         pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho
                     }
                     pontoContainer.appendChild(pontoStatusDiv);
-
-                    // 6. Cria e adiciona o NOME DA CAMA (com lógica)
+                    // --- FIM DA NOVA LÓGICA DE COR ---
+                    
                     const nomeCamaSpan = document.createElement('span');
                     nomeCamaSpan.className = 'ponto-nome-cama';
 
+                    // --- INÍCIO DA NOVA LÓGICA DE TEXTO ---
                     if (quarto.status_embarcado === 'Offline') {
                         nomeCamaSpan.textContent = '(Offline)';
                         nomeCamaSpan.classList.add('cama-livre');
                     } else if (quarto.numero_ativos > 0) {
-                        // Pega o nome do primeiro ativo (cama) no quarto.
-                        // Garante que 'ativos' é um array e tem pelo menos um elemento.
-                        nomeCamaSpan.textContent = quarto.ativos && quarto.ativos.length > 0 ? quarto.ativos[0].nome : 'Ativo(s)';
+                        // Mostra o primeiro ativo da lista (seja confirmado ou pendente)
+                        nomeCamaSpan.textContent = quarto.ativos[0].nome;
+                        if(quarto.ativos[0].status === 'pendente') {
+                             nomeCamaSpan.textContent += ' (Pendente)';
+                        }
                     } else {
                         nomeCamaSpan.textContent = 'Livre';
                         nomeCamaSpan.classList.add('cama-livre');
                     }
                     pontoContainer.appendChild(nomeCamaSpan);
+                    // --- FIM DA NOVA LÓGICA DE TEXTO ---
 
-                    // 7. Adiciona o tooltip ao container principal
                     let tooltipText = `${quarto.nome_quarto}`;
                     if (quarto.status_embarcado === 'Offline') {
                         tooltipText += `\n(Embarcado Offline)`;
@@ -1001,8 +1126,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         tooltipText += `\nLivre`;
                     }
                     pontoContainer.title = tooltipText;
-
-                    // 8. Adiciona o marcador completo à planta
+                    
                     pontosContainer.appendChild(pontoContainer);
                 });
             });
