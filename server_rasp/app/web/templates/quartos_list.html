@@ -8,11 +8,11 @@
 </div>
 
 {# Usamos o container de largura total da Baxter #}
-<div class="list-container-full-width" style="display: flex; flex-wrap: wrap; gap: 2rem; justify-content: center;">
-    
+<div class="room-cards-container-fullwidth">
+
     {% for quarto in quartos %}
     {# O estilo do card foi adaptado para se parecer com os da Baxter #}
-    <div class="form-card" style="width: 350px; min-width: 300px; margin: 0;">
+    <div class="form-card" style="width: 400px; min-width: 300px; margin: 0;">
         <form class="room-card-header" action="{{ url_for('update_quarto', quarto_id=quarto.id) }}" method="post" style="padding-bottom: 10px; border-bottom: 1px solid #eee;">
             
             <div style="display: flex; flex-direction: column;">

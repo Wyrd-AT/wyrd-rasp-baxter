@@ -1,18 +1,32 @@
 ========================================
 ARQUIVO: app/web/templates/asset_form.html
 ========================================
+{# asset_form.html (HSA ATUALIZADO) #}
 <div class="form-card">
-    <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativo{% endif %}</h3>
     <form action="{{ form_action }}" method="post">
-        <div class="form-group">
-            <label for="nome_ativo">Nome do Ativo</label>
-            <input type="text" id="nome_ativo" name="nome_ativo" value="{{ asset.nome_ativo if asset else '' }}" placeholder="Ex: Ativo Visitante 01" required>
+        <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativo{% endif %}</h3>
+
+        <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
+            <div class="form-group">
+                <label for="nome_ativo">Nome do Ativo</label>
+                <input type="text" id="nome_ativo" name="nome_ativo" value="{{ asset.nome_ativo if asset else '' }}" placeholder="Ex: Cama 101-A" required>
+            </div>
+            <div class="form-group">
+                <label for="mac_beacon">MAC do Beacon</label>
+                <input type="text" id="mac_beacon" name="mac_beacon" value="{{ asset.mac_beacon if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
+            </div>
         </div>
-        <div class="form-group">
-            <label for="mac_beacon">MAC do Beacon</label>
-            <input type="text" id="mac_beacon" name="mac_beacon" value="{{ asset.mac_beacon if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
+
+        <div class="form-fields-grid" style="grid-template-columns: 1fr auto; margin-top: 1.5rem;">
+            <div class="form-group">
+                <label for="tipo_ativo">Tipo de Ativo</label>
+                <input type="text" id="tipo_ativo" name="tipo_ativo" value="{{ asset.tipo_ativo if asset else '' }}" placeholder="Ex: Cama Hospitalar">
+            </div>
+
+            <button type="submit" class="icon-btn" title="{{ 'Atualizar' if asset else 'Salvar' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            </button>
         </div>
-        <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if asset else 'Salvar' }}</button>
     </form>
 </div>
 
@@ -27,49 +41,111 @@ ARQUIVO: app/web/templates/assets_list.html
 {% block content %}
 <div class="content-header">
     <h1>Ativos</h1>
-    <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+    <div class="header-actions">
+        <form method="get" action="{{ url_for('list_assets') }}" class="search-bar">
+            <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
+            <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
+</button>
+        </form>
+        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
+        </button>
+        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">BAIXAR DADOS</a>
+    </div>
 </div>
 
-<div class="page-with-form">
-    <div class="list-column">
-        <div class="table-toolbar">
-            <form method="get" action="{{ url_for('list_assets') }}" class="search-bar">
-                <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
-                <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
-</button>
-            </form>
-            <div class="toolbar-actions">
-                <button class="icon-btn" title="Editar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span>
-</button>
-                <button class="icon-btn" title="Apagar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lixeira.svg') }})"></span>
-</button>
-            </div>
-        </div>
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>NOME DO ATIVO</th>
-                    <th>MAC BEACON</th>
-                    <th>QUARTO ATUAL</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for asset in assets %}
-                <tr class="selectable-row" data-id="{{ asset.id }}">
-                    <td>{{ asset.nome_ativo }}</td>
-                    <td>{{ asset.mac_beacon }}</td>
-                    <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <div class="form-column">
-        {% include 'asset_form.html' %}
-    </div>
-
+{# FORMULÁRIO MOVIDO PARA CIMA E USANDO O CONTAINER VERTICAL #}
+<div class="forms-container-vertical" id="forms-container">
+    {% include 'asset_form.html' %}
 </div>
+
+{# TABELA AGORA VEM DEPOIS, EM UM CONTAINER DE LARGURA TOTAL #}
+<div class="list-container-full-width">
+    <table class="data-table">
+    <thead>
+        <tr>
+            <th style="text-align: center; width: 80px;">AÇÕES</th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'nome_ativo' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=sort_order) }}">NOME DA CAMA</a>
+                {% if current_filters.sort_by == 'nome_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'tipo_ativo' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='tipo_ativo', order=sort_order) }}">TIPO DE ATIVO</a>
+                {% if current_filters.sort_by == 'tipo_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'mac_beacon' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
+                {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
+            <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
+                {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            </th>
+            <th>STATUS</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for asset in assets %}
+        <tr class="selectable-row" data-id="{{ asset.id }}">
+            <td style="text-align: center;">
+                <div class="actions-menu-container">
+                    <button class="actions-menu-trigger" title="Abrir menu de ações">
+                        &#8942;
+                    </button>
+                    <div class="actions-dropdown">
+                        <a href="{{ url_for('edit_asset', asset_id=asset.id) }}" class="menu-item-link">Editar</a>
+                        <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o ativo {{ asset.nome_ativo }}?');">Excluir</a>
+                    </div>
+                </div>
+            </td>
+            <td>{{ asset.nome_ativo }}</td>
+
+            {# NOVOS DADOS #}
+            <td>{{ asset.tipo_ativo or '---' }}</td>
+            
+            <td>{{ asset.mac_beacon }}</td>
+            <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
+            <td>
+                {% if asset.status == 'Online' %}
+                    <span class="status-indicator online" title="Ativo online"></span> ON
+                {% else %}
+                    <span class="status-indicator offline" title="Ativo offline"></span> OFF
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // Lógica para controlar a abertura e fechamento do menu de ações
+    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
+        button.addEventListener('click', function (event) {
+            event.stopPropagation(); // Impede que o clique feche o menu imediatamente
+            
+            // Fecha qualquer outro menu que esteja aberto
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                if (d !== this.nextElementSibling) d.classList.remove('show');
+            });
+
+            // Alterna a exibição do menu clicado
+            this.nextElementSibling.classList.toggle('show');
+        });
+    });
+
+    // Fecha o menu se o usuário clicar em qualquer outro lugar da tela
+    window.addEventListener('click', (event) => {
+        if (!event.target.matches('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+        }
+    });
+});
+</script>
 {% endblock %}
 
 
@@ -103,7 +179,7 @@ ARQUIVO: app/web/templates/base.html
 
         // 2. Lógica da Sidebar e do Overlay (fundo escurecido).
         const sidebar = document.getElementById('sidebar');
-        const toggleButton = document.getElementById('sidebar-toggle');
+        const toggleButton = document.getElementById('sidebar-toggle-btn');
         const overlay = document.getElementById('overlay');
 
         if (toggleButton && sidebar && overlay) {
@@ -114,72 +190,43 @@ ARQUIVO: app/web/templates/base.html
             toggleButton.addEventListener('click', toggleSidebar);
             overlay.addEventListener('click', toggleSidebar);
         }
+        
+        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
+        const formsContainer = document.getElementById('forms-container');
 
-        // 3. Lógica de Interatividade da Tabela (para Ativos e Embarcados).
-        const table = document.querySelector('.data-table');
-        // Só continua se a página atual TIVER uma tabela com a classe '.data-table'.
-        if (table) {
-            const editBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Editar"]');
-            const deleteBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
-            let selectedRow = null;
-
-            table.addEventListener('click', (event) => {
-                const row = event.target.closest('.selectable-row');
-                if (!row) return;
-
-                if (selectedRow) {
-                    selectedRow.style.backgroundColor = '';
+        // Só executa se o botão e o container existirem nesta página
+        if (toggleFormsBtn && formsContainer) {
+            
+            // Função para atualizar o texto do tooltip (title) do botão
+            const updateButtonTitle = () => {
+                if (formsContainer.classList.contains('collapsed')) {
+                    toggleFormsBtn.title = 'Mostrar Formulários';
+                } else {
+                    toggleFormsBtn.title = 'Recolher Formulários';
                 }
-                row.style.backgroundColor = '#e0eafc'; // Cor de seleção
-                selectedRow = row;
+            };
+
+            // Ao carregar a página, verifica se o estado "recolhido" estava salvo
+            if (localStorage.getItem('formsCollapsed') === 'true') {
+                formsContainer.classList.add('collapsed');
+                toggleFormsBtn.classList.add('collapsed');
+            }
+            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+
+            // Adiciona o evento de clique ao botão
+            toggleFormsBtn.addEventListener('click', () => {
+                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
+                formsContainer.classList.toggle('collapsed');
+                toggleFormsBtn.classList.toggle('collapsed');
+
+                // Atualiza o texto do title para o novo estado
+                updateButtonTitle();
+
+                // Salva o estado atual no armazenamento local
+                localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
             });
-
-            if (editBtn) {
-                editBtn.addEventListener('click', () => {
-                    if (!selectedRow) {
-                        alert('Por favor, selecione um item na tabela para editar.');
-                        return;
-                    }
-                    const itemId = selectedRow.dataset.id;
-                    const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                    let editUrl = '';
-
-                    if (pageTitle.includes('ativos')) {
-                        editUrl = `/assets/${itemId}/edit`;
-                    } else if (pageTitle.includes('embarcados')) {
-                        editUrl = `/embarcados/${itemId}/edit`;
-                    }
-
-                    if (editUrl) {
-                        window.location.href = editUrl;
-                    }
-                });
-            }
-
-            if (deleteBtn) {
-                deleteBtn.addEventListener('click', () => {
-                    if (!selectedRow) {
-                        alert('Por favor, selecione um item na tabela para apagar.');
-                        return;
-                    }
-                    if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
-                        const itemId = selectedRow.dataset.id;
-                        const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                        let deleteUrl = '';
-
-                        if (pageTitle.includes('ativos')) {
-                            deleteUrl = `/assets/${itemId}/delete`; 
-                        } else if (pageTitle.includes('embarcados')) {
-                            deleteUrl = `/embarcados/${itemId}/delete`;
-                        }
-
-                        if (deleteUrl) {
-                            window.location.href = deleteUrl;
-                        }
-                    }
-                });
-            }
         }
+        
         function conectarWebSocket() {
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
@@ -195,6 +242,15 @@ ARQUIVO: app/web/templates/base.html
                 if (event.data === "ping") {
                     return;
                 }
+
+                if (event.data === "ATUALIZAR_ESTADO") {
+                    console.log("Recebido sinal para atualizar. Recarregando a página...");
+                    // Adiciona um pequeno delay para garantir que o banco de dados foi atualizado
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500); // 500ms de delay
+                }   
+
                 try {
                     const data = JSON.parse(event.data);
                     // Verifica se é a mensagem especial de conexão para receber o nosso "crachá"
@@ -234,35 +290,44 @@ ARQUIVO: app/web/templates/base.html
 ========================================
 ARQUIVO: app/web/templates/embarcado_form.html
 ========================================
-<div class="form-card">
+{# embarcado_form.html #}
+<form action="{{ form_action }}" method="post">
     <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
-    <form action="{{ form_action }}" method="post">
+    
+    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr auto;">
         <div class="form-group">
             <label for="id_esp">ID da ESP</label>
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         
+        {# NOVO CAMPO ANDAR #}
         <div class="form-group">
-            <label for="quarto_id">Quarto</label>
-            <select id="quarto_id" name="quarto_id" class="filter-dropdown-main" required>
-                <option value="" disabled {% if not embarcado %}selected{% endif %}>Selecione um quarto disponível</option>
-                {% for q in available_quartos %}
-                <option value="{{ q.id }}" {% if embarcado and embarcado.quarto_id == q.id %}selected{% endif %}>
-                    {{ q.nome }}
-                </option>
-                {% endfor %}
-            </select>
+            <label for="andar_nome">Andar</label>
+            <input type="text" id="andar_nome" name="andar_nome" 
+                   value="{{ embarcado.quarto.andar.nome if embarcado and embarcado.quarto and embarcado.quarto.andar else '' }}" 
+                   placeholder="Ex: Térreo, 1º Andar" required>
+        </div>
+
+        <div class="form-group">
+            <label for="quarto_nome">Quarto</label>
+            <input type="text" id="quarto_nome" name="quarto_nome" 
+                   value="{{ embarcado.quarto.nome if embarcado and embarcado.quarto else '' }}" 
+                   placeholder="Ex: 101, UTI-02" required>
         </div>
         
-        <div class="form-group">
+        {# O campo RSSI foi movido para uma nova linha para melhor organização #}
+        <div class="form-group" style="grid-column: 1 / 4;"> {# Ocupa 3 colunas #}
             <label for="rssi_threshold">RSSI Mínimo Individual (dBm)</label>
             <input type="number" id="rssi_threshold" name="rssi_threshold"
                    value="{{ embarcado.rssi_threshold if embarcado and embarcado.rssi_threshold is not none else '' }}"
                    placeholder="Deixe em branco para usar o global">
         </div>
-        <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if embarcado else 'Salvar' }}</button>
-    </form>
-</div>
+
+        <button type="submit" class="icon-btn" title="{{ 'Atualizar' if embarcado else 'Salvar' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        </button>
+    </div>
+</form>
 
 
 ========================================
@@ -275,111 +340,159 @@ ARQUIVO: app/web/templates/embarcados_list.html
 {% block content %}
 <div class="content-header">
     <h1>Embarcados</h1>
-    <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">DOWNLOAD CSV</a>
+    <div class="header-actions">
+        <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
+            <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
+            <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
+        </form>
+        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
+        </button>
+        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">BAIXAR DADOS</a>
+    </div>
 </div>
 
-<div class="page-with-form">
-
-    <div class="list-column">
-        <div class="table-toolbar">
-            <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
-                <input type="text" name="search" placeholder="Pesquisar por ID ou quarto" value="{{ search or '' }}">
-                <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
-</button>
-            </form>
-            <div class="toolbar-actions">
-                <button class="icon-btn" title="Editar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span>
-</button>
-                <button class="icon-btn" title="Apagar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lixeira.svg') }})"></span>
-</button>
-            </div>
-        </div>
-        
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>ID do Embarcado</th>
-                    <th>QUARTO</th>
-                    <th>RSSI MÍN.</th> 
-                    <th>STATUS</th>
-                    <th style="text-align: center;">AÇÕES</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for emb in embarcados %}
-                <tr class="selectable-row" data-id="{{ emb.id }}">
-                    <td>{{ emb.id_esp }}</td>
-                    <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
-                    <td>
-                        {% if emb.rssi_threshold is not none %}
-                            <span title="RSSI Individual">{{ emb.rssi_threshold }}</span>
-                        {% else %}
-                            <span title="Usando Configuração Global" style="color: #999;">Global</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if emb.status == 'Online' %}
-                            <span class="status-indicator online" title="Último contato {{ emb.last_seen_str }}"></span> ON
-                        {% else %}
-                            <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
-                        {% endif %}
-                    </td>
-                    <td style="text-align: center;">
-                        <div class="actions-menu-container">
-                            <button class="actions-menu-trigger" title="Abrir menu de ações">
-                                &#8942; </button>
-                            <div class="actions-dropdown">
-                                <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
-                                <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
-                                    <button type="submit" class="menu-item-btn">Reconfigurar</button>
-                                </form>
-                                <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
-                                    <button type="submit" class="menu-item-btn">Reiniciar</button>
-                                </form>
-                                <form action="{{ url_for('reset_esp_state', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Resetar o ESTADO da ESP {{ emb.id_esp }}?');">
-                                    <button type="submit" class="menu-item-btn">Resetar Estado</button>
-                                </form>
-                            </div>
-                        </div>
-                    </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <div class="form-column">
+{# 1. FORMULÁRIOS MOVIDOS PARA CIMA #}
+<div class="forms-container-horizontal" id="forms-container">
+    <div class="form-card">
         {% include 'embarcado_form.html' with context %}
-        
-        <div class="form-card" style="margin-top: 2rem;">
-            <h3>Configurações Globais de Sensibilidade</h3>
-            <form action="{{ url_for('update_settings') }}" method="post">
-                {# Mudei para 2 colunas para ficar mais organizado #}
-                <div class="settings-grid" style="grid-template-columns: repeat(2, 1fr);"> 
-                    <div class="form-group">
-                        <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
-                        <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
-                    </div>
-                    
-                    {# === CAMPO ADICIONADO AQUI === #}
-                    <div class="form-group">
-                        <label for="conflict_margin_db">Margem de Conflito (dB)</label>
-                        <input type="number" name="conflict_margin_db" value="{{ global_settings.conflict_margin_db }}" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="inercia_entrada">Inércia de Entrada (ms)</label>
-                        <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="inercia_saida">Inércia de Saída (ms)</label>
-                        <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
-                    </div>
-                </div>
-                <button type="submit" class="btn-primary form-btn">Salvar Configurações Globais</button>
-            </form>
-        </div>
     </div>
+    
+    <div class="form-card">
+        <form action="{{ url_for('update_settings') }}" method="post">
+            <h3>Configurações Globais</h3>
+            <div class="form-fields-grid">
+                <div class="form-group">
+                    <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
+                    <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_entrada">Inércia de Entrada (ms)</label>
+                    <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_saida">Inércia de Saída (ms)</label>
+                    <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
+                </div>
+                <button type="submit" class="icon-btn" title="Salvar Configurações Globais">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# 2. TABELA AGORA VEM DEPOIS DOS FORMULÁRIOS #}
+<div class="list-container-full-width">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="text-align: center; width: 80px;">AÇÕES</th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'id_esp' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='id_esp', order=sort_order) }}">ID DO EMBARCADO</a>
+                    {% if current_filters.sort_by == 'id_esp' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'andar' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='andar', order=sort_order) }}">ANDAR</a>
+                    {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO</a>
+                    {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
+                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'wifi_signal' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='wifi_signal', order=sort_order) }}">SINAL WI-FI</a>
+                    {% if current_filters.sort_by == 'wifi_signal' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'mac_address' and current_filters.order == 'desc' else 'desc' %}
+                <th>
+                    <a href="{{ request.url.replace_query_params(sort_by='mac_address', order=sort_order) }}">
+                        MAC ADDRESS {% if current_filters.sort_by == 'mac_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                    </a>
+                </th>
+
+                {# Coluna IP Address agora ordenável #}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'ip_address' and current_filters.order == 'desc' else 'desc' %}
+                <th>
+                    <a href="{{ request.url.replace_query_params(sort_by='ip_address', order=sort_order) }}">
+                        IP ADDRESS {% if current_filters.sort_by == 'ip_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                    </a>
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'rssi_min' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='rssi_min', order=sort_order) }}">RSSI MÍN.</a>
+                    {% if current_filters.sort_by == 'rssi_min' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for emb in embarcados %}
+            <tr class="selectable-row" data-id="{{ emb.id }}">
+                {# 1. Ações #}
+                <td style="text-align: center;">
+                    <div class="actions-menu-container">
+                        <button class="actions-menu-trigger" title="Abrir menu de ações">
+                            &#8942;
+                        </button>
+                        <div class="actions-dropdown">
+                            <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar</a>
+                            <a href="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o embarcado {{ emb.id_esp }}?');">Excluir</a>
+                            <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
+                            <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
+                                <button type="submit" class="menu-item-btn">Reconfigurar</button>
+                            </form>
+                            <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
+                                <button type="submit" class="menu-item-btn">Reiniciar</button>
+                            </form>
+                        </div>
+                    </div>
+                </td>
+
+                {# 2. ID do Embarcado #}
+                <td>{{ emb.id_esp }}</td>
+
+                {# 3. Andar #}
+                <td>{{ emb.quarto.andar.nome if emb.quarto and emb.quarto.andar else '---' }}</td>
+
+                {# 4. Quarto #}
+                <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
+
+                {# 5. Status #}
+                <td>
+                    {% if emb.status_rede == 'online' %}
+                        <span class="status-indicator online" title="Último contato: {{ emb.last_seen_str }}"></span> ON
+                    {% else %}
+                        <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
+                    {% endif %}
+                </td>
+
+                {# 6. Sinal Wi-Fi #}
+                <td>
+                    {% if emb.wifi_signal %}
+                        {{ emb.wifi_signal }} dBm
+                    {% else %}
+                        ---
+                    {% endif %}
+                </td>
+
+                <td>{% if emb.status_rede == 'online' %}{{ emb.mac_address or '---' }}{% else %}---{% endif %}</td>
+                <td>{% if emb.status_rede == 'online' %}{{ emb.ip_address or '---' }}{% else %}---{% endif %}</td>
+
+                {# 9. RSSI Mín. #}
+                <td>
+                    {% if emb.rssi_threshold is not none %}
+                        <span title="RSSI Individual">{{ emb.rssi_threshold }}</span>
+                    {% else %}
+                        <span title="Usando Configuração Global" style="color: #999;">Global</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 
 <div id="rssi-modal" class="modal">
@@ -392,19 +505,17 @@ ARQUIVO: app/web/templates/embarcados_list.html
             </div>
     </div>
 </div>
-
 {% endblock %}
-
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    // --- LÓGICA DO MODAL (sem alterações) ---
-    const modal = document.getElementById('rssi-modal');
-    const modalTitle = document.getElementById('modal-title');
-    const modalBody = document.getElementById('modal-body-content');
-    const closeBtn = document.getElementById('modal-close-btn');
+// Variável global para guardar nosso ID de cliente do WebSocket
+let myClientId = null;
 
+document.addEventListener('DOMContentLoaded', function () {
+    // Lógica para controlar a abertura e fechamento do modal
+    const modal = document.getElementById('rssi-modal');
+    const closeBtn = document.getElementById('modal-close-btn');
     if (modal && closeBtn) {
         closeBtn.onclick = () => { modal.style.display = "none"; };
         window.onclick = (event) => {
@@ -414,6 +525,7 @@ document.addEventListener('DOMContentLoaded', function () {
         };
     }
 
+    // Lógica para controlar o menu de três pontinhos (sem alterações)
     document.querySelectorAll('.actions-menu-trigger').forEach(button => {
         button.addEventListener('click', function (event) {
             event.stopPropagation();
@@ -423,7 +535,21 @@ document.addEventListener('DOMContentLoaded', function () {
             this.nextElementSibling.classList.toggle('show');
         });
     });
+    window.addEventListener('click', (event) => {
+        if (!event.target.matches('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+        }
+    });
 
+    // --- INÍCIO DA NOVA LÓGICA ---
+    // Mapeamento de MAC para Nome do Ativo (para o relatório)
+    const rssiThresholds = JSON.parse('{{ rssi_thresholds | safe }}');
+    let assetNameMap = {};
+    fetch("{{ url_for('get_assets_map') }}")
+        .then(response => response.json())
+        .then(data => { assetNameMap = data; });
+
+    // Adiciona o evento de clique para TODOS os botões de "Testar RSSI"
     document.querySelectorAll('.test-rssi-btn').forEach(button => {
         button.addEventListener('click', function() {
             if (!myClientId) {
@@ -432,31 +558,26 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             const embarcadoId = this.dataset.embarcadoId;
 
+            // Mostra um feedback visual de carregamento
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body-content');
+            modalTitle.textContent = 'Aguardando Relatório...';
+            modalBody.innerHTML = '<p style="text-align:center;">Solicitando dados do servidor...</p>';
+            modal.style.display = 'block';
+
+            // Envia o pedido para o backend
             fetch("{{ url_for('test_rssi_esp') }}", {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     embarcado_id: parseInt(embarcadoId),
-                    client_id: myClientId // Envia o nosso "crachá"
+                    client_id: myClientId // Envia o nosso "crachá" de conexão
                 })
             });
         });
     });
 
-    window.addEventListener('click', (event) => {
-        if (!event.target.matches('.actions-menu-trigger')) {
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
-        }
-    });
-    
-    const rssiThresholds = JSON.parse('{{ rssi_thresholds | safe }}');
-    let assetNameMap = {};
-
-    fetch("{{ url_for('get_assets_map') }}")
-        .then(response => response.json())
-        .then(data => { assetNameMap = data; });
-
-    // 2. "Ouvinte" do WebSocket
+    // "Ouvinte" global de mensagens WebSocket, que vai receber o relatório de volta
     window.addEventListener('websocket_message', function (event) {
         try {
             const data = JSON.parse(event.detail); 
@@ -466,52 +587,32 @@ document.addEventListener('DOMContentLoaded', function () {
                 const modalBody = document.getElementById('modal-body-content');
                 const esp_id = data.esp_id;
 
-                // 3. Determina qual limite usar para esta ESP
                 const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
                 
-                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (${threshold} dBm)`;
+                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
                 
-                let reportHtml = `
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Nome do Ativo</th>
-                                <th>MAC Address</th>
-                                <th>RSSI</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
+                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
 
                 if (data.report && data.report.length > 0) {
-                    data.report.sort((a, b) => b.rssi - a.rssi);
-                    
+                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
                     data.report.forEach(beacon => {
                         const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
                         const rssiValue = beacon.rssi;
-
-                        // 4. Lógica de coloração
                         const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
                         
-                        reportHtml += `
-                            <tr>
-                                <td>${assetName}</td>
-                                <td>${beacon.mac}</td>
-                                <td class="${rssiClass}">${rssiValue} dBm</td>
-                            </tr>
-                        `;
+                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
                     });
                 } else {
                     reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
                 }
 
                 reportHtml += '</tbody></table>';
-                
                 modalBody.innerHTML = reportHtml;
-                document.getElementById('rssi-modal').style.display = "block";
+                modal.style.display = "block";
             }
-        } catch (e) { /* Ignora outras mensagens */ }
+        } catch (e) { /* Ignora outras mensagens que não sejam JSON */ }
     });
+    // --- FIM DA NOVA LÓGICA ---
 });
 </script>
 {% endblock %}
@@ -527,9 +628,10 @@ ARQUIVO: app/web/templates/events_list.html
 {% block content %}
 <div class="content-header">
     <h1>Histórico de Eventos</h1>
-    <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">DOWNLOAD CSV</a>
+    <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">BAIXAR DADOS</a>
 </div>
 
+{# Seção de Filtros (sem alterações) #}
 <form class="filters-toolbar" method="get" action="{{ url_for('list_events') }}">
     <div class="filter-group-left">
         <select name="filter_ativo" class="filter-dropdown-main" onchange="this.form.submit()">
@@ -539,7 +641,6 @@ ARQUIVO: app/web/templates/events_list.html
             {% endfor %}
         </select>
     </div>
-
     <div class="filter-group-right">
         <select name="time_filter" class="filter-btn" onchange="this.form.submit()">
             <option value="all" {% if not current_filters.time_filter or current_filters.time_filter == 'all' %}selected{% endif %}>Data e Hora</option>
@@ -547,45 +648,78 @@ ARQUIVO: app/web/templates/events_list.html
             <option value="weekly" {% if current_filters.time_filter == 'weekly' %}selected{% endif %}>Últimos 7 dias</option>
             <option value="monthly" {% if current_filters.time_filter == 'monthly' %}selected{% endif %}>Últimos 30 dias</option>
         </select>
-
+        <select name="filter_andar" class="filter-btn" onchange="this.form.submit()">
+            <option value="">Andar</option>
+            {% for andar in all_andares %}
+            <option value="{{ andar }}" {% if current_filters.andar == andar %}selected{% endif %}>{{ andar }}</option>
+            {% endfor %}
+        </select>
         <select name="filter_quarto" class="filter-btn" onchange="this.form.submit()">
             <option value="">Quarto</option>
             {% for quarto in all_quartos %}
             <option value="{{ quarto }}" {% if current_filters.quarto == quarto %}selected{% endif %}>{{ quarto }}</option>
             {% endfor %}
         </select>
-
         <select name="filter_action" class="filter-btn" onchange="this.form.submit()">
           <option value="">Ação</option>
           {% for value, name in all_action_options %}
           <option value="{{ value }}" {% if current_filters.action == value %}selected{% endif %}>{{ name }}</option>
           {% endfor %}
         </select>
-
         <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
           <option value="">Status</option>
           {% for status_option in all_status_options %}
           <option value="{{ status_option }}" {% if current_filters.status == status_option %}selected{% endif %}>{{ status_option }}</option>
           {% endfor %}
         </select>
-
         <a href="{{ url_for('list_events') }}" class="filter-reset-btn" title="Limpar Filtros">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/reiniciar.svg') }})"></span>
         </a>
     </div>
 </form>
 
+{# Seção da Tabela de Histórico (COM AS CORREÇÕES) #}
 <div class="history-table-container">
     <table class="data-table history-table">
         <thead>
             <tr>
-                <th>DATA</th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'data_on' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='data_on', order=sort_order) }}">
+                    DATA {% if current_filters.sort_by == 'data_on' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a>
+                </th>
                 <th>HORA</th>
-                <th>ATIVO</th>
-                <th>QUARTO</th>
-                <th>AÇÃO</th>
-                <th>SINAL</th>
-                <th>STATUS</th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'ativo' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='ativo', order=sort_order) }}">ATIVO</a>
+                    {% if current_filters.sort_by == 'ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO</a>
+                    {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                
+                {# === INÍCIO DAS MUDANÇAS === #}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'andar' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='andar', order=sort_order) }}">ANDAR</a>
+                    {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {# === FIM DAS MUDANÇAS === #}
+
+                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
+                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'rssi' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='rssi', order=sort_order) }}">SINAL BLE</a>
+                    {% if current_filters.sort_by == 'rssi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'wifi' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='wifi', order=sort_order) }}">SINAL WI-FI</a>
+                    {% if current_filters.sort_by == 'wifi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
+                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
             </tr>
         </thead>
         <tbody>
@@ -595,16 +729,24 @@ ARQUIVO: app/web/templates/events_list.html
                 <td>{{ event.hora_str }}</td>
                 <td>{{ event.nome_ativo }}</td>
                 <td>{{ event.quarto }}</td>
+
+                {# === INÍCIO DAS MUDANÇAS === #}
+                <td>{{ event.andar_nome or '---' }}</td>
+                {# === FIM DAS MUDANÇAS === #}
+
                 <td>
                     {% if event.action == 'GET' %}
                         <span class="action-get">Conectar</span>
                     {% elif event.action == 'OUT' %}
                         <span class="action-out">Desconectar</span>
+                    {% elif event.action == 'ALERTA' %}
+                        <span class="action-warning">Alerta</span>
                     {% else %}
                         <span>{{ event.action }}</span>
                     {% endif %}
                 </td>
-                <td>{{ event.rssi or '0' }}</td>
+                <td>{{ event.rssi or '---' }}</td>     
+                <td>{{ event.wifi or '---' }}</td>     
                 <td>
                     {% if event.status %}
                         <span class="status-box status-{{ event.status | lower }}"
@@ -625,6 +767,71 @@ ARQUIVO: app/web/templates/events_list.html
     {% if has_next %}<a href="{{ request.url.replace_query_params(page=page+1) }}">Próxima</a>{% endif %}
 </div>
 {% endblock %}
+
+
+========================================
+ARQUIVO: app/web/templates/login.html
+========================================
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
+</head>
+<body class="login-page">
+
+    <div class="login-background-image"></div>
+
+    <main class="login-card">
+        
+        <header class="login-header">
+            <img src="{{ url_for('static', path='icons/LOGOazulescuro.png') }}" class="logo-login" id="logo-icone" alt="Logo da Empresa">
+            <p>Utilize suas credenciais para realizar o login</p>
+        </header>
+
+        <form class="login-form" method="post" action="{{ url_for('login') }}">
+            <div class="form-fields">
+                <div class="form-group">
+                    <label for="username">Email</label>
+                    <input type="email" id="username" name="username" placeholder="saude@baxter.com.br" required>
+                    <div class="input-line"></div>
+                </div>
+                <div class="form-group">
+                    <label for="password">Senha</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="password" name="password" placeholder="••••••••" required>
+                        <img id="password-icon" src="{{ url_for('static', path='icons/olho_abrir.svg') }}" class="eye-icon" alt="Mostrar/Ocultar Senha" onclick="togglePassword()">
+                    </div>
+                    <div class="input-line"></div>
+                </div>
+    
+                <a href="#" class="forgot-password">Esqueceu sua senha?</a>
+            </div>
+            
+            <button type="submit" class="login-button">ENTRAR</button>
+        </form>
+        
+    </main>
+
+    <script>
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const passwordIcon = document.getElementById('password-icon');
+
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                passwordIcon.src = "{{ url_for('static', path='icons/olho_fechar.svg') }}";
+            } else {
+                passwordInput.type = 'password';
+                passwordIcon.src = "{{ url_for('static', path='icons/olho_abrir.svg') }}";
+            }
+        }
+    </script>
+
+</body>
+</html>
 
 
 ========================================
@@ -790,32 +997,42 @@ ARQUIVO: app/web/templates/quartos_list.html
 ========================================
 {% extends "base.html" %}
 
-{% block title %}Quartos{% endblock %}
+{% block title %}Status dos Quartos{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Quartos</h1>
+    <h1>Status dos Quartos</h1>
 </div>
 
+{# Usamos o container de largura total da Baxter #}
 <div class="room-cards-container-fullwidth">
+
     {% for quarto in quartos %}
-    <div class="room-card">
-        <form class="room-card-header" action="{{ url_for('update_quarto', quarto_id=quarto.id) }}" method="post">
+    {# O estilo do card foi adaptado para se parecer com os da Baxter #}
+    <div class="form-card" style="width: 400px; min-width: 300px; margin: 0;">
+        <form class="room-card-header" action="{{ url_for('update_quarto', quarto_id=quarto.id) }}" method="post" style="padding-bottom: 10px; border-bottom: 1px solid #eee;">
             
-            <h3 class="room-name-display">{{ quarto.nome }}</h3>
-            
-            <input type="text" name="nome" value="{{ quarto.nome }}" class="room-name-input" hidden>
-            
+            <div style="display: flex; flex-direction: column;">
+                {# O nome do quarto continua editável #}
+                <h3 class="room-name-display">{{ quarto.nome }}</h3>
+                <input type="text" name="nome" value="{{ quarto.nome }}" class="room-name-input" hidden>
+                
+                {# A NOVA INFORMAÇÃO DO ANDAR É EXIBIDA AQUI #}
+                {% if quarto.andar %}
+                    <span style="font-size: 0.8rem; color: #666;">{{ quarto.andar.nome }}</span>
+                {% endif %}
+            </div>
+
+            {# Botões de ação permanecem os mesmos #}
             <button type="button" class="icon-btn room-edit-btn" title="Editar nome">
                 <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span>
             </button>
-
             <button type="submit" class="icon-btn room-save-btn" title="Salvar" hidden>
                 <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/check.svg') }})"></span>
             </button>
         </form>
 
-        <div class="room-block-body">
+        <div class="room-block-body" style="padding-top: 15px;">
             {% if quarto.assets %}
                 <ul class="asset-list">
                     {% for asset in quarto.assets %}
@@ -826,7 +1043,7 @@ ARQUIVO: app/web/templates/quartos_list.html
                     {% endfor %}
                 </ul>
             {% else %}
-                <p class="no-assets-message">Nenhum ativo cadastrado.</p>
+                <p class="no-assets-message">Nenhum ativo neste quarto.</p>
             {% endif %}
         </div>
     </div>
@@ -834,11 +1051,11 @@ ARQUIVO: app/web/templates/quartos_list.html
 </div>
 {% endblock %}
 
+{# O JavaScript para edição inline do nome do quarto continua o mesmo #}
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const editButtons = document.querySelectorAll('.room-edit-btn');
-
     editButtons.forEach(btn => {
         btn.addEventListener('click', function() {
             const header = this.closest('.room-card-header');
@@ -846,20 +1063,12 @@ document.addEventListener('DOMContentLoaded', function () {
             const nameInput = header.querySelector('.room-name-input');
             const saveBtn = header.querySelector('.room-save-btn');
 
-            // Esconde o nome e o botão de editar
             nameDisplay.hidden = true;
             this.hidden = true;
-
-            // Mostra o campo de input e o botão de salvar
             nameInput.hidden = false;
             saveBtn.hidden = false;
-            
-            // Foca no campo de input
             nameInput.focus();
             nameInput.select();
-
-            // --- MELHORIA ADICIONADA ---
-            // Garante que o novo ícone (check) seja renderizado
         });
     });
 });
@@ -872,9 +1081,11 @@ ARQUIVO: app/web/templates/sidebar.html
 ========================================
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-        <button class="icon-btn" id="sidebar-toggle" title="Menu">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/menu.svg') }})"></span>
-        </button>
+        {# O botão foi substituído por este container clicável com os logos #}
+        <div id="sidebar-logo-toggle" title="Menu">
+            <img src="{{ url_for('static', path='icons/logo_icone.svg') }}" alt="Ícone do Logo" class="logo-sidebar" id="logo-icone">
+            <img src="{{ url_for('static', path='icons/LOGOazulescuro.png') }}" alt="Logo Completo" class="logo-sidebar" id="logo-completo">
+        </div>
     </div>
     <nav class="sidebar-nav">
         <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
@@ -891,24 +1102,30 @@ ARQUIVO: app/web/templates/sidebar.html
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
             <span class="nav-text">Ativos</span>
         </a>
-
         <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
             <span class="nav-text">Quartos</span>
-        </a>
-
-        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Plantas">
+        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
-            <span class="nav-text">Plantas</span>
+            <span class="nav-text">Planta</span>
         </a>
-        
     </nav>
+    <button id="sidebar-toggle-btn" title="Alternar menu">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+    </button>
+
+    <a href="{{ url_for('login_page') }}" class="nav-item" title="Sair">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/sair.svg') }})"></span>
+        <span class="nav-text">Sair</span>
+    </a>
+
     <div class="sidebar-footer">
-        <a href="#" class="nav-item" title="Sair">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/sair.svg') }})"></span>
-            <span class="nav-text">Sair</span>
-        </a>
-    </div>
+    {# --- INÍCIO DA MUDANÇA --- #}
+    <div class="footer-brand">
+        <span class="brand-icon">V.0.4.0</span> <span class="brand-full">WH Connect v0.4.0</span> </div>    
+</div>
 </aside>
 
 
