@@ -25,7 +25,7 @@
 
         // 2. Lógica da Sidebar e do Overlay (fundo escurecido).
         const sidebar = document.getElementById('sidebar');
-        const toggleButton = document.getElementById('sidebar-toggle');
+        const toggleButton = document.getElementById('sidebar-toggle-btn');
         const overlay = document.getElementById('overlay');
 
         if (toggleButton && sidebar && overlay) {
@@ -36,72 +36,43 @@
             toggleButton.addEventListener('click', toggleSidebar);
             overlay.addEventListener('click', toggleSidebar);
         }
+        
+        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
+        const formsContainer = document.getElementById('forms-container');
 
-        // 3. Lógica de Interatividade da Tabela (para Ativos e Embarcados).
-        const table = document.querySelector('.data-table');
-        // Só continua se a página atual TIVER uma tabela com a classe '.data-table'.
-        if (table) {
-            const editBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Editar"]');
-            const deleteBtn = table.closest('.list-column').querySelector('.toolbar-actions .icon-btn[title="Apagar"]');
-            let selectedRow = null;
-
-            table.addEventListener('click', (event) => {
-                const row = event.target.closest('.selectable-row');
-                if (!row) return;
-
-                if (selectedRow) {
-                    selectedRow.style.backgroundColor = '';
+        // Só executa se o botão e o container existirem nesta página
+        if (toggleFormsBtn && formsContainer) {
+            
+            // Função para atualizar o texto do tooltip (title) do botão
+            const updateButtonTitle = () => {
+                if (formsContainer.classList.contains('collapsed')) {
+                    toggleFormsBtn.title = 'Mostrar Formulários';
+                } else {
+                    toggleFormsBtn.title = 'Recolher Formulários';
                 }
-                row.style.backgroundColor = '#e0eafc'; // Cor de seleção
-                selectedRow = row;
+            };
+
+            // Ao carregar a página, verifica se o estado "recolhido" estava salvo
+            if (localStorage.getItem('formsCollapsed') === 'true') {
+                formsContainer.classList.add('collapsed');
+                toggleFormsBtn.classList.add('collapsed');
+            }
+            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+
+            // Adiciona o evento de clique ao botão
+            toggleFormsBtn.addEventListener('click', () => {
+                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
+                formsContainer.classList.toggle('collapsed');
+                toggleFormsBtn.classList.toggle('collapsed');
+
+                // Atualiza o texto do title para o novo estado
+                updateButtonTitle();
+
+                // Salva o estado atual no armazenamento local
+                localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
             });
-
-            if (editBtn) {
-                editBtn.addEventListener('click', () => {
-                    if (!selectedRow) {
-                        alert('Por favor, selecione um item na tabela para editar.');
-                        return;
-                    }
-                    const itemId = selectedRow.dataset.id;
-                    const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                    let editUrl = '';
-
-                    if (pageTitle.includes('ativos')) {
-                        editUrl = `/assets/${itemId}/edit`;
-                    } else if (pageTitle.includes('embarcados')) {
-                        editUrl = `/embarcados/${itemId}/edit`;
-                    }
-
-                    if (editUrl) {
-                        window.location.href = editUrl;
-                    }
-                });
-            }
-
-            if (deleteBtn) {
-                deleteBtn.addEventListener('click', () => {
-                    if (!selectedRow) {
-                        alert('Por favor, selecione um item na tabela para apagar.');
-                        return;
-                    }
-                    if (confirm('Tem certeza que deseja apagar o item selecionado?')) {
-                        const itemId = selectedRow.dataset.id;
-                        const pageTitle = document.querySelector('h1').textContent.toLowerCase();
-                        let deleteUrl = '';
-
-                        if (pageTitle.includes('ativos')) {
-                            deleteUrl = `/assets/${itemId}/delete`; 
-                        } else if (pageTitle.includes('embarcados')) {
-                            deleteUrl = `/embarcados/${itemId}/delete`;
-                        }
-
-                        if (deleteUrl) {
-                            window.location.href = deleteUrl;
-                        }
-                    }
-                });
-            }
         }
+        
         function conectarWebSocket() {
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
@@ -117,6 +88,15 @@
                 if (event.data === "ping") {
                     return;
                 }
+
+                if (event.data === "ATUALIZAR_ESTADO") {
+                    console.log("Recebido sinal para atualizar. Recarregando a página...");
+                    // Adiciona um pequeno delay para garantir que o banco de dados foi atualizado
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500); // 500ms de delay
+                }   
+
                 try {
                     const data = JSON.parse(event.data);
                     // Verifica se é a mensagem especial de conexão para receber o nosso "crachá"

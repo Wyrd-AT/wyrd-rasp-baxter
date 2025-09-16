@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import event, or_, desc
+from sqlalchemy import event, or_, desc, asc
 
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
@@ -38,7 +38,7 @@ from starlette.exceptions import WebSocketException
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
-    ReceivedEvent, GlobalSetting, init_db
+    ReceivedEvent, GlobalSetting, Andar, init_db
 )
 from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
 from . import mqtt_client
@@ -161,6 +161,47 @@ def get_db():
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
 
+def get_or_create_andar(db: Session, nome: str) -> Andar:
+    andar = db.query(Andar).filter(Andar.nome == nome).first()
+    if not andar:
+        logger.info(f"Andar '{nome}' não encontrado. Criando novo registro.")
+        andar = Andar(nome=nome)
+        db.add(andar)
+        db.commit()
+        db.refresh(andar)
+    return andar
+
+def get_or_create_quarto(db: Session, nome: str, andar_id: int) -> Quarto:
+    quarto = db.query(Quarto).filter(Quarto.nome == nome).first()
+    if not quarto:
+        logger.info(f"Quarto '{nome}' não encontrado. Criando e associando ao andar ID {andar_id}.")
+        quarto = Quarto(nome=nome, andar_id=andar_id)
+        db.add(quarto)
+        db.commit()
+        db.refresh(quarto)
+    # Se o quarto já existe, mas pertence a outro andar (caso de edição)
+    elif quarto.andar_id != andar_id:
+        quarto.andar_id = andar_id
+        db.commit()
+    return quarto
+
+@app.get("/login", name="login_page")
+def display_login_page(request: Request):
+    """
+    Esta rota apenas exibe a página de login.
+    """
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login", name="login")
+def handle_login(request: Request, username: str = Form(...), password: str = Form(...)):
+    """
+    Esta rota processa os dados do formulário de login.
+    Por enquanto, ela apenas redireciona para a página de quartos.
+    """
+    # A lógica de autenticação pode ser adicionada aqui no futuro.
+    # Por agora, qualquer login redireciona para a página de quartos.
+    return RedirectResponse(url=request.url_for("list_quartos"), status_code=303)
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     client_id = await manager.connect(websocket)
@@ -221,7 +262,7 @@ def get_server_time():
 
 @app.get("/", name="main")
 def main_page(request: Request):
-    return RedirectResponse(url=request.url_for("list_quartos"), status_code=303)
+    return RedirectResponse(url=request.url_for("login_page"), status_code=303)
 
 @app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
 async def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
@@ -468,38 +509,36 @@ def get_planta_dados(db: Session = Depends(get_db)):
 @app.get("/quartos", name="list_quartos")
 def list_quartos(request: Request, db: Session = Depends(get_db)):
     """
-    Exibe o dashboard de status dos quartos, com os ativos ordenados por hora de entrada.
+    Exibe o dashboard de status dos quartos, agora carregando também os andares.
     """
-    quartos_com_assets = db.query(Quarto).options(joinedload(Quarto.assets)).order_by(Quarto.id).all()
+    # A query foi atualizada para carregar o andar junto com o quarto e os ativos
+    quartos_com_assets = db.query(Quarto).options(
+        joinedload(Quarto.assets),
+        joinedload(Quarto.andar)  # <-- MUDANÇA IMPORTANTE AQUI
+    ).order_by(Quarto.id).all()
 
-    # --- LÓGICA DE BUSCA E ORDENAÇÃO ---
+    # O resto da lógica para encontrar a data de entrada dos ativos permanece
     for quarto in quartos_com_assets:
         for asset in quarto.assets:
-            # 1. Busca o evento 'GET' mais recente para este ativo
             ultimo_evento_entrada = db.query(ReceivedEvent).filter(
                 ReceivedEvent.ativo == asset.mac_beacon,
                 ReceivedEvent.action == 'GET',
-                ReceivedEvent.status == 'OK'
+                ReceivedEvent.status.in_(['OK', 'Confirmado'])
             ).order_by(ReceivedEvent.data_on.desc()).first()
 
             if ultimo_evento_entrada:
-                # 2. Armazena a data como um objeto e como texto formatado
                 asset.data_entrada_obj = ultimo_evento_entrada.data_on
                 asset.data_entrada_str = ultimo_evento_entrada.data_on.strftime("%d/%m/%Y às %H:%M:%S")
             else:
-                # Usa uma data muito antiga para garantir que fiquem no início
                 asset.data_entrada_obj = datetime.min.replace(tzinfo=timezone.utc)
                 asset.data_entrada_str = "Horário de entrada não registrado"
         
-        # 3. --- CORREÇÃO ADICIONADA AQUI ---
-        # Ordena a lista de ativos do quarto com base na data de entrada que acabamos de encontrar.
         quarto.assets.sort(key=lambda b: b.data_entrada_obj)
 
     return templates.TemplateResponse("quartos_list.html", {
         "request": request,
         "quartos": quartos_com_assets
     })
-
 
 @app.post("/quartos/{quarto_id}/edit", name="update_quarto")
 def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: Session = Depends(get_db)):
@@ -518,15 +557,36 @@ def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: S
 # SEÇÃO 3: CRUD PARA EMBARCADOS
 # ===================================================================
 @app.get("/embarcados", name="list_embarcados")
-def list_embarcados(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    query = db.query(Embarcado).options(joinedload(Embarcado.quarto))
-    if search:
-        query = query.filter(or_(
-            Embarcado.id_esp.ilike(f"%{search}%"),
-            Embarcado.quarto.has(Quarto.nome.ilike(f"%{search}%"))
-        ))
+def list_embarcados(
+    request: Request, db: Session = Depends(get_db),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("id_esp"),
+    order: Optional[str] = Query("asc")
+):
+    # A query agora precisa carregar o andar junto com o quarto
+    query = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar))
     
-    embarcados = query.order_by(Embarcado.id_esp).all()
+    # Lógica de busca
+    if search:
+        search_term = f"%{search}%"
+        query = query.join(Embarcado.quarto).join(Quarto.andar).filter(
+            or_(Embarcado.id_esp.ilike(search_term), Quarto.nome.ilike(search_term), Andar.nome.ilike(search_term), Embarcado.mac_address.ilike(search_term), Embarcado.ip_address.ilike(search_term))
+        )
+    
+    # Lógica de ordenação
+    sortable_columns = {
+        "id_esp": Embarcado.id_esp, "andar": Andar.nome, "quarto": Quarto.nome,
+        "status": Embarcado.status_rede, "wifi_signal": Embarcado.wifi_signal, "rssi_min": Embarcado.rssi_threshold,
+        "mac_address": Embarcado.mac_address, "ip_address": Embarcado.ip_address
+    }
+    if sort_by in ["andar", "quarto"]:
+        query = query.join(Embarcado.quarto).join(Quarto.andar)
+
+    sort_column = sortable_columns.get(sort_by, Embarcado.id_esp)
+    query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
+    
+    embarcados = query.all()
+    
     global_settings = get_global_settings(db)
     rssi_thresholds = {
         "global": int(global_settings.get("rssi_threshold", -60)),
@@ -534,11 +594,11 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
             emb.id_esp: emb.rssi_threshold for emb in embarcados if emb.rssi_threshold is not None
         }
     }
+    
+    # Lógica para formatar a data (last_seen)
     fuso_local = timezone(timedelta(hours=-3))
-
     for emb in embarcados:
         emb.status = emb.status_rede.capitalize() if emb.status_rede else "Desconhecido"
-
         if emb.last_seen:
             last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
             data_local = last_seen_utc.astimezone(fuso_local)
@@ -547,9 +607,9 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
             emb.last_seen_str = "Nunca visto"
 
     assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
-    
     available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
+    # A LINHA MAIS IMPORTANTE: enviando a variável que faltava
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
         "embarcados": embarcados,
@@ -558,27 +618,32 @@ def list_embarcados(request: Request, search: Optional[str] = Query(None), db: S
         "embarcado": None, 
         "search": search,
         "global_settings": get_global_settings(db),
-        "rssi_thresholds": json.dumps(rssi_thresholds)
+        "rssi_thresholds": json.dumps(rssi_thresholds),
+        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
 
 @app.post("/embarcados/new", name="create_embarcado")
-def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int = Form(...),
-                     rssi_threshold: Optional[str] = Form(None),
-                     db: Session = Depends(get_db)):
-
-    # Converte a string recebida para int apenas se ela não for vazia/nula
+def create_embarcado(
+    request: Request,
+    id_esp: str = Form(...),
+    andar_nome: str = Form(...),
+    quarto_nome: str = Form(...),
+    rssi_threshold: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    andar_obj = get_or_create_andar(db, andar_nome.strip())
+    quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
+    
     rssi_value = int(rssi_threshold) if rssi_threshold else None
     
-    # Usa o valor convertido ao criar o objeto
-    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_id, rssi_threshold=rssi_value)
-    
+    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, rssi_threshold=rssi_value)
+        
     try:
         db.add(novo_embarcado)
         db.commit()
         db.refresh(novo_embarcado)
-        aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
-
-        logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. A disparar reset automático.")
+        aggregator.flag_for_reload()
+        logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. Disparando reset automático.")
         command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
         mqtt_client.publish_command_to_esp(esp_id=novo_embarcado.id_esp, command=command)
     except Exception as e:
@@ -591,48 +656,54 @@ def create_embarcado(request: Request, id_esp: str = Form(...), quarto_id: int =
 def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
     emb_para_editar = db.query(Embarcado).get(embarcado_id)
     
-    # --- LÓGICA DE FILTRO DE QUARTOS DISPONÍVEIS (PARA EDIÇÃO) ---
-    # 1. Pega os IDs dos quartos atribuídos a OUTROS embarcados.
     assigned_quarto_ids = {
         emb.quarto_id for emb in db.query(Embarcado).filter(
-            Embarcado.id != embarcado_id, # Exclui o embarcado atual da verificação
+            Embarcado.id != embarcado_id,
             Embarcado.quarto_id.isnot(None)
         ).all()
     }
-
-    aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
     
-    # 2. Busca os quartos que não estão na lista de atribuídos.
     available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
+    # Adicionando a variável que faltava
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
-        "embarcados": db.query(Embarcado).options(joinedload(Embarcado.quarto)).order_by(Embarcado.id_esp).all(),
-        "available_quartos": available_quartos, # <-- Passa a lista filtrada
+        "embarcados": db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar)).order_by(Embarcado.id_esp).all(),
+        "available_quartos": available_quartos,
         "form_action": request.url_for("update_embarcado", embarcado_id=embarcado_id),
         "embarcado": emb_para_editar,
-        "search": None, "global_settings": get_global_settings(db)
+        "search": None, 
+        "global_settings": get_global_settings(db),
+        "rssi_thresholds": json.dumps({ "global": 0, "individuais": {} }),
+        "current_filters": {"search": None, "sort_by": "id_esp", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
     })
 
 # Em main.py
 
 @app.post("/embarcados/{embarcado_id}/edit", name="update_embarcado")
-def update_embarcado(request: Request, embarcado_id: int, quarto_id: int = Form(...),
-                       rssi_threshold: Optional[str] = Form(None),
-                       db: Session = Depends(get_db)):
+def update_embarcado(
+    request: Request,
+    embarcado_id: int,
+    andar_nome: str = Form(...),
+    quarto_nome: str = Form(...),
+    rssi_threshold: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
     emb = db.query(Embarcado).get(embarcado_id)
     if emb:
-        # Converte a string recebida para int apenas se ela não for vazia/nula
+        andar_obj = get_or_create_andar(db, andar_nome.strip())
+        quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
+        
         rssi_value = int(rssi_threshold) if rssi_threshold else None
         
-        emb.quarto_id = quarto_id
-        emb.rssi_threshold = rssi_value # Salva o valor correto
+        emb.quarto_id = quarto_obj.id
+        emb.rssi_threshold = rssi_value
         db.commit()
-        aggregator.flag_for_reload() # <-- ADICIONAR ESTA LINHA
-
-        logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. A disparar reset automático.")
+        aggregator.flag_for_reload()
+        logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. Disparando reset automático.")
         command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
         mqtt_client.publish_command_to_esp(esp_id=emb.id_esp, command=command)
+        
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.get("/embarcados/{embarcado_id}/delete", name="delete_embarcado")
@@ -650,22 +721,59 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
 # SEÇÃO 4: CRUD PARA ATIVOS
 # ===================================================================
 @app.get("/assets", name="list_assets")
-def list_assets(request: Request, search: Optional[str] = Query(None), db: Session = Depends(get_db)):
+def list_assets(
+    request: Request, db: Session = Depends(get_db),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("nome_ativo"),
+    order: Optional[str] = Query("asc")
+):
     query = db.query(Asset).options(joinedload(Asset.quarto))
+    
+    # Lógica de busca
     if search:
-        query = query.filter(or_(
-            Asset.nome_ativo.ilike(f"%{search}%"),
-            Asset.mac_beacon.ilike(f"%{search}%"),
-            Asset.quarto.has(Quarto.nome.ilike(f"%{search}%"))
-        ))
+        search_term = f"%{search}%"
+        # O outerjoin é usado para que a busca funcione mesmo em ativos que não estão em nenhum quarto
+        query = query.outerjoin(Asset.quarto).filter(
+            or_(Asset.nome_ativo.ilike(search_term), 
+                Asset.mac_beacon.ilike(search_term), 
+                Quarto.nome.ilike(search_term), 
+                Asset.tipo_ativo.ilike(search_term))
+        )
+
+    # Lógica de ordenação
+    sortable_columns = {
+        "nome_ativo": Asset.nome_ativo, "tipo_ativo": Asset.tipo_ativo,
+        "mac_beacon": Asset.mac_beacon, 
+        "quarto": Quarto.nome
+    }
+    if sort_by == "quarto":
+        query = query.outerjoin(Asset.quarto)
+        
+    sort_column = sortable_columns.get(sort_by, Asset.nome_ativo)
+    query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
+
+    assets = query.all()
+    
+    # Enviando a variável que faltava para o template
     return templates.TemplateResponse("assets_list.html", {
-        "request": request, "assets": query.order_by(Asset.nome_ativo).all(),
-        "form_action": request.url_for("create_asset"), "asset": None, "search": search
+        "request": request, "assets": assets,
+        "form_action": request.url_for("create_asset"), "asset": None, 
+        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
 
 @app.post("/assets", name="create_asset")
-def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
-    asset = Asset(nome_ativo=nome_ativo, mac_beacon=mac_beacon.lower())
+def create_asset(
+    request: Request,
+    nome_ativo: str = Form(...),
+    mac_beacon: str = Form(...),
+    tipo_ativo: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    asset = Asset(
+        nome_ativo=nome_ativo,
+        mac_beacon=mac_beacon.lower(),
+        tipo_ativo=tipo_ativo
+    )
     try:
         db.add(asset)
         db.commit()
@@ -683,23 +791,31 @@ def create_asset(request: Request, nome_ativo: str = Form(...), mac_beacon: str 
 
 @app.get("/assets/{asset_id}/edit", name="edit_asset")
 def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
-    # Esta rota não precisa de mudanças, ela apenas exibe o formulário.
+    # A única mudança é adicionar o "current_filters" no dicionário
     return templates.TemplateResponse("assets_list.html", {
-        "request": request, "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
+        "request": request, 
+        "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
         "form_action": request.url_for("update_asset", asset_id=asset_id),
-        "asset": db.query(Asset).get(asset_id), "search": None
+        "asset": db.query(Asset).get(asset_id), 
+        "search": None,
+        "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
     })
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")
-def update_asset(request: Request, asset_id: int, nome_ativo: str = Form(...), mac_beacon: str = Form(...), db: Session = Depends(get_db)):
+def update_asset(
+    request: Request,
+    asset_id: int,
+    nome_ativo: str = Form(...),
+    mac_beacon: str = Form(...),
+    tipo_ativo: str = Form(None),
+    db: Session = Depends(get_db)
+):
     asset = db.query(Asset).get(asset_id)
     if asset:
-        # --- LÓGICA DE VERIFICAÇÃO ADICIONADA ---
-        # Verifica se o MAC mudou ANTES de salvar.
-        mac_mudou = asset.mac_beacon != mac_beacon.lower()
-
         asset.nome_ativo = nome_ativo
         asset.mac_beacon = mac_beacon.lower()
+        asset.tipo_ativo = tipo_ativo
+        
         db.commit()
         aggregator.flag_for_reload() 
         logger.info("[main] Ativo atualizado. Enviando comando de sincronização para todas as ESPs.")

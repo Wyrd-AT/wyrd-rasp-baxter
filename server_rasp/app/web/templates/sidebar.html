@@ -1,8 +1,10 @@
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-        <button class="icon-btn" id="sidebar-toggle" title="Menu">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/menu.svg') }})"></span>
-        </button>
+        {# O botão foi substituído por este container clicável com os logos #}
+        <div id="sidebar-logo-toggle" title="Menu">
+            <img src="{{ url_for('static', path='icons/logo_icone.svg') }}" alt="Ícone do Logo" class="logo-sidebar" id="logo-icone">
+            <img src="{{ url_for('static', path='icons/LOGOazulescuro.png') }}" alt="Logo Completo" class="logo-sidebar" id="logo-completo">
+        </div>
     </div>
     <nav class="sidebar-nav">
         <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
@@ -19,22 +21,28 @@
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
             <span class="nav-text">Ativos</span>
         </a>
-
         <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
             <span class="nav-text">Quartos</span>
-        </a>
-
-        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Plantas">
+        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
-            <span class="nav-text">Plantas</span>
+            <span class="nav-text">Planta</span>
         </a>
-        
     </nav>
+    <button id="sidebar-toggle-btn" title="Alternar menu">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+    </button>
+
+    <a href="{{ url_for('login_page') }}" class="nav-item" title="Sair">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/sair.svg') }})"></span>
+        <span class="nav-text">Sair</span>
+    </a>
+
     <div class="sidebar-footer">
-        <a href="#" class="nav-item" title="Sair">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/sair.svg') }})"></span>
-            <span class="nav-text">Sair</span>
-        </a>
-    </div>
+    {# --- INÍCIO DA MUDANÇA --- #}
+    <div class="footer-brand">
+        <span class="brand-icon">V.0.4.0</span> <span class="brand-full">WH Connect v0.4.0</span> </div>    
+</div>
 </aside>

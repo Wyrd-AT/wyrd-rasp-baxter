@@ -48,16 +48,25 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 if asset.quarto:
                     nome_quarto_evento = asset.quarto.nome
             
+            quarto_evento_obj = None
+            if action == "GET":
+                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first() 
+            else: # action == "OUT"
+                if asset.quarto:
+                    quarto_evento_obj = asset.quarto 
+
             event = ReceivedEvent(
-                esp_id=change["source_esp_id"],
+                esp_id=change.get("source_esp_id", "server"),
                 ativo=asset.mac_beacon,
-                quarto_nome=nome_quarto_evento,
+                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else None,
+                # Esta é a linha mais importante que adicionamos
+                andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
                 action=action,
                 status="OK",
-                status_detail=change["details"],
-                rssi=change["rssi"],
+                status_detail=change.get("details"),
+                rssi=change.get("rssi"),
                 data_on=datetime.now(timezone.utc),
-                raw={"source": "aggregator_batch", "old_quarto_id": quarto_anterior_id}
+                raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
             )
             db.add(event)
 

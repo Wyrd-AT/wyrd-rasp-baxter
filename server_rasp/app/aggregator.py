@@ -241,7 +241,6 @@ def clear_asset_state(mac_beacon_to_clear: str):
         return True
     return False
 
-
 def _load_maps_from_db():
     global _esp_map, _asset_map, _config
     db = SessionLocal()

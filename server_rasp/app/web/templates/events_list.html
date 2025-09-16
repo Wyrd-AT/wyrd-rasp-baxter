@@ -5,9 +5,10 @@
 {% block content %}
 <div class="content-header">
     <h1>Histórico de Eventos</h1>
-    <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">DOWNLOAD CSV</a>
+    <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">BAIXAR DADOS</a>
 </div>
 
+{# Seção de Filtros (sem alterações) #}
 <form class="filters-toolbar" method="get" action="{{ url_for('list_events') }}">
     <div class="filter-group-left">
         <select name="filter_ativo" class="filter-dropdown-main" onchange="this.form.submit()">
@@ -17,7 +18,6 @@
             {% endfor %}
         </select>
     </div>
-
     <div class="filter-group-right">
         <select name="time_filter" class="filter-btn" onchange="this.form.submit()">
             <option value="all" {% if not current_filters.time_filter or current_filters.time_filter == 'all' %}selected{% endif %}>Data e Hora</option>
@@ -25,45 +25,78 @@
             <option value="weekly" {% if current_filters.time_filter == 'weekly' %}selected{% endif %}>Últimos 7 dias</option>
             <option value="monthly" {% if current_filters.time_filter == 'monthly' %}selected{% endif %}>Últimos 30 dias</option>
         </select>
-
+        <select name="filter_andar" class="filter-btn" onchange="this.form.submit()">
+            <option value="">Andar</option>
+            {% for andar in all_andares %}
+            <option value="{{ andar }}" {% if current_filters.andar == andar %}selected{% endif %}>{{ andar }}</option>
+            {% endfor %}
+        </select>
         <select name="filter_quarto" class="filter-btn" onchange="this.form.submit()">
             <option value="">Quarto</option>
             {% for quarto in all_quartos %}
             <option value="{{ quarto }}" {% if current_filters.quarto == quarto %}selected{% endif %}>{{ quarto }}</option>
             {% endfor %}
         </select>
-
         <select name="filter_action" class="filter-btn" onchange="this.form.submit()">
           <option value="">Ação</option>
           {% for value, name in all_action_options %}
           <option value="{{ value }}" {% if current_filters.action == value %}selected{% endif %}>{{ name }}</option>
           {% endfor %}
         </select>
-
         <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
           <option value="">Status</option>
           {% for status_option in all_status_options %}
           <option value="{{ status_option }}" {% if current_filters.status == status_option %}selected{% endif %}>{{ status_option }}</option>
           {% endfor %}
         </select>
-
         <a href="{{ url_for('list_events') }}" class="filter-reset-btn" title="Limpar Filtros">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/reiniciar.svg') }})"></span>
         </a>
     </div>
 </form>
 
+{# Seção da Tabela de Histórico (COM AS CORREÇÕES) #}
 <div class="history-table-container">
     <table class="data-table history-table">
         <thead>
             <tr>
-                <th>DATA</th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'data_on' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='data_on', order=sort_order) }}">
+                    DATA {% if current_filters.sort_by == 'data_on' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a>
+                </th>
                 <th>HORA</th>
-                <th>ATIVO</th>
-                <th>QUARTO</th>
-                <th>AÇÃO</th>
-                <th>SINAL</th>
-                <th>STATUS</th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'ativo' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='ativo', order=sort_order) }}">ATIVO</a>
+                    {% if current_filters.sort_by == 'ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO</a>
+                    {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                
+                {# === INÍCIO DAS MUDANÇAS === #}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'andar' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='andar', order=sort_order) }}">ANDAR</a>
+                    {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {# === FIM DAS MUDANÇAS === #}
+
+                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
+                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'rssi' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='rssi', order=sort_order) }}">SINAL BLE</a>
+                    {% if current_filters.sort_by == 'rssi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'wifi' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='wifi', order=sort_order) }}">SINAL WI-FI</a>
+                    {% if current_filters.sort_by == 'wifi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
+                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                </th>
             </tr>
         </thead>
         <tbody>
@@ -73,16 +106,24 @@
                 <td>{{ event.hora_str }}</td>
                 <td>{{ event.nome_ativo }}</td>
                 <td>{{ event.quarto }}</td>
+
+                {# === INÍCIO DAS MUDANÇAS === #}
+                <td>{{ event.andar_nome or '---' }}</td>
+                {# === FIM DAS MUDANÇAS === #}
+
                 <td>
                     {% if event.action == 'GET' %}
                         <span class="action-get">Conectar</span>
                     {% elif event.action == 'OUT' %}
                         <span class="action-out">Desconectar</span>
+                    {% elif event.action == 'ALERTA' %}
+                        <span class="action-warning">Alerta</span>
                     {% else %}
                         <span>{{ event.action }}</span>
                     {% endif %}
                 </td>
-                <td>{{ event.rssi or '0' }}</td>
+                <td>{{ event.rssi or '---' }}</td>     
+                <td>{{ event.wifi or '---' }}</td>     
                 <td>
                     {% if event.status %}
                         <span class="status-box status-{{ event.status | lower }}"

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   BAXTER WYRD - FOLHA DE ESTILOS UNIFICADA E FINAL
+   HSA WYRD - FOLHA DE ESTILOS UNIFICADA E FINAL
    ========================================================================== */
 
 /* --- Reset Básico, Fontes e Variáveis de Cor --- */
@@ -74,50 +74,140 @@
 body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--text-primary); font-size: 16px; }
 h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
-/* [ALTERADO] Removido 'display: flex' para permitir a sobreposição */
 .container { display: block; position: relative; height: 100vh; width: 100vw; }
 
-/* [ALTERADO] Adicionado padding-left para compensar a sidebar recolhida */
 .main-content { height: 100%; padding: 2rem 3rem 2rem 105px; overflow-y: auto; }
 
 /* --- Sidebar --- */
-/* [ALTERADO] Adicionado position: fixed e z-index para flutuar acima de tudo */
 .sidebar { position: fixed; top: 0; left: 0; height: 100%; z-index: 1000; width: 83px; background-color: var(--sidebar-bg); padding: 1.5rem 0; display: flex; flex-direction: column; align-items: center; transition: width 0.3s ease; border-right: 1px solid var(--border-color); }
-
 .sidebar-header { padding-bottom: 2rem; }
-.sidebar-nav { flex-grow: 1; display: flex; flex-direction: column; align-items: center; gap: 2rem; margin-top: 2rem; }
+.sidebar-nav { flex-grow: 1; display: flex; align-items: center;flex-direction: column; align-items: center; gap: 2rem; margin-top: 2rem; }
 .nav-item { display: flex; justify-content: center; align-items: center; width: 50px; height: 50px; border-radius: 8px; text-decoration: none; color: var(--text-primary); }
 .nav-item.active { background-color: var(--active-nav-bg); }
-.nav-item.active .feather, .nav-item.active .emoji-icon, .nav-item.active .svg-icon { color: white; stroke: white; fill: white; }
+.nav-item.active .feather, .nav-item.active .emosidebar-navji-icon, .nav-item.active .svg-icon { color: white; stroke: white; fill: white; }
 .nav-item .feather, .nav-item svg { width: 28px; height: 28px; }
 .nav-item.active .nav-text { color: white; }
 .emoji-icon { font-size: 28px; line-height: 1; }
-.sidebar-footer { margin-top: auto; padding-bottom: 1rem; }
+.sidebar-footer {
+    width: 100%;
+    padding-top: 1.5rem; /* Adiciona espaço acima do rodapé */
+    margin-top: auto; /* Garante que ele fique preso na parte de baixo */
+}
+
+/* Container da marca/nome do app */
+.footer-brand {
+    position: relative;
+    height: 40px; /* Altura da área do texto */
+    text-align: center;
+    margin-bottom: 1rem; /* Espaço entre o nome e o botão "Sair" */
+}
+
+/* Estilo base para os textos (versão ícone e completa) */
+.brand-icon, .brand-full {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    
+    /* Pega a cor secundária do seu tema */
+    color: var(--text-secondary); 
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap; /* Impede que o texto quebre linha */
+    
+    transition: opacity 0.3s ease-in-out; /* Animação de fade */
+}
+
+/* Por padrão (sidebar fechada), mostra só o ícone */
+.brand-icon {
+    opacity: 1;
+}
+.brand-full {
+    opacity: 0;
+}
+
+/* Quando a sidebar expande, inverte a visibilidade */
+.sidebar.expanded .brand-icon {
+    opacity: 0;
+}
+.sidebar.expanded .brand-full {
+    opacity: 1;
+}
+
 .sidebar .nav-text { display: none; margin-left: 1rem; font-weight: 500; white-space: nowrap; }
 .sidebar.expanded { width: 256px; align-items: flex-start; padding: 1.5rem; }
 .sidebar.expanded .nav-item { width: 100%; justify-content: flex-start; padding: 0 1rem; }
 .sidebar.expanded .nav-text { display: inline; }
+.sidebar.expanded .sidebar-header {
+    width: 100%; /* Faz o cabeçalho ocupar toda a largura da sidebar */
+    display: flex;
+    justify-content: center; /* Centraliza o container do logo horizontalmente */
+}
 
-/* [NOVO] Estilos para o overlay (fundo escurecido) */
+/* --- Overlay --- */
 .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 999; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
 .overlay.active { opacity: 1; visibility: visible; }
 
 /* --- Cabeçalho do Conteúdo --- */
-.content-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; flex-shrink: 0; }
-.content-header h1 { font-size: 28px; position: relative; }
-.content-header h1::after { content: ''; position: absolute; bottom: -1.5rem; left: 0; width: 100px; height: 4px; background-color: var(--primary-color); }
-.btn-primary { background-color: var(--button-primary-bg); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 16px; font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none; }
+/* --- Cabeçalho do Conteúdo --- */
+.content-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    margin-bottom: 2rem; 
+    border-bottom: 1px solid var(--border-color); 
+    padding-bottom: 1.5rem; 
+    flex-shrink: 0; 
+}
+.content-header h1 { 
+    font-size: 28px; 
+    position: relative; 
+}
+.content-header h1::after { 
+    content: ''; 
+    position: absolute; 
+    bottom: -1.5rem; 
+    left: 0; 
+    width: 100px; 
+    height: 4px; 
+    background-color: var(--primary-color); 
+}
 
-/* --- Layout de Página com Formulário --- */
-.page-with-form { display: grid; grid-template-columns: 2.5fr 1fr; gap: 2rem; flex-grow: 1; overflow: hidden; }
-.list-column { overflow-y: auto; padding-right: 1.5rem; }
-.form-column { /* Coluna do formulário fica estática */ }
+/* NOVO: Estilo para o contêiner das ações no cabeçalho */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem; /* Espaço entre a busca e o botão de download */
+}
+
+/* Ajuste na barra de pesquisa para funcionar no cabeçalho */
+.header-actions .search-bar {
+    width: 350px; /* Largura um pouco menor */
+    margin: 0; /* Remove margens extras */
+}
+
+.btn-primary { 
+    background-color: var(--button-primary-bg); 
+    color: white; 
+    border: none; 
+    padding: 0.8rem 1.5rem; 
+    border-radius: 16px; 
+    font-weight: 700; 
+    font-size: 14px; 
+    cursor: pointer; 
+    text-decoration: none; 
+}
+
+/* --- Layout da Página de Listas --- */
+.list-container-full-width {
+    width: 100%;
+    margin-bottom: 2rem; /* Espaço entre a lista e os formulários abaixo */
+}
 
 /* --- Barra de Ferramentas e Filtros --- */
 .table-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; }
 .search-bar { display: flex; align-items: center; border-bottom: 1px solid var(--text-secondary); padding-bottom: 0.5rem; width: 432px; }
 .search-bar input { border: none; background: transparent; outline: none; width: 100%; font-family: 'Lexend Deca'; font-size: 14px; color: var(--text-secondary); margin-left: 0.5rem; }
-.search-bar .feather { color: var(--text-secondary); }
 .toolbar-actions { display: flex; gap: 1rem; }
 .icon-btn { background: none; border: none; padding: 0.5rem; cursor: pointer; display: flex; color: var(--text-secondary); }
 .icon-btn:hover { color: var(--text-primary); }
@@ -127,145 +217,666 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .data-table th, .data-table td { padding: 1.2rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
 .data-table th { font-weight: 600; font-size: 14px; color: var(--text-secondary); text-transform: uppercase; }
 
-/* --- Estilos do Formulário --- */
-.form-card { border: 1px solid var(--card-border); border-radius: 6px; padding: 2rem; }
-.form-card h3 { font-family: 'Lexend'; font-size: 18px; text-align: center; margin-bottom: 1.5rem; }
-.form-card form { display: flex; flex-direction: column; gap: 1.5rem; }
-.form-group { width: 100%; }
-.form-group label { display: block; font-weight: 700; font-size: 16px; color: var(--text-secondary); margin-bottom: 0.5rem; }
-.form-group input { width: 100%; padding: 0rem 0rem; border: none; border-bottom: 1px solid #001233; outline: none; background: transparent; font-size: 16px; }
-.form-group input::placeholder { color: var(--text-placeholder); }
-.form-btn { width: 100%; padding: 0.8rem; background-color: var(--primary-color); color: white; border: none; border-radius: 16px; margin-top: 1rem; cursor: pointer; font-weight: 700; }
+/* NOVO: Estilo para a primeira coluna (Ações) para adicionar separação à direita */
+.data-table th:first-child,
+.data-table td:first-child {
+    padding-right: 10rem; /* Aumenta o espaçamento à direita */
+}
 
-/* --- Estilos Específicos da Página de Histórico (Status) --- */
+/* --- Estilos dos Formulários (Layout Horizontal Lado a Lado) --- */
+.forms-container-horizontal {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+    margin-bottom: 2rem; /* NOVO: Adiciona a separação vertical entre os forms e a tabela */
+}
+
+/* --- Estilos dos Formulários (Layout Horizontal Lado a Lado) --- */
+.forms-container-vertical {
+    display: grid;
+    align-items: start;
+    margin-bottom: 2rem; /* NOVO: Adiciona a separação vertical entre os forms e a tabela */
+}
+
+.form-card {
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 1.5rem;
+}
+
+.form-card h3 {
+    font-family: 'Lexend';
+    font-size: 18px;
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.form-fields-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr) auto; /* 3 colunas para campos, 1 para o botão */
+    gap: 1.5rem;
+    align-items: end;
+}
+
+.form-fields-grid .form-group {
+    margin-bottom: 0;
+}
+
+.form-group {
+    width: 100%;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.form-group input, .form-group select {
+    width: 100%;
+    padding: 0.5em 0.2em;
+    border: none;
+    border-bottom: 1px solid #001233;
+    outline: none;
+    background: transparent;
+    font-size: 14px;
+}
+
+.form-group input::placeholder {
+    color: var(--text-placeholder);
+}
+
+.form-fields-grid .icon-btn {
+    padding: 0.5rem;
+    margin-bottom: -2px; /* Ajuste fino de alinhamento vertical */
+    border-radius: 50%;
+    transition: background-color 0.2s ease;
+    color: var(--primary-color); /* Define a cor do traço (stroke) do SVG */
+}
+
+.form-fields-grid .icon-btn:hover {
+    background-color: #e9ecef;
+}
+
+/* NOVA REGRA PARA ESTILIZAR O SVG DIRETAMENTE */
+.form-fields-grid .icon-btn svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentColor; /* Faz o SVG herdar a cor do botão (.icon-btn) */
+}
+
+/* --- Estilos Específicos da Página de Histórico --- */
 .filters-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3rem; }
 .filter-group-left, .filter-group-right { display: flex; align-items: center; gap: 1rem; }
 .filter-dropdown-main { border: none; border-bottom: 1px solid var(--text-secondary); padding: 0.5rem 0; font-family: 'Lexend Deca'; font-weight: 500; font-size: 14px; color: var(--text-secondary); -webkit-appearance: none; appearance: none; background: transparent url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1.2em; padding-right: 2rem; }
 .filter-btn { padding: 0.5rem 1rem; border: 1px solid var(--border-color); border-radius: 23px; background: white; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary); }
 .filter-btn > input { border:none; outline:none; width:50px; }
-.filter-search-btn { background: none; border: none; cursor: pointer; }
+.filters-toolbar .filter-btn { -webkit-appearance: none; appearance: none; background: white url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1em; padding-right: 2rem; }
 .history-table th, .history-table td { text-align: center; }
-.status-conectado, .status-in { color: var(--status-green); font-weight: 600; }
-.status-desconectado, .status-warning, .status-warning-expired, .status-out { color: var(--status-red); font-weight: 600; }
 .pagination { text-align: center; padding-top: 2rem; }
 .pagination a, .pagination span { margin: 0 0.5rem; }
 
-/* Cor para o novo status de erro */
-.status-erro-wifi { color: #FF9500; font-weight: 600; }
+/* --- Estilos de Status e Ações --- */
+.status-box { padding: 4px 8px; border-radius: 12px; font-weight: bold; font-size: 0.9em; color: #fff; text-transform: uppercase; }
+.status-ok { background-color: #28a745; }
+.status-pendente { background-color: #fd7e14; }
+.status-ignorado { background-color: #fd7e14; }
+.status-erro { background-color: #dc3545; }
+.status-cancelado { background-color: #495057; }
+.status-confirmado { background-color: #17a2b8; }
+.status-resolvido { background-color: #068523; }
+.status-enfileirado { background-color: #6c757d; }
+.status-vencido {background-color: #966a0b}
+.action-get { color: #28a745; font-weight: bold; }
+.action-out { color: #dc3545; font-weight: bold; }
+.action-warning { color: #fd7e14; font-weight: bold; }
 
+/* --- Seção de Eventos Pendentes --- */
+.pending-events-section { margin-bottom: 3rem; border: 1px solid #fd7e14; border-radius: 8px; padding: 1.5rem; background-color: #fff9f3; }
+.pending-events-section h2 { font-family: 'Lexend Deca', sans-serif; font-size: 20px; margin-bottom: 1.5rem; color: #d96d00; }
+.btn-cancel { background-color: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 5px; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; }
+.btn-cancel:hover { background-color: #dc3545; }
+
+/* --- Componentes Genéricos (Ícones, Modal) --- */
 .svg-icon { width: 34px; height: 34px; display: inline-block; background-color: var(--text-primary); mask-image: var(--icon-url); mask-size: contain; mask-repeat: no-repeat; mask-position: center; -webkit-mask-image: var(--icon-url); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
 .nav-item.active .svg-icon { background-color: white; }
-
-/* Estilo para botões de filtro que não são interativos (apenas visuais) */
-.filter-btn-static { padding: 0.5rem 1rem; border: 1px solid var(--border-color); border-radius: 23px; background: #f8f9fa; font-size: 14px; display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary); }
-
-/* Ajuste fino para que os selects pareçam com botões */
-.filters-toolbar .filter-btn { -webkit-appearance: none; appearance: none; background: white url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1em; padding-right: 2rem; }
+.icon-btn .svg-icon { width: 20px; height: 20px; background-color: currentColor; }
+.filter-reset-btn .svg-icon { width: 20px; height: 20px; background-color: currentColor; }
 
 .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
 .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 60%; max-width: 600px; border-radius: 8px; }
 .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 1rem; }
 .close-btn { color: #aaa; font-size: 28px; font-weight: bold; background: none; border: none; cursor: pointer; }
 .close-btn:hover, .close-btn:focus { color: black; }
-.modal-body { padding-top: 1rem; display: flex; flex-direction: column; }
-.modal-link { padding: 12px 0; text-decoration: none; color: var(--primary-dark); font-weight: 500; border-bottom: 1px solid #eee; }
-.modal-link:last-child { border-bottom: none; }
-.modal-link:hover { background-color: #f0f2f5; }
+.modal-body { padding-top: 1rem; }
 
-/* Adicione ao final do seu style.css */
-.status-box { padding: 4px 8px; border-radius: 12px; font-weight: bold; font-size: 0.9em; color: #fff; text-transform: uppercase; }
-.status-ok { background-color: #28a745; }
-.status-pendente { background-color: #fd7e14; }
-.status-ignorado { background-color: #fd7e14; }
-.status-erro { background-color: #dc3545; }
-.status-cancelado { background-color: #495057; } /* <-- ADICIONE ESTA LINHA */
-.status-confirmado { background-color: #17a2b8; }
-.status-resolvido { background-color: #068523; } /* "Resolvido" pode usar a mesma cor do "OK" */
-.status-enfileirado { background-color: #6c757d; }
-.status-detail-icon { display: inline-block; margin-left: 8px; font-weight: bold; color: #007bff; background-color: #e9ecef; border-radius: 50%; width: 20px; height: 20px; line-height: 20px; text-align: center; cursor: help; }
-.action-get { color: #28a745; font-weight: bold; }
-.action-out { color: #dc3545; font-weight: bold; }
-.action-warning { color: #fd7e14; font-weight: bold; }
-
-/* Adicione ao final do seu style.css */
-.pending-events-section {
-    margin-bottom: 3rem;
-    border: 1px solid #fd7e14; /* Laranja, para chamar a atenção */
-    border-radius: 8px;
-    padding: 1.5rem;
-    background-color: #fff9f3;
-}
-
-.pending-events-section h2 {
-    font-family: 'Lexend Deca', sans-serif;
-    font-size: 20px;
-    margin-bottom: 1.5rem;
-    color: #d96d00;
-}
-
-/* Adicione ao final do seu style.css */
-.btn-cancel {
-    background-color: #6c757d; /* Um cinza neutro */
-    color: white;
+/* --- Menu de Ações (3 pontinhos) --- */
+.actions-menu-container { position: relative; display: inline-block; }
+.actions-menu-trigger { background: none; border: none; cursor: pointer; padding: 8px 12px; font-size: 20px; line-height: 1; border-radius: 4px; }
+.actions-menu-trigger:hover { background-color: #f0f2f5; }
+.actions-dropdown { display: none; position: absolute; left: 0; top: 100%; background-color: white; min-width: 160px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); z-index: 1; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+.actions-dropdown.show { display: block; }
+.actions-dropdown form { margin: 0; }
+.actions-dropdown .menu-item-btn,
+.actions-dropdown .menu-item-link {
+    background: none;
     border: none;
-    padding: 5px 10px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.btn-cancel:hover {
-    background-color: #dc3545; /* Vermelho no hover para indicar uma ação destrutiva */
-}
-
-/* ================================================== */
-/* == Estilos para a Seção de Configurações Avançadas == */
-/* ================================================== */
-
-/* Regra corrigida para ajustar o espaçamento vertical */
-.advanced-settings {
-    /* O formulário tem um 'gap' de 2.5rem. 
-      Usamos uma margem negativa para "puxar" a seção para cima,
-      reduzindo o espaço entre ela e o campo "Andar".
-    */
-    margin-top: -1.5rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--border-color);
-}
-
-/* O restante das regras pode permanecer o mesmo */
-.advanced-settings summary {
-    font-family: 'Lexend', sans-serif;
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    cursor: pointer;
-    margin-bottom: 2rem;
-    outline: none;
-}
-
-.advanced-settings summary::marker {
-    color: var(--text-secondary);
-}
-
-.advanced-settings .form-group {
-    margin-top: 2.5rem;
-}
-
-.advanced-settings .form-group:first-of-type {
-    margin-top: 0;
-}
-
-/* Estilo para o formulário de configurações gerais */
-.settings-grid {
-    display: grid;
-    /* Cria 3 colunas de tamanho igual */
-    grid-template-columns: repeat(3, 1fr); 
-    /* Espaçamento entre as colunas */
-    gap: 2rem; 
+    color: var(--text-primary);
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
     width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Efeito hover para ambos */
+.actions-dropdown .menu-item-btn:hover,
+.actions-dropdown .menu-item-link:hover {
+    background-color: #f0f2f5;
+}
+
+/* NOVO: Estilo específico para a opção de excluir */
+.actions-dropdown .menu-item-link.delete:hover {
+    background-color: #fff0f0; /* Fundo avermelhado claro */
+    color: var(--status-red); /* Texto vermelho */
+}
+/* --- Indicadores e Relatórios --- */
+.status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+.status-indicator.online { background-color: #28a745; }
+.status-indicator.offline { background-color: #dc3545; }
+
+.modal-body .data-table { width: 100%; border-collapse: collapse; }
+.modal-body .data-table th, .modal-body .data-table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-color); }
+.modal-body .data-table th { background-color: #f8f9fa; }
+
+.rssi-strong { color: #28a745; font-weight: bold; }
+.rssi-weak { color: #dc3545; font-weight: bold; }
+
+/* 1. Remove a aparência de link e alinha a seta para TODOS os cabeçalhos ordenáveis */
+.data-table th a {
+    /* Estilo do texto */
+    color: inherit; /* Remove o azul, herdando a cor do cabeçalho */
+    text-decoration: none; /* Remove o sublinhado */
+
+    /* Alinhamento da seta */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+}
+
+/* 2. Adiciona um efeito hover para indicar que o cabeçalho é clicável */
+.data-table th a:hover {
+    color: var(--text-primary); /* Deixa o texto preto ao passar o mouse */
+}
+
+/* 3. Restaura o padding da primeira coluna APENAS na tabela de histórico */
+.data-table.history-table th:first-child,
+.data-table.history-table td:first-child {
+    padding-right: 1rem; /* Restaura o padding padrão */
+}
+
+/* Container do logo (agora não é mais clicável) */
+#sidebar-logo-toggle {
+    cursor: default;
+    position: relative;
+    width: 100%;
+    height: 50px;
+    padding: 8px; 
+}
+
+
+/* Estilo base para os logos (ícone e completo) */
+.logo-sidebar {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.3s ease-in-out;
+}
+
+/* Visibilidade do logo com a sidebar FECHADA */
+#logo-icone {
+    opacity: 0;
+    height: 100px;
+}
+
+#logo-completo {
+    opacity: 0;
+    height: 70px;
+}
+
+/* Visibilidade do logo com a sidebar ABERTA */
+.sidebar.expanded #logo-icone {
+    opacity: 0;
+}
+.sidebar.expanded #logo-completo {
+    opacity: 1;
+}
+
+
+/* --- Botão de Controle (Bolinha com Seta) --- */
+#sidebar-toggle-btn {
+    position: fixed;
+    top: 10%;
+    left: 83px; /* Posição inicial (sidebar fechada) */
+    transform: translate(-50%, -50%);
+    z-index: 1001;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: white;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: left 0.3s ease; /* Anima o movimento lateral */
+}
+
+#sidebar-toggle-btn svg {
+    transition: transform 0.3s ease;
+    color: var(--primary-color);
+    transform: rotate(180deg); /* Faz a seta apontar para a DIREITA por padrão */
+}
+
+/* Quando a sidebar estiver expandida, MOVE o botão */
+.sidebar.expanded #sidebar-toggle-btn {
+    left: 256px; /* Posição final (sidebar aberta) */
+}
+
+.sidebar.expanded #sidebar-toggle-btn svg {
+    transform: rotate(0deg); /* Faz a seta apontar para a ESQUERDA */
+}
+
+/* 1. Container Principal: Define a proporção e a imagem de fundo */
+.planta-container-unica {
+    position: relative;
+    width: 100%;
+    height: 0;
+    padding-top: 41.25%; /* Ajuste a proporção se necessário */
+    background-image: url('../maps/planta_cec.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background-color: #f9f9f9;
+}
+
+/* 2. Container dos Pontos (sem alterações) */
+#planta-pontos-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* 3. NOVO: Container para CADA marcador completo (Nomes + Bolinha) */
+.ponto-quarto-container {
+    position: absolute;
+    display: flex;
+    flex-direction: column; /* Organiza os itens verticalmente */
+    align-items: center;    /* Centraliza os itens horizontalmente */
+    /* Centraliza o container inteiro no ponto exato das coordenadas */
+    transform: translate(-50%, -50%); 
+    cursor: pointer;
+    min-width: 150px; /* Largura mínima para evitar que os nomes quebrem linha */
+    text-align: center;
+}
+
+
+/* 5. A Bolinha de Status (ajustada) */
+.ponto-quarto-status {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    color: white;
+    font-weight: bold;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    transition: transform 0.2s ease;
+}
+.ponto-quarto-container:hover .ponto-quarto-status {
+    transform: scale(1.1);
+}
+
+
+.ponto-nome-quarto {
+    font-size: 16px; /* Aumentado de 14px para 16px */
+    font-weight: 600;
+    color: var(--primary-dark);
+    margin-bottom: 28px; /* Aumentado de 8px para 12px para mais espaço */
+    white-space: nowrap;
+}
+
+/* 6. Nome da Cama (embaixo) */
+.ponto-nome-cama {
+    font-size: 16px; /* Aumentado de 12px para 16px, para ficar igual ao nome do quarto */
+    color: var(--text-primary); /* Alterado para uma cor mais escura e legível */
+    margin-top: 65px; /* Aumentado de 8px para 12px para mais espaço */
+    white-space: nowrap;
+}
+
+/* Estilo especial para quando o quarto está livre */
+.ponto-nome-cama.cama-livre {
+    font-style: italic;
+    color: #6c757d;
+}
+
+/* --- Estilos para os Cards de Sumário da Planta Baixa --- */
+
+.planta-sumario {
+    display: flex; /* Alinha os cards lado a lado */
+    gap: 1.5rem;   /* Espaço entre os cards */
+    margin-top: 1rem; /* Espaço acima dos cards */
+}
+
+.sumario-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem; /* Espaço entre o ícone e o texto */
+    background-color: #F8F9FA; /* Cor de fundo do card */
+    padding: 1.2rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    flex-grow: 1; /* Faz os cards ocuparem o espaço disponível */
+}
+
+.sumario-icon {
+    flex-shrink: 0; /* Impede que o ícone encolha */
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sumario-icon .svg-icon {
+    width: 24px;
+    height: 24px;
+    background-color: white; /* Cor do ícone em si */
+}
+
+.sumario-texto {
+    line-height: 1.2;
+}
+
+.sumario-numero {
+    font-family: 'Lexend Deca', sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.sumario-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+/* Variação de cor para o card de "Quartos Online" */
+.sumario-card.card-quartos .sumario-icon {
+    background-color: #E7F0FA; /* Fundo do ícone azul claro */
+}
+.sumario-card.card-quartos .sumario-numero {
+    color: #0466C8; /* Número em azul */
+}
+
+/* Variação de cor para o card de "Ativos na Planta" */
+.sumario-card.card-ativos .sumario-icon {
+    background-color: #EAF7ED; /* Fundo do ícone verde claro */
+}
+.sumario-card.card-ativos .sumario-numero {
+    color: #28a745; /* Número em verde */
+}
+
+
+/* --- Estilos da Página de Login (VERSÃO CORRIGIDA FINAL) --- */
+
+body.login-page {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #012966;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    position: fixed;
+    top: 0;
+    left: 0;
+}
+
+.login-page .login-background-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: url('../images/fundo_login.jpg') no-repeat center center;
+    background-size: cover;
+    opacity: 0.49;
+    z-index: 1;
+}
+
+/* 3. Card de Login Principal */
+.login-page .login-card {
+    position: relative;
+    z-index: 2;
+    width: 654px;
+    height: 654px;
+    padding: 79px 77px;
+    background: rgba(250, 250, 250, 0.98);
+    box-shadow: 0px 8px 12px 6px rgba(0, 0, 0, 0.15), 0px 4px 4px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 80px; /* Reduzido o gap principal para melhor ajuste */
+}
+
+/* 4. Cabeçalho (Logo e Texto) */
+.login-page .login-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+}
+
+.login-page .login-header img {
+    width: 348px;
+    height: 59px;
+    object-fit: contain;
+}
+
+.login-page .login-header p {
+    font-weight: 600;
+    font-size: 16px;
+    color: #000000;
+}
+
+/* 5. Formulário e Campos */
+.login-page .login-form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+.login-page .form-fields {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end; /* Mantém o link "esqueceu a senha" à direita */
+    gap: 32px; /* Espaço entre Email e Senha */
+}
+
+/* Regra específica para os grupos de formulário DENTRO do card de login */
+.login-page .form-group {
+    width: 100%;
+    position: relative;
+    /* REMOVIDA a altura fixa para permitir que o conteúdo se ajuste */
+}
+
+.login-page .form-group label {
+    display: block;
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 8px; /* Adicionado espaço entre o label e o input */
+}
+
+/* Input específico para o formulário de login */
+.login-page .form-group input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-size: 16px;
+    color: #090909;
+    outline: none;
+    padding: 8px 0; /* Adicionado padding para melhor toque */
+    /* REMOVIDO o posicionamento absoluto */
+}
+
+.login-page .form-group .input-line {
+    box-sizing: border-box;
+    width: 100%;
+    height: 1px;
+    border-bottom: 1px solid #001233;
+    box-shadow: 0px 2px 6px 2px rgba(0, 0, 0, 0.15), 0px 1px 2px rgba(0, 0, 0, 0.3);
+    margin-top: 4px; /* Espaço após o input */
+}
+
+.login-page .password-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.login-page .password-wrapper .eye-icon {
+    position: absolute;
+    right: 8px;
+    top: 50%; /* Alinha verticalmente com o input */
+    transform: translateY(-50%);
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+}
+
+.login-page .forgot-password {
+    display: block;
+    width: 100%;
+    text-align: right;
+    font-weight: 400;
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-top: 8px;
+}
+
+.login-page .forgot-password:hover {
+    text-decoration: underline;
+}
+
+/* 6. Botão de Login */
+.login-page .login-button {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 10px;
+    width: 100%;
+    height: 39px;
+    background: #002855;
+    border-radius: 16px;
+    border: none;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 16px;
+    color: #FFFFFF;
+    transition: background-color 0.3s ease;
+    margin-top: 32px;
+}
+
+.login-page .login-button:hover {
+    background: #013A7D;
+}
+
+/* --- Estilos para Formulários Recolhíveis (Versão Ícone no Cabeçalho) --- */
+
+#toggle-forms-btn {
+    margin-right: 1rem;
+    padding: 8px;
+    border: none;               /* Remove a borda */
+    background-color: transparent;  /* Remove o fundo */
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+/* O ícone (estado ATIVO / Formulários VISÍVEIS) - Cinza Escuro */
+#toggle-forms-btn .svg-icon {
+    opacity: 0.75;
+    transition: opacity 0.2s ease;
+}
+
+/* O ícone quando RECOLHIDO (INATIVO / Formulários ESCONDIDOS) - Cinza Claro */
+#toggle-forms-btn.collapsed .svg-icon {
+    opacity: 0.4;
+}
+
+/* Efeito hover: o ícone fica totalmente opaco para dar feedback */
+#toggle-forms-btn:hover .svg-icon {
+    opacity: 1;
+}
+
+
+/* Efeito hover para o estado ativo */
+#toggle-forms-btn:hover {
+    background-color: #e9ecef;
+}
+
+/* Estilo do botão quando está RECOLHIDO (INATIVO / Cinza Claro) */
+#toggle-forms-btn.collapsed {
+    background-color: #fff; /* Fundo branco */
+    border-color: #dee2e6; /* Borda bem clara */
+}
+
+/* Ícone fica mais transparente quando está recolhido */
+#toggle-forms-btn.collapsed .svg-icon {
+    opacity: 0.5;
+}
+
+/* Efeito hover para o estado inativo */
+#toggle-forms-btn.collapsed:hover {
+    background-color: #f8f9fa;
+}
+
+/* O container dos formulários */
+#forms-container {
+    transition: max-height 0.4s ease-in-out, padding 0.4s ease-in-out, margin 0.4s ease-in-out, opacity 0.3s ease-in-out;
+    overflow: hidden;
+    max-height: 1000px;
+    opacity: 1;
+}
+
+/* O estado recolhido do container */
+#forms-container.collapsed {
+    max-height: 0;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    opacity: 0;
 }
 
 /* ================================================== */
