@@ -368,6 +368,7 @@ async def _processar_localizacoes():
                             "source_esp_id": "aggregator_wifi_monitor",
                             "details": f"Removido por ausência de Wi-Fi superior a {WIFI_FAILURE_INERTIA_SEC}s."
                         })
+                        clear_asset_candidate_state(mac)
                 continue
 
             # ESTADO 4: LIVRE (FORA DE UM QUARTO E NÃO PENDENTE)
@@ -386,7 +387,8 @@ async def _processar_localizacoes():
                         state.pending_wifi_check_since = now
                         state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Wi-Fi confirmado via cache."}
                     
-                    clear_asset_candidate_state(mac)
+                    state.candidate_since = None
+                    state.candidate_quarto_id = None
             else:
                 # LÓGICA DE ABORTO DE PENDENTE CORRIGIDA
                 if state.candidate_quarto_id is not None:
@@ -1091,88 +1093,51 @@ FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
 GUARDIAN_LOG_INTERVAL_SEC = 120 # Logar a cada 120 segundos (2 minutos)
 
-async def main_guardian_loop():
-    """Loop principal para a tarefa unificada, AGORA COM LOGS MENOS FREQUENTES."""
-    logger.info("[GUARDIAN-UNIFICADO] Serviço iniciado.")
-    
-    # --- INÍCIO DA MUDANÇA ---
-    log_counter = 0
-    # Calcula a cada quantos ciclos devemos logar, garantindo pelo menos 1
-    log_every_n_cycles = max(1, GUARDIAN_LOG_INTERVAL_SEC // WIFI_GUARDIAN_INTERVAL_SEC)
-    # --- FIM DA MUDANÇA ---
-
-    while True:
-        db = SessionLocal()
-        try:
-            # A função que faz o trabalho pesado (wifi_guardian_task_unificada)
-            # continua a mesma, rodando a cada 30 segundos.
-            summary_log = await wifi_guardian_task_unificada(db) # Agora ela retorna o log
-
-            # --- INÍCIO DA MUDANÇA ---
-            log_counter += 1
-            if log_counter >= log_every_n_cycles:
-                if summary_log: # Só loga se houver algo a reportar
-                    logger.info(summary_log)
-                log_counter = 0 # Reinicia o contador
-            # --- FIM DA MUDANÇA ---
-
-        finally:
-            db.close()
-        await asyncio.sleep(WIFI_GUARDIAN_INTERVAL_SEC)
-
-# Você também precisa fazer um pequeno ajuste na função wifi_guardian_task_unificada
-# para que ela RETORNE a string de log em vez de imprimi-la.
-
 async def wifi_guardian_task_unificada(db: Session):
     """
-    (VERSÃO MODIFICADA) Agora RETORNA a string de log para o loop principal.
+    Verifica a presença Wi-Fi de todos os ativos, atualiza o cache do agregador
+    e lida com a lógica de falhas de conexão.
     """
     try:
-        assets_to_check = db.query(Asset.nome_ativo, Asset.mac_beacon, Asset.mac_address, Asset.quarto_id).filter(Asset.mac_address.isnot(None)).all()
+        # Busca todos os ativos que possuem um MAC de Wi-Fi cadastrado
+        assets_to_check = db.query(
+            Asset.nome_ativo, Asset.mac_beacon, Asset.mac_address, Asset.quarto_id
+        ).filter(Asset.mac_address.isnot(None)).all()
+
         if not assets_to_check:
             _wifi_failure_counts.clear()
-            return None # Retorna None se não houver trabalho a fazer
+            return
 
-        tasks = [check_presence(mac_wifi) for nome, mac_b, mac_wifi, q_id in assets_to_check]
+        # Executa todas as verificações de presença em paralelo
+        tasks = [check_presence(mac_wifi) for _, _, mac_wifi, _ in assets_to_check]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         current_wifi_presence = {}
-        online_names, offline_names = [], []
         
-        # ... (toda a lógica de verificação e remoção por falha permanece a mesma) ...
         for (nome_ativo, mac_beacon, mac_wifi, quarto_id), result in zip(assets_to_check, results):
-            is_present = False
-            if not isinstance(result, Exception):
-                is_present = result
+            is_present = isinstance(result, bool) and result
 
+            # Popula o cache que será usado pelo aggregator
             current_wifi_presence[mac_beacon] = is_present
             
+            # Lógica de contagem de falhas (para o guardião de ativos já alocados)
             if is_present:
-                online_names.append(nome_ativo)
                 if mac_wifi in _wifi_failure_counts:
                     del _wifi_failure_counts[mac_wifi]
             else:
-                offline_names.append(nome_ativo)
                 if quarto_id is not None:
                     _wifi_failure_counts[mac_wifi] += 1
-                    if _wifi_failure_counts[mac_wifi] >= WIFI_FAILURE_TOLERANCE:
-                        asset_obj = db.query(Asset).filter(Asset.mac_address == mac_wifi).first()
-                        if asset_obj:
-                            # (Lógica de alerta e remoção)
-                            pass # Omitido por brevidade, mas permanece aqui
-
-        aggregator.update_wifi_presence_cache(current_wifi_presence)
         
-        # --- MUDANÇA AQUI ---
-        summary_log = f"[GUARDIAN-UNIFICADO] Online: {len(online_names)}/{len(assets_to_check)}. [{', '.join(online_names) or 'Nenhum'}]. Offline: [{', '.join(offline_names) or 'Nenhum'}]."
-        return summary_log # Em vez de logger.info, retorna a string
+        # Envia o cache atualizado para o aggregator
+        aggregator.update_wifi_presence_cache(current_wifi_presence)
 
     except Exception as e:
         logger.error(f"[GUARDIAN-UNIFICADO] Erro crítico na tarefa: {e}", exc_info=True)
-        return None # Retorna None em caso de erro
 
 async def main_guardian_loop():
-    """Loop principal para a nova tarefa unificada."""
+    """
+    Loop principal que executa a tarefa do guardião de Wi-Fi continuamente.
+    """
     logger.info("[GUARDIAN-UNIFICADO] Serviço iniciado.")
     while True:
         db = SessionLocal()
@@ -1180,7 +1145,7 @@ async def main_guardian_loop():
             await wifi_guardian_task_unificada(db)
         finally:
             db.close()
-        await asyncio.sleep(WIFI_GUARDIAN_INTERVAL_SEC)
+        await asyncio.sleep(WIFI_GUARDIAN_INTERVAL_SEC) # Espera 30 segundos
 
 async def check_esp_liveness():
     """
