@@ -580,6 +580,24 @@ def esp_handshake(
         "whitelist": whitelist
     }
 
+def _notify_esps_of_asset_change():
+    """
+    Publica o comando 'fetch_config' no tópico MQTT geral para que todas
+    as ESPs atualizem sua whitelist de ativos.
+    """
+    logger.info("[main] Notificando todas as ESPs sobre alteração na lista de ativos.")
+    
+    # Payload do comando que as ESPs esperam
+    command_payload = {"command": "fetch_config"}
+    
+    # Publica no tópico geral que todas as ESPs escutam
+    mqtt_client.client.publish(
+        topic=settings.get("mqtt_esp_command_topic"),
+        payload=json.dumps(command_payload),
+        qos=1
+    )
+    logger.info("[main] Comando de sincronização enviado para o tópico geral.")
+
 def get_or_create_andar(db: Session, nome: str) -> Andar:
     andar = db.query(Andar).filter(Andar.nome == nome).first()
     if not andar:
@@ -830,6 +848,7 @@ def create_asset(
         db.add(asset)
         db.commit()
         aggregator.flag_for_reload()
+        _notify_esps_of_asset_change()
     except IntegrityError:
         db.rollback()
         logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
@@ -874,6 +893,7 @@ def update_asset(
         
         db.commit()
         aggregator.flag_for_reload() 
+        _notify_esps_of_asset_change()
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
@@ -884,6 +904,7 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
         db.delete(asset)
         db.commit()
         aggregator.flag_for_reload()
+        _notify_esps_of_asset_change()
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 # ===================================================================
