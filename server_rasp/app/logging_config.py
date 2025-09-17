@@ -30,6 +30,15 @@ def setup_logging():
                 'format': '%(asctime)s - %(message)s',
                 'datefmt': '%d/%m/%Y %H:%M:%S',
             },
+            'state_log_handler': {
+                'class': 'logging.handlers.TimedRotatingFileHandler',
+                'formatter': 'state_formatter',
+                'filename': 'rtls_state.log', # Nome do arquivo de log
+                'when': 'D',            # Rotação diária
+                'interval': 1,
+                'backupCount': 3,       # Mantém 3 arquivos antigos
+                'encoding': 'utf-8',
+            },
         },
         'handlers': {
             'console': { 'class': 'logging.StreamHandler', 'formatter': 'default', 'stream': sys.stdout, },
@@ -47,7 +56,17 @@ def setup_logging():
                 'encoding': 'utf-8',
             },
         },
-        'loggers': { 'signals': { 'handlers': ['signals_handler'], 'level': 'INFO', 'propagate': False, }, },
+        'loggers': {
+            'signals': { 'handlers': ['signals_handler'], 'level': 'INFO', 'propagate': False, },
+            
+            # --- ADICIONE ESTE BLOCO ---
+            'aggregator_state': {
+                'handlers': ['state_log_handler'],
+                'level': 'INFO',
+                'propagate': False, # Essencial para não poluir os outros logs
+            },
+            # --- FIM DO BLOCO ---
+        },
         'root': { 'handlers': ['console', 'file'], 'level': 'INFO', },
     }
     logging.config.dictConfig(LOGGING_CONFIG)

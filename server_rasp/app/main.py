@@ -44,7 +44,7 @@ from .presence import check_presence
 from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _asset_realtime_state
 from .services import force_asset_removal, release_assets_for_offline_esp
 from . import mqtt_client
-from .aggregator import main_aggregator_loop, batch_update_asset_assignments
+from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _asset_realtime_state
 from .config import settings
 from .auth import authenticate_admin
 from .dispatcher import dispatch_event
@@ -149,6 +149,45 @@ def get_db():
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
 
+STATE_LOG_INTERVAL_SEC = int(settings.get('state_log_interval_sec', 30))
+
+# Crie um logger específico para os estados
+state_logger = logging.getLogger('aggregator_state')
+
+async def log_aggregator_state_task():
+    """
+    Tarefa de background que periodicamente registra o estado em memória de cada
+    ativo do aggregator em um formato JSON estruturado.
+    """
+    logger.info(f"[STATE_LOGGER] Serviço de log de estado do agregador iniciado. Intervalo: {STATE_LOG_INTERVAL_SEC}s.")
+    while True:
+        await asyncio.sleep(STATE_LOG_INTERVAL_SEC)
+        
+        if not _asset_realtime_state:
+            continue
+
+        now = time.time()
+        # Itera sobre uma cópia para evitar problemas de concorrência durante a iteração
+        for mac, state in list(_asset_realtime_state.items()):
+            # Monta um dicionário com os dados mais relevantes do estado do ativo
+            state_snapshot = {
+                "timestamp": now,
+                "mac_beacon": state.mac,
+                "disappearance_count": state.disappearance_count,
+                "candidate_quarto_id": state.candidate_quarto_id,
+                "candidate_since": state.candidate_since,
+                "pending_quarto_id": state.pending_quarto_id,
+                "pending_since": state.pending_wifi_check_since,
+                "disappeared_since": state.disappeared_since,
+                "wifi_unseen_since": state.wifi_unseen_since,
+                "last_strongest_signal": state.last_strongest_signal,
+                "readings_count": len(state.readings),
+                "readings": state.readings # Loga todas as leituras atuais
+            }
+            # Usa o logger para registrar o estado como uma linha JSON
+            state_logger.info(json.dumps(state_snapshot))
+
+            
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     client_id = await manager.connect(websocket)
@@ -1232,6 +1271,7 @@ async def on_startup():
     running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     running_tasks["guardian_unificado"] = asyncio.create_task(main_guardian_loop())
+    running_tasks["state_logger"] = asyncio.create_task(log_aggregator_state_task())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 
