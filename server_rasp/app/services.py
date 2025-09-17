@@ -100,6 +100,10 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
                     "wifi":   event.wifi
                 }
                 
+                if DISPATCH_DELAY_SEC > 0:
+                    logger.info(f"Aguardando {DISPATCH_DELAY_SEC}s antes de despachar o evento ID {event.id}...")
+                    await asyncio.sleep(DISPATCH_DELAY_SEC)
+                    
                 logger.info(f"A despachar evento ID {event.id}: {dispatch_payload}")
                 dispatch_successful = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 
