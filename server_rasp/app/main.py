@@ -364,6 +364,7 @@ def update_settings(
 LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
+ESP_STATUS_UPDATE_INTERVAL_SEC = 90 
 
 async def check_esp_liveness():
     """
@@ -409,6 +410,44 @@ async def check_esp_liveness():
         finally:
             db.close()
 
+async def batch_update_esp_status():
+    """
+    Tarefa de background que periodicamente escreve o status mais recente
+    dos ESPs (last_seen, wifi_signal) no banco de dados de uma só vez.
+    """
+    # Adicione uma constante no topo do seu main.py, se não existir
+    # ESP_STATUS_UPDATE_INTERVAL_SEC = 90 
+    
+    logger.info("[BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.")
+    while True:
+        await asyncio.sleep(90) # Roda a cada 90 segundos
+        
+        status_updates = mqtt_client.get_and_clear_status_cache()
+        if not status_updates:
+            continue
+
+        logger.info(f"[BATCH-UPDATE-ESP] Atualizando status de {len(status_updates)} embarcados no banco de dados.")
+        db = SessionLocal()
+        try:
+            esp_ids_to_update = list(status_updates.keys())
+            embarcados_to_update = db.query(Embarcado).filter(Embarcado.id_esp.in_(esp_ids_to_update)).all()
+            
+            for emb in embarcados_to_update:
+                if emb.id_esp in status_updates:
+                    data = status_updates[emb.id_esp]
+                    emb.last_seen = data["last_seen"]
+                    if "wifi_signal" in data:
+                        emb.wifi_signal = data["wifi_signal"]
+                    if emb.status_rede == 'offline':
+                        emb.status_rede = 'online'
+            
+            db.commit()
+        except Exception as e:
+            logger.error(f"[BATCH-UPDATE-ESP] Erro ao atualizar status dos embarcados: {e}", exc_info=True)
+            db.rollback()
+        finally:
+            db.close()
+
 def get_global_settings(db: Session) -> dict:
     settings_from_db = db.query(GlobalSetting).all()
     defaults = {"rssi_threshold": "-60", "inercia_chegada": "500", "inercia_saida": "15000"}
@@ -424,23 +463,22 @@ def esp_handshake(
     ip: str = Query("N/A"),
     fw: str = Query("N/A")
 ):
-    """
-    Endpoint único para a ESP se anunciar e obter a sua configuração de operação.
-    """
     logger.info(f"HANDSHAKE recebido da ESP: {id_esp} (MAC: {mac}, IP: {ip}, FW: {fw})")
 
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
     if embarcado:
-        pass
+        # Lógica para salvar o MAC e IP
+        embarcado.mac_address = mac
+        embarcado.ip_address = ip
+        db.commit()
+    else:
+        logger.warning(f"Handshake recebido de um embarcado não cadastrado: {id_esp}")
 
     all_assets = db.query(Asset.mac_beacon).filter(Asset.mac_beacon.isnot(None)).all()
     whitelist = [m for m, in all_assets]
 
     logger.info(f"Enviando configuração para {id_esp}: {len(whitelist)} ativos na whitelist.")
-
-    return {
-        "whitelist": whitelist
-    }
+    return {"whitelist": whitelist}
 
 @app.get("/planta", name="view_planta")
 def view_planta(request: Request, db: Session = Depends(get_db)):
@@ -1034,6 +1072,7 @@ async def on_startup():
     running_tasks["aggregator"] = asyncio.create_task(main_aggregator_loop())
     running_tasks["liveness_check"] = asyncio.create_task(check_esp_liveness())
     running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
+    running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 

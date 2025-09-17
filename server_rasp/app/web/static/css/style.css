@@ -442,8 +442,8 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
 /* Visibilidade do logo com a sidebar FECHADA */
 #logo-icone {
-    opacity: 0;
-    height: 100px;
+    opacity: 1;
+    height: 120px;
 }
 
 #logo-completo {
