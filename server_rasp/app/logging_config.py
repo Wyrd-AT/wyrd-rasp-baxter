@@ -19,25 +19,18 @@ def setup_logging():
         'disable_existing_loggers': False,
         'formatters': {
             'default': {
-                # --- NOVO: Usa a nossa classe de formatação customizada ---
                 '()': SaoPauloTimeFormatter,
                 'format': '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s',
                 'datefmt': '%d/%m/%Y %H:%M:%S',
             },
             'signal_formatter': {
-                # --- NOVO: Usa a nossa classe e adiciona o timestamp ---
                 '()': SaoPauloTimeFormatter,
                 'format': '%(asctime)s - %(message)s',
                 'datefmt': '%d/%m/%Y %H:%M:%S',
             },
-            'state_log_handler': {
-                'class': 'logging.handlers.TimedRotatingFileHandler',
-                'formatter': 'state_formatter',
-                'filename': 'rtls_state.log', # Nome do arquivo de log
-                'when': 'D',            # Rotação diária
-                'interval': 1,
-                'backupCount': 3,       # Mantém 3 arquivos antigos
-                'encoding': 'utf-8',
+            # Formatter para o log de estado
+            'state_formatter': {
+                'format': '%(message)s'
             },
         },
         'handlers': {
@@ -47,12 +40,22 @@ def setup_logging():
                 'filename': 'rtls_events.log', 'when': 'D', 'interval': 1, 'backupCount': 7, 'encoding': 'utf-8',
             },
             'signals_handler': {
-                'class': 'logging.handlers.TimedRotatingFileHandler', # <-- Alterado de FileHandler
+                'class': 'logging.handlers.TimedRotatingFileHandler',
                 'formatter': 'signal_formatter',
                 'filename': 'rtls_signals.log', 
-                'when': 'D',            # <-- Rotação diária
-                'interval': 1,          # <-- A cada 1 dia
-                'backupCount': 7,       # <-- Mantém 7 ficheiros antigos
+                'when': 'D',
+                'interval': 1,
+                'backupCount': 7,
+                'encoding': 'utf-8',
+            },
+            # HANDLER PARA OS ARQUIVOS DE LOG DE ESTADO (COM A CORREÇÃO)
+            'state_log_handler': {
+                'class': 'logging.handlers.TimedRotatingFileHandler',
+                'formatter': 'state_formatter', # Garanta que este valor está correto
+                'filename': 'rtls_state.log',
+                'when': 'D',
+                'interval': 1,
+                'backupCount': 3,
                 'encoding': 'utf-8',
             },
         },
