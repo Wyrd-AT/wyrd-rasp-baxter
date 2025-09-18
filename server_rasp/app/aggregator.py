@@ -254,6 +254,7 @@ async def _processar_localizacoes():
                     dispatch_payload = {
                         "quarto": quarto_pendente.nome if quarto_pendente else "N/A",
                         "cama":   _asset_map.get(mac, {}).get("nome_ativo", mac),
+                        "modelo": _asset_map.get(mac, {}).get("modelo"), 
                         "status": "ALERTA",
                         "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
                         "wifi":   state.pending_event_details.get("wifi_signal") # Sinal Wi-Fi do ESP
@@ -348,6 +349,7 @@ async def _processar_localizacoes():
                             dispatch_payload = {
                                 "quarto": asset_obj.quarto.nome,
                                 "cama":   asset_info.get("nome_ativo"),
+                                "modelo": _asset_map.get(mac, {}).get("modelo") or getattr(asset_obj, "modelo", None),
                                 "status": "ALERTA",
                                 "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
                             }
@@ -414,7 +416,7 @@ def _load_maps_from_db():
         esps = db.query(Embarcado).all()
         _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
         assets = db.query(Asset).all()
-        _asset_map = { a.mac_beacon: {"id": a.id, "nome_ativo": a.nome_ativo, "quarto_id": a.quarto_id, "wifi_mac": a.mac_address, "status": a.status} for a in assets }
+        _asset_map = { a.mac_beacon: {"id": a.id, "nome_ativo": a.nome_ativo, "modelo": a.modelo, "quarto_id": a.quarto_id, "wifi_mac": a.mac_address, "status": a.status} for a in assets }
         settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
         _config["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", _config["default_rssi_threshold"]))
         _config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))

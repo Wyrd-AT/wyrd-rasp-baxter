@@ -95,6 +95,7 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
                 dispatch_payload = {
                     "quarto": event.quarto_nome,
                     "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
+                    "modelo": asset_map.get(event.ativo, {}).get("modelo"),
                     "status": "GET",
                     "dataOn": data_zulu, # Usa a variável corrigida
                     "wifi":   event.wifi
