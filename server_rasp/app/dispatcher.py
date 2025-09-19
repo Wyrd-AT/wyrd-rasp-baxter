@@ -41,6 +41,7 @@ def dispatch_event(evt) -> bool: # Adicionamos a anotação de retorno -> bool
     payload = {
         "quarto": evt.get("quarto"),
         "cama":   evt.get("cama"),
+        "modelo": evt.get("modelo"),
         "status": evt.get("status"),
         "dataOn": evt.get("dataOn"),
         "wifi":   evt.get("wifi")
