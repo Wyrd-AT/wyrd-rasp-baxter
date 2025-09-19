@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}Inventário{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Inventário</h1>
+    <div class="header-actions">
+        <button id="toggle-forms-btn" class="icon-btn" title="Mostrar/Esconder Formulário">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
+        </button>
+        <a href="{{ url_for('download_inventory_csv') }}" class="btn-primary">BAIXAR DADOS</a>
+    </div>
+</div>
+
+{# FORMULÁRIO PARA ADICIONAR ITENS #}
+<div class="forms-container-vertical" id="forms-container">
+    <div class="form-card">
+        {% include 'inventario_form.html' with context %}
+    </div>
+</div>
+
+{# NOVO BOTÃO DE ALTERNÂNCIA DE VISÃO #}
+<div style="margin-top: 16px; margin-bottom: 16px;">
+    {% if current_view == 'comparison' %}
+        <a href="{{ request.url.replace_query_params(view='current') }}" class="btn-secondary">Ver Apenas Inventário Atual</a>
+    {% else %}
+        <a href="{{ request.url.replace_query_params(view='comparison') }}" class="btn-secondary">Comparar com Inventário Anterior</a>
+    {% endif %}
+</div>
+
+
+{# --- RENDERIZAÇÃO CONDICIONAL DAS TABELAS --- #}
+
+{# SE A VISÃO FOR 'comparison', MOSTRA A TABELA COMPARATIVA #}
+{% if current_view == 'comparison' %}
+<div class="list-container-full-width">
+    <div class="list-header">
+        <h3>Comparativo de Inventário</h3>
+        <div class="muted">
+            {% if snapshot_atual and snapshot_anterior %}
+                Comparando de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
+            {% elif snapshot_atual %}
+                Exibindo o primeiro inventário salvo em <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
+            {% else %}
+                Nenhum inventário foi salvo ainda.
+            {% endif %}
+        </div>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 40%;">INVENTÁRIO ATUAL</th>
+                <th style="width: 40%;">INVENTÁRIO ANTERIOR</th>
+                <th>MUDANÇA</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in tabela_unificada %}
+            <tr>
+                <td>
+                    {% if row.tipo_atual != '---' %}
+                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_atual }})
+                    {% else %}<span class="muted">---</span>{% endif %}
+                </td>
+                <td>
+                    {% if row.tipo_anterior != '---' %}
+                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_anterior }})
+                    {% else %}<span class="muted">---</span>{% endif %}
+                </td>
+                <td style="font-weight: 500;">
+                    {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span>
+                    {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span>
+                    {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Nenhum item de inventário encontrado para comparar.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+
+{# SE A VISÃO FOR 'current', MOSTRA A TABELA SIMPLES #}
+{% if current_view == 'current' %}
+<div class="list-container-full-width">
+    <div class="list-header">
+        <h3>Inventário Atual</h3>
+        <div class="muted">
+            {% if not snapshot_atual %}
+                Nenhum inventário foi salvo ainda.
+            {% endif %}
+        </div>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>CÓDIGO RFID</th>
+                <th>TIPO DE PRODUTO</th>
+                <th>DATA DE CRIAÇÃO</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in inventario_atual %}
+            <tr>
+                <td><code>{{ row.codigo_rfid }}</code></td>
+                <td>{{ row.tipo }}</td>
+                <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Nenhum item no inventário atual.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // --- INÍCIO DA SEÇÃO NOVA ---
+  // 1. Pega o elemento do formulário pelo ID que adicionamos
+  const inventoryForm = document.getElementById('inventory-form');
+  // --- FIM DA SEÇÃO NOVA ---
+
+  const toggleBtn = document.getElementById('toggle-forms-btn');
+  const formsContainer = document.getElementById('forms-container');
+  toggleBtn.addEventListener('click', () => {
+    if (formsContainer.style.display === 'none') {
+        formsContainer.style.display = 'block';
+        toggleBtn.title = "Recolher Formulário";
+    } else {
+        formsContainer.style.display = 'none';
+        toggleBtn.title = "Mostrar Formulário";
+    }
+  });
+
+  const rfidInput = document.getElementById('codigo_rfid');
+  const tipoSelect = document.getElementById('product_type_id');
+  const addBtn = document.getElementById('add-inventory-btn');
+  const pendentesDiv = document.getElementById('pendentes');
+  const hiddenInputsDiv = document.getElementById('hidden-inputs');
+  const clearBtn = document.getElementById('clear-inventory-btn');
+  let buffer = [];
+
+  // --- INÍCIO DA SEÇÃO NOVA ---
+  // 2. Adiciona um "ouvinte" para o evento de SUBMIT do formulário
+  inventoryForm.addEventListener('submit', function(event) {
+    // Se o buffer (nossa lista de itens) estiver vazio...
+    if (buffer.length === 0) {
+      // Impede o envio do formulário
+      event.preventDefault();
+      // Mostra um alerta para o usuário
+      alert("Por favor, adicione pelo menos um item ao inventário antes de salvar.");
+    }
+    // Se o buffer não estiver vazio, o formulário é enviado normalmente.
+  });
+  // --- FIM DA SEÇÃO NOVA ---
+  
+  function renderPendingItems(){
+    if(buffer.length === 0){
+      pendentesDiv.innerHTML = '<div class="muted">Nenhum item adicionado para salvar.</div>';
+      hiddenInputsDiv.innerHTML = '';
+      return;
+    }
+    pendentesDiv.innerHTML = '<ul>' + buffer.map((item, index) => (
+      `<li style="display:flex; align-items:center; gap:6px; margin-bottom: 4px;">
+        <code>${item.codigo}</code> — ${item.tipoNome}
+        <button type="button" class="icon-btn" title="Remover" onclick="removePendingItem(${index})"
+                style="display:inline-flex; align-items:center; justify-content:center;
+                       width:20px; height:20px; padding:0; margin:0; border-radius: 50%;">
+          <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/close.svg') }}); width:14px; height:14px;"></span>
+        </button>
+      </li>`
+    )).join('') + '</ul>';
+    hiddenInputsDiv.innerHTML = buffer.map(item =>
+      `<input type="hidden" name="codigos" value="${item.codigo}"/>
+       <input type="hidden" name="tipos" value="${item.tipoId}"/>`
+    ).join('');
+  }
+  window.removePendingItem = (index) => {
+    buffer.splice(index, 1);
+    renderPendingItems();
+  }
+  addBtn?.addEventListener('click', () => {
+    const codigo = (rfidInput.value || '').trim().toUpperCase();
+    if(!codigo){ rfidInput.focus(); return; }
+    if (buffer.some(item => item.codigo === codigo)) {
+        alert('Este código RFID já foi adicionado.');
+        rfidInput.value = ''; rfidInput.focus(); return;
+    }
+    const tipoId = tipoSelect.value;
+    const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text;
+    buffer.push({codigo: codigo, tipoId: tipoId, tipoNome: tipoNome});
+    rfidInput.value = ''; rfidInput.focus(); renderPendingItems();
+  });
+  rfidInput?.addEventListener('keydown', e => {
+    if(e.key === 'Enter'){ e.preventDefault(); addBtn.click(); }
+  });
+  clearBtn?.addEventListener('click', () => { buffer = []; renderPendingItems(); });
+  renderPendingItems();
+});
+</script>
+{% endblock %}

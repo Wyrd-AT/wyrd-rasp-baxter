@@ -1,0 +1,52 @@
+{# inventario_form.html #}
+<form action="{{ url_for('save_inventory_snapshot') }}" method="post" id="inventory-form">
+    <h3>Adicionar Itens ao Inventário</h3>
+
+    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr auto;">
+        <div class="form-group">
+            <label for="codigo_rfid">Código RFID</label>
+            <input type="text" id="codigo_rfid" 
+                   placeholder="ex: 300833B2DDD90140" autocomplete="off">
+        </div>
+
+        <div class="form-group">
+            <label for="product_type_id">Tipo de Produto</label>
+            <select id="product_type_id">
+                {% for t in tipos %}
+                  <option value="{{ t.id }}">{{ t.nome }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="button" class="icon-btn" id="add-inventory-btn" title="Adicionar Item à Lista">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                 viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+        </button>
+    </div>
+
+    {# Área onde a lista de itens pendentes e os inputs escondidos serão renderizados via JS #}
+    <div class="form-group" style="margin-top: 1rem;">
+        <label>Itens a serem salvos:</label>
+        <div id="pendentes" class="pending-list dotted"></div>
+        <div id="hidden-inputs">
+            </div>
+    </div>
+
+    <div class="form-group" style="margin-top: 1rem; display: flex; gap: 8px; align-items: center;">
+        <button type="submit" class="btn-primary">Salvar Inventário Atual</button>
+        <button type="button" class="icon-btn" id="clear-inventory-btn" title="Limpar lista de itens a salvar">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                 viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+                <path d="M10 11v6M14 11v6"></path>
+                <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
+            </svg>
+        </button>
+    </div>
+</form>

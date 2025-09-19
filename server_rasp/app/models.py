@@ -1,11 +1,13 @@
 # models.py
-from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine, ForeignKey
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy import (Column, DateTime, ForeignKey, Integer, JSON, String,
+                        UniqueConstraint, create_engine)
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import backref, relationship, sessionmaker
+from datetime import datetime, timezone
 import logging
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite:///./base_rtls_hsa.db"
+DATABASE_URL = "sqlite:///./base_rtls_rfid.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -78,6 +80,41 @@ class ReceivedEvent(Base):
     wifi          = Column(Integer, nullable=True)
     data_on       = Column(DateTime(timezone=True), nullable=False, index=True)
     raw           = Column(JSON, nullable=False)
+
+
+#====================================================
+class ProductType(Base):
+    __tablename__ = "product_types"
+    id   = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+
+class Product(Base):
+    __tablename__ = "products"
+    id           = Column(Integer, primary_key=True, index=True)
+    codigo_rfid  = Column(String, unique=True, nullable=False, index=True)
+    product_type_id = Column(Integer, ForeignKey("product_types.id"), nullable=False)
+    created_on   = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # --- CORREÇÃO APLICADA AQUI ---
+    # Simplifica a relação, o back_populates não é estritamente necessário se o outro lado não o define
+    tipo = relationship("ProductType", backref=backref("produtos", lazy=True))
+
+class InventorySnapshot(Base):
+    __tablename__ = "inventory_snapshots"
+    id         = Column(Integer, primary_key=True, index=True)
+    created_on = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    itens = relationship("InventoryItem", back_populates="snapshot", cascade="all, delete-orphan")
+
+class InventoryItem(Base):
+    __tablename__ = "inventory_items"
+    id          = Column(Integer, primary_key=True, index=True)
+    snapshot_id = Column(Integer, ForeignKey("inventory_snapshots.id"), nullable=False)
+    product_id  = Column(Integer, ForeignKey("products.id"), nullable=False)
+
+    snapshot = relationship("InventorySnapshot", back_populates="itens")
+    product  = relationship("Product")
+    __table_args__ = (UniqueConstraint("snapshot_id", "product_id", name="uq_snapshot_product"),)
 
 def init_db():
     Base.metadata.create_all(bind=engine)

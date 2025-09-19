@@ -1,3 +1,551 @@
+========================================
+ARQUIVO: app/__init__.py
+========================================
+
+
+
+========================================
+ARQUIVO: app/aggregator.py
+========================================
+# aggregator.py (Versão Final com Média Móvel Exponencial)
+import asyncio
+import time
+import json
+from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting
+from .services import batch_update_asset_assignments
+from .mqtt_client import scan_data_queue
+import logging
+from .config import settings
+
+logger = logging.getLogger(__name__)
+signal_logger = logging.getLogger('signals')
+
+# --- CACHE EM MEMÓRIA ---
+_esp_map = {}
+_asset_map = {}
+_config_needs_reload = asyncio.Event()
+_asset_realtime_state = {}
+
+SIGNAL_LOG_INTERVAL_SEC = 15.0  
+_last_signal_log_times_per_esp = {}
+
+# --- Configurações Padrão ---
+_config = {
+    "process_interval_sec": 2.0,
+    "reading_timeout_sec": 10,
+    "default_rssi_threshold": -75,
+    "conflict_margin_db": 5,
+    "inertia_entrada_ms": 3000,
+    "inertia_saida_ms": 10000,
+    "ema_alpha": 0.4,
+    "disappearance_tolerance_cycles": 10 
+}
+
+class AssetState:
+    def __init__(self, mac):
+        self.mac = mac
+        self.readings = {}
+        self.last_known_ema = {}
+        self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000}
+        self.candidate_quarto_id = None
+        self.candidate_since = None
+        self.disappeared_since = None
+        self.weak_signal_since = None
+        self.disappearance_count = 0
+
+    def update_reading(self, esp_id, rssi, timestamp):
+        """
+        Atualiza a leitura de uma ESP e calcula a Média Móvel Exponencial (EMA).
+        """
+        old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi)
+        alpha = _config["ema_alpha"]
+        new_ema = (rssi * alpha) + (old_ema * (1 - alpha))
+        self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema}
+        self.last_known_ema[esp_id] = new_ema
+        self.disappeared_since = None
+        self.disappearance_count = 0 
+
+    def cleanup_old_readings(self):
+        now = time.time()
+        self.readings = {
+            esp_id: data for esp_id, data in self.readings.items()
+            if now - data["timestamp"] < _config["reading_timeout_sec"]
+        }
+        return bool(self.readings)
+
+async def _consume_scan_data_queue():
+    global _last_signal_log_times_per_esp
+    db = None
+
+    try:
+        while not scan_data_queue.empty():
+            item = await scan_data_queue.get()
+
+            esp_id = item.get("esp_id")
+            if not esp_id:
+                continue    
+
+            now = time.time()
+            last_log_time = _last_signal_log_times_per_esp.get(esp_id, 0)
+
+            if (now - last_log_time) > SIGNAL_LOG_INTERVAL_SEC:
+                signal_logger.info(json.dumps(item))
+                _last_signal_log_times_per_esp[esp_id] = now
+
+            
+            payload = item.get("payload", {})
+
+            beacons_obj = payload.get("b", {})
+
+            for mac, rssi in beacons_obj.items():
+                mac = mac.lower()
+                if not mac or mac not in _asset_map: continue
+
+                asset_info = _asset_map.get(mac)
+                
+                if asset_info.get("status") == 'Offline':
+                    if db is None: db = SessionLocal() 
+                    asset_db = db.query(Asset).get(asset_info.get("id"))
+                    if asset_db:
+                        asset_db.status = 'Online'
+                        _asset_map[mac]['status'] = 'Online'
+                
+                if mac not in _asset_realtime_state:
+                    _asset_realtime_state[mac] = AssetState(mac)
+                
+                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
+    finally:
+        if db:
+            db.commit()
+            db.close()
+
+async def _processar_localizacoes():
+    if not _esp_map or not _asset_map: return
+
+    changes_to_commit = []
+    db = SessionLocal()
+    try:
+        for mac, state in list(_asset_realtime_state.items()):
+            asset_info = _asset_map.get(mac, {})
+            asset_id = asset_info.get("id")
+            quarto_id_atual = asset_info.get("quarto_id")
+
+            if not asset_id: continue
+
+            if not state.cleanup_old_readings():
+                state.disappearance_count += 1
+                
+                logger.debug(f"Ativo {mac} sem sinal. Contagem de desaparecimento: {state.disappearance_count}/{_config['disappearance_tolerance_cycles']}.")
+
+                if state.disappearance_count >= _config['disappearance_tolerance_cycles']:
+                    
+                    if quarto_id_atual is not None:
+                        logger.info(f"EVENTO OUT (CICLOS): Ativo {mac} desapareceu consistentemente. Removendo do Quarto {quarto_id_atual}.")
+                        changes_to_commit.append({
+                            "asset_id": asset_id, 
+                            "new_quarto_id": None,
+                            "source_esp_id": state.last_strongest_signal.get("esp_id") or "server_disappearance",
+                            "rssi": state.last_strongest_signal.get("rssi", -1000),
+                            "details": f"Ativo desapareceu do radar BLE por {_config['disappearance_tolerance_cycles']} ciclos."
+                        })
+                    
+                    if asset_info.get("status") == 'Online':
+                        logger.warning(f"Ativo '{mac}' desapareceu consistentemente. Marcando como Offline.")
+                        asset_db = db.query(Asset).get(asset_id)
+                        if asset_db:
+                            asset_db.status = 'Offline'
+                        if mac in _asset_map:
+                            _asset_map[mac]['status'] = 'Offline'
+
+                    del _asset_realtime_state[mac]
+                continue 
+            
+            # Encontra o candidato mais forte baseado na EMA
+            strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None}
+            for esp_id, reading in state.readings.items():
+                if esp_id not in _esp_map: continue
+                q_id, q_rssi = _esp_map[esp_id]
+                threshold = q_rssi if q_rssi is not None else _config["default_rssi_threshold"]
+                # A decisão de ser um candidato agora usa a EMA
+                if reading["ema_rssi"] > threshold and reading["ema_rssi"] > strongest_candidate["ema_rssi"]:
+                    strongest_candidate = {
+                        "esp_id": esp_id, 
+                        "rssi": reading["rssi"],      # Guarda o RSSI bruto para log
+                        "ema_rssi": reading["ema_rssi"],# Usa a EMA para decisão
+                        "quarto_id": q_id
+                    }
+            
+            # Atualiza o sinal mais forte geral (para logs e referência)
+            top_esp, top_read = max(state.readings.items(), key=lambda i: i[1]['ema_rssi'])
+            state.last_strongest_signal = {"esp_id": top_esp, "rssi": top_read['rssi'], "ema_rssi": top_read['ema_rssi']}
+
+            candidate_quarto_id = strongest_candidate["quarto_id"]
+
+            if quarto_id_atual is not None and not candidate_quarto_id:
+                if state.weak_signal_since is None: state.weak_signal_since = time.time()
+                elif (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
+                    logger.info(f"EVENTO OUT (SINAL FRACO): Ativo {mac} marcado para remoção do Quarto {quarto_id_atual}.")
+                    # Adiciona a mudança à lista
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": state.last_strongest_signal['esp_id'],
+                        "rssi": state.last_strongest_signal['rssi'],
+                        "details": f"Sinal (EMA) permaneceu fraco por {_config['inertia_saida_ms']}ms"
+                    })
+                    if mac in _asset_map: _asset_map[mac]['quarto_id'] = None
+                    state.weak_signal_since = None
+                    continue
+            elif state.weak_signal_since is not None: state.weak_signal_since = None
+
+            if candidate_quarto_id == quarto_id_atual:
+                state.candidate_quarto_id = quarto_id_atual
+                state.candidate_since = None
+                continue
+
+            if candidate_quarto_id != state.candidate_quarto_id:
+                if quarto_id_atual is not None and candidate_quarto_id is not None:
+                    esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
+                    
+                    leituras_ao_vivo = [r["ema_rssi"] for e, r in state.readings.items() if e in esps_no_quarto_atual]
+                    
+                    if leituras_ao_vivo:
+                        rssi_para_comparacao = max(leituras_ao_vivo)
+                    else:
+                        emas_conhecidos = [ema for esp, ema in state.last_known_ema.items() if esp in esps_no_quarto_atual]
+                        rssi_para_comparacao = max(emas_conhecidos) if emas_conhecidos else -1000
+                    
+                    if strongest_candidate["ema_rssi"] < (rssi_para_comparacao + _config["conflict_margin_db"]):
+                        #logger.info(f"CONFLITO: Ativo {mac}: Troca de Q{quarto_id_atual} para Q{candidate_quarto_id} NEGADA. Sinal EMA Cand: {strongest_candidate['ema_rssi']:.1f}dBm vs Base Atual: {rssi_para_comparacao:.1f}dBm + Margem: {_config['conflict_margin_db']}dBm")
+                        continue
+                
+                state.candidate_quarto_id = candidate_quarto_id
+                state.candidate_since = time.time()
+
+            if state.candidate_since and state.candidate_quarto_id is not None:
+                if (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
+                    if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
+                        logger.info(f"EVENTO IN: Ativo {mac} confirmado no Quarto {state.candidate_quarto_id}.")
+                        # Adiciona a mudança à lista
+                        changes_to_commit.append({
+                            "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
+                            "source_esp_id": strongest_candidate['esp_id'],
+                            "rssi": strongest_candidate['rssi'],
+                            "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f})"
+                        })
+                        if mac in _asset_map:
+                            _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
+                        state.candidate_since = None
+        
+        if changes_to_commit:
+            await batch_update_asset_assignments(db, changes_to_commit)
+        db.commit()
+    finally:
+        db.close()
+
+def clear_asset_state(mac_beacon_to_clear: str):
+    """Função de controle para limpar o estado de um ativo, chamada externamente."""
+    if mac_beacon_to_clear in _asset_realtime_state:
+        del _asset_realtime_state[mac_beacon_to_clear]
+        logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
+        return True
+    return False
+
+def _load_maps_from_db():
+    global _esp_map, _asset_map, _config
+    db = SessionLocal()
+    try:
+        esps = db.query(Embarcado).all()
+        _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
+        
+        assets = db.query(Asset).all()
+        # --- ATUALIZAÇÃO AQUI: Guardamos o status também ---
+        _asset_map = {
+            a.mac_beacon: {
+                "id": a.id, 
+                "quarto_id": a.quarto_id,
+                "status": a.status
+            } for a in assets
+        }
+
+        settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
+        
+        # Sobrescreve as configurações padrão com as do banco de dados
+        _config["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", _config["default_rssi_threshold"]))
+        _config["conflict_margin_db"] = int(settings_from_db.get("conflict_margin_db", _config["conflict_margin_db"]))
+        _config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))
+        _config["inertia_saida_ms"] = int(settings_from_db.get("inercia_saida", _config["inertia_saida_ms"]))
+        _config["ema_alpha"] = float(settings_from_db.get("ema_alpha", _config["ema_alpha"]))
+        
+        # (NOVO) Carrega as configurações do config.ini, se não estiverem no banco de dados
+        _config["process_interval_sec"] = float(settings.get('process_interval_sec', _config["process_interval_sec"]))
+        _config["reading_timeout_sec"] = int(settings.get('reading_timeout_sec', _config["reading_timeout_sec"]))
+        _config["disappearance_tolerance_cycles"] = int(settings.get('disappearance_tolerance_cycles', _config["disappearance_tolerance_cycles"]))
+        
+        logger.info(f"[RTLS] Cache (re)carregado: {len(_esp_map)} ESPs, {len(_asset_map)} Ativos. Configs: {str(_config)}")
+    finally:
+        db.close()
+
+def flag_for_reload():
+    _config_needs_reload.set()
+
+async def main_aggregator_loop():
+    logger.info("[RTLS] Motor de localização (v. com EMA) iniciado.")
+    _load_maps_from_db()
+    while True:
+        try:
+            if _config_needs_reload.is_set():
+                _load_maps_from_db()
+                _config_needs_reload.clear()
+            await _consume_scan_data_queue()
+            await _processar_localizacoes()
+        except Exception as e:
+            logger.error(f"[RTLS] Erro crítico no loop principal: {e}", exc_info=True)
+        await asyncio.sleep(_config["process_interval_sec"])
+
+
+========================================
+ARQUIVO: app/auth.py
+========================================
+# auth.py
+import logging
+logger = logging.getLogger(__name__)
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+security = HTTPBasic()
+ADMIN_USER = "admin"
+ADMIN_PASS = "wyrd"   # idealmente carregue via variável de ambiente
+
+def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    correct = (credentials.username == ADMIN_USER and credentials.password == ADMIN_PASS)
+    if not correct:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais inválidas",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+
+========================================
+ARQUIVO: app/config.py
+========================================
+# config.py
+import configparser
+import os
+import logging
+logger = logging.getLogger(__name__)
+
+# Define o nome do arquivo de configuração que ficará ao lado do .exe
+CONFIG_FILE = 'config.ini'
+
+def load_configuration():
+    """
+    Lê o arquivo config.ini e retorna um dicionário com as configurações.
+    Se o arquivo não existir, cria um com valores padrão.
+    """
+    config = configparser.ConfigParser()
+    
+    if not os.path.exists(CONFIG_FILE):
+        logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
+        config['Network'] = {
+            'IP': '0.0.0.0',
+            'PORT': '9500'
+        }
+        config['MQTT'] = {
+            'MQTT_BROKER_HOST': '127.0.0.1',
+            'MQTT_BROKER_PORT': '1883',
+            'MQTT_ASSET_LIST_TOPIC': 'wyrd/rtls/assets/available',
+            'MQTT_ESP_COMMAND_TOPIC': 'wyrd/rtls/esp/all/command'
+        }
+        # --- NOVA SEÇÃO ADICIONADA ---
+        config['Aggregator'] = {
+            'process_interval_sec': '2.0',
+            'reading_timeout_sec': '10',
+            'disappearance_tolerance_cycles': '10' # Novo parâmetro para a lógica de saída
+        }
+        
+        with open(CONFIG_FILE, 'w') as configfile:
+            config.write(configfile)
+    
+    config.read(CONFIG_FILE)
+    
+    # Junta todas as configurações de todas as seções em um único dicionário
+    settings = {}
+    for section in config.sections():
+        settings.update(config[section])
+        
+    return settings
+
+# Carrega as configurações para serem importadas por outros módulos
+settings = load_configuration()
+
+
+========================================
+ARQUIVO: app/connection_manager.py
+========================================
+# app/connection_manager.py
+import uuid
+from typing import Dict
+from fastapi import WebSocket
+
+class ConnectionManager:
+    def __init__(self):
+        # Usamos um dicionário para guardar {client_id: websocket}
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket) -> str:
+        """Aceita uma nova conexão, gera um ID e guarda-a."""
+        await websocket.accept()
+        client_id = str(uuid.uuid4()) # Gera um ID único
+        self.active_connections[client_id] = websocket
+        return client_id
+
+    def disconnect(self, client_id: str):
+        """Remove uma conexão pelo seu ID."""
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+
+    async def send_to_client(self, client_id: str, message: str):
+        """Envia uma mensagem para um cliente específico."""
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_text(message)
+
+    async def broadcast(self, message: str):
+        """Envia uma mensagem para TODOS os clientes."""
+        for connection in self.active_connections.values():
+            await connection.send_text(message)
+
+manager = ConnectionManager()
+
+
+========================================
+ARQUIVO: app/dispatcher.py
+========================================
+# dispatcher.py (versão final e assíncrona)
+import logging
+logger = logging.getLogger(__name__)
+import requests
+import json
+import asyncio # <--- IMPORTAMOS A BIBLIOTECA ASYNCIO
+from .config import settings
+
+def _exponential_backoff(attempt: int) -> int:
+    """Calcula o tempo de espera, dobrando a cada tentativa até um máximo de 60s."""
+    return min(2 ** attempt, 60)
+
+# --- ALTERAÇÃO AQUI: A função agora é 'async def' ---
+async def dispatch_event_to_rtls(tipo_evento: str, event_data: dict) -> bool:
+    """
+    Envia um evento formatado para a Rtls de forma assíncrona.
+    Retorna True em caso de sucesso (status 202) e False em caso de falha final.
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": settings.get("rtls_api_key")
+    }
+    payload = { "tipoEvento": tipo_evento, "eventData": event_data }
+    logger.info(f"[DISPATCHER] Preparando para enviar para Rtls: {payload}")
+
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        logger.info(f"[DISPATCHER] Tentativa {attempt}/{max_attempts}...")
+        try:
+            # NOTA: requests é uma biblioteca síncrona. O ideal seria usar httpx ou aiohttp.
+            # Mas para não adicionar novas dependências, a chamada síncrona aqui é rápida
+            # e o principal ganho de performance vem do asyncio.sleep.
+            response = requests.post(
+                settings.get("rtls_webhook_url"),
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            if response.status_code == 200:
+                logger.info(f"[DISPATCHER] Sucesso! Evento '{tipo_evento}' aceito pela Rtls.")
+                return True
+
+            if 400 <= response.status_code < 500:
+                logger.info(f"[DISPATCHER] ERRO CLIENTE! Status: {response.status_code}. Abortando.")
+                return False
+
+            logger.info(f"[DISPATCHER] ERRO SERVIDOR! Status: {response.status_code}. Tentando novamente...")
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[DISPATCHER] ERRO DE CONEXÃO: {e}. Tentando novamente...")
+
+        if attempt < max_attempts:
+            wait_time = _exponential_backoff(attempt)
+            logger.info(f"[DISPATCHAER] Aguardando {wait_time}s de forma não-bloqueante.")
+            # --- ALTERAÇÃO AQUI: Usamos await asyncio.sleep() ---
+            await asyncio.sleep(wait_time)
+
+    logger.info(f"[DISPATCHER] FALHA FINAL! Evento '{tipo_evento}' descartado após {max_attempts} tentativas.")
+    return False
+
+
+========================================
+ARQUIVO: app/logging_config.py
+========================================
+# logging_config.py (Corrigido e com Fuso Horário)
+import logging
+import logging.config
+import sys
+from datetime import datetime
+
+# --- NOVO: Classe para forçar o fuso horário de São Paulo ---
+class SaoPauloTimeFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        # Esta função converte o tempo do log para o nosso fuso
+        # Não precisa de bibliotecas externas
+        from datetime import timezone, timedelta
+        sao_paulo_tz = timezone(timedelta(hours=-3))
+        return datetime.fromtimestamp(record.created, tz=sao_paulo_tz).strftime(datefmt)
+
+def setup_logging():
+    LOGGING_CONFIG = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'default': {
+                # --- NOVO: Usa a nossa classe de formatação customizada ---
+                '()': SaoPauloTimeFormatter,
+                'format': '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s',
+                'datefmt': '%d/%m/%Y %H:%M:%S',
+            },
+            'signal_formatter': {
+                # --- NOVO: Usa a nossa classe e adiciona o timestamp ---
+                '()': SaoPauloTimeFormatter,
+                'format': '%(asctime)s - %(message)s',
+                'datefmt': '%d/%m/%Y %H:%M:%S',
+            },
+        },
+        'handlers': {
+            'console': { 'class': 'logging.StreamHandler', 'formatter': 'default', 'stream': sys.stdout, },
+            'file': {
+                'class': 'logging.handlers.TimedRotatingFileHandler', 'formatter': 'default',
+                'filename': 'rtls_events.log', 'when': 'D', 'interval': 1, 'backupCount': 7, 'encoding': 'utf-8',
+            },
+            'signals_handler': {
+                'class': 'logging.handlers.TimedRotatingFileHandler', # <-- Alterado de FileHandler
+                'formatter': 'signal_formatter',
+                'filename': 'rtls_signals.log', 
+                'when': 'D',            # <-- Rotação diária
+                'interval': 1,          # <-- A cada 1 dia
+                'backupCount': 7,       # <-- Mantém 7 ficheiros antigos
+                'encoding': 'utf-8',
+            },
+        },
+        'loggers': { 'signals': { 'handlers': ['signals_handler'], 'level': 'INFO', 'propagate': False, }, },
+        'root': { 'handlers': ['console', 'file'], 'level': 'INFO', },
+    }
+    logging.config.dictConfig(LOGGING_CONFIG)
+    logging.info("INFO: Sistema de logging configurado. Fuso horário: São Paulo.")
+
+
+========================================
+ARQUIVO: app/main.py
+========================================
 # main.py (Versão Final, Completa e Consolidada para Multi-Ativo)
 
 import asyncio
@@ -38,8 +586,7 @@ from starlette.exceptions import WebSocketException
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
-    ReceivedEvent, GlobalSetting, Andar, 
-    ProductType, Product, InventorySnapshot, InventoryItem, init_db
+    ReceivedEvent, GlobalSetting, Andar, init_db
 )
 from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
 from . import mqtt_client
@@ -107,27 +654,6 @@ def seed_database():
 
 seed_database()
 
-def seed_product_types():
-    db = SessionLocal()
-    try:
-        tipos_desejados = ["Servidor", "Roteador", "Cabo"]
-        existentes = {nome for (nome,) in db.query(ProductType.nome).all()}
-        novos = [t for t in tipos_desejados if t not in existentes]
-
-        if novos:
-            logger.info(f"INFO: Inserindo tipos: {novos}")
-            db.add_all([ProductType(nome=t) for t in novos])
-            db.commit()
-        else:
-            logger.info("INFO: Tipos já existentes. Nenhuma inserção necessária.")
-    except Exception as e:
-        logger.error(f"ERRO ao semear tipos de produto: {e}")
-        db.rollback()
-    finally:
-        db.close()
-
-seed_product_types()
-
 app = FastAPI(title="Wyrd-Baxter Connect")
 
 admin = Admin(app, engine, authentication_backend=authentication_backend)
@@ -166,21 +692,6 @@ class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
     name_plural = "Eventos Recebidos"
     icon = "fa-solid fa-list-ul"
 
-class ProductTypeAdmin(ModelView, model=ProductType):
-    column_list = [ProductType.id, ProductType.nome]
-    name = "Tipo de Produto"
-    name_plural = "Tipos de Produto"
-    icon = "fa-solid fa-layer-group"
-
-class ProductAdmin(ModelView, model=Product):
-    column_list = [Product.id, Product.codigo_rfid, Product.product_type_id]
-    column_searchable_list = [Product.codigo_rfid]
-    name = "Produto (RFID)"
-    name_plural = "Produtos (RFID)"
-    icon = "fa-solid fa-box"
-
-admin.add_view(ProductTypeAdmin)
-admin.add_view(ProductAdmin)
 # Adiciona as views ao painel de admin
 admin.add_view(AssetAdmin)
 admin.add_view(EmbarcadoAdmin)
@@ -437,9 +948,6 @@ async def check_esp_liveness():
                     await release_assets_for_offline_esp(db, emb.id_esp)
                     
                     emb.status_rede = 'offline'
-                    emb.wifi_signal = None  
-                    emb.mac_address = None 
-                    emb.ip_address = None
                 
                 # 3. Commit final para salvar todas as alterações de status na base de dados.
                 db.commit()
@@ -1063,137 +1571,6 @@ def download_embarcados_csv(db: Session = Depends(get_db)):
         iter_csv(), media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=embarcados_export.csv"}
     )
-
-# ===================================================================
-# SEÇÃO 5.1: INVENTÁRIO DE PRODUTOS
-# ===================================================================
-
-@app.get("/inventario", name="list_inventario")
-def inventory_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    # O novo parâmetro 'view' controla qual tabela mostrar. O padrão é 'comparison'.
-    view: str = Query("comparison")
-):
-    tipos = db.query(ProductType).order_by(ProductType.nome).all()
-    tipos_map = {t.id: t.nome for t in tipos}
-
-    # Busca os dois últimos snapshots
-    snapshots = db.query(InventorySnapshot).order_by(InventorySnapshot.created_on.desc()).limit(2).all()
-    snapshot_atual = snapshots[0] if len(snapshots) > 0 else None
-    snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
-    
-    tabela_unificada = []
-    inventario_atual_formatado = []
-
-    # Lógica para preparar os dados da visão de COMPARAÇÃO
-    if view == "comparison" and snapshot_atual:
-        map_codigo_para_tipo_atual = {p.codigo_rfid: tipos_map.get(p.product_type_id, "-") for p in db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_atual.id).all()}
-        map_codigo_para_tipo_anterior = {}
-        if snapshot_anterior:
-            map_codigo_para_tipo_anterior = {p.codigo_rfid: tipos_map.get(p.product_type_id, "-") for p in db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_anterior.id).all()}
-
-        codigos_atuais_set = set(map_codigo_para_tipo_atual.keys())
-        codigos_anteriores_set = set(map_codigo_para_tipo_anterior.keys())
-        todos_os_codigos = sorted(list(codigos_atuais_set | codigos_anteriores_set))
-        
-        for codigo in todos_os_codigos:
-            status = "Mantido"
-            if codigo in codigos_atuais_set and codigo not in codigos_anteriores_set: status = "Adicionado"
-            elif codigo not in codigos_atuais_set and codigo in codigos_anteriores_set: status = "Deletado"
-            
-            tabela_unificada.append({
-                "codigo_rfid": codigo,
-                "tipo_atual": map_codigo_para_tipo_atual.get(codigo, "---"),
-                "tipo_anterior": map_codigo_para_tipo_anterior.get(codigo, "---"),
-                "status": status
-            })
-    # Lógica para preparar os dados da visão ATUAL (simples)
-    elif view == "current" and snapshot_atual:
-        itens_atuais = db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_atual.id).order_by(Product.codigo_rfid).all()
-        inventario_atual_formatado = [{
-            "codigo_rfid": p.codigo_rfid,
-            "tipo": tipos_map.get(p.product_type_id, "-"),
-            "created_on": p.created_on
-        } for p in itens_atuais]
-
-    return templates.TemplateResponse("inventario_list.html", {
-        "request": request,
-        "tipos": tipos,
-        "tabela_unificada": tabela_unificada,
-        "inventario_atual": inventario_atual_formatado,
-        "snapshot_atual": snapshot_atual,
-        "snapshot_anterior": snapshot_anterior,
-        "current_view": view # Envia a visão atual para o template
-    })
-
-@app.post("/inventario/salvar", name="save_inventory_snapshot")
-def inventory_save(
-    request: Request,
-    db: Session = Depends(get_db),
-    codigos: List[str] = Form(...),
-    tipos: List[int] = Form(...),
-):
-    # A função agora tem uma única responsabilidade: salvar os dados.
-    # 1. Processa e salva os produtos enviados
-    produtos_atuais_processados = []
-    for codigo_rfid, tipo_id_str in zip(codigos, tipos):
-        codigo_rfid = codigo_rfid.strip()
-        if not codigo_rfid: continue
-        
-        tipo_id = int(tipo_id_str)
-        produto = db.query(Product).filter(Product.codigo_rfid == codigo_rfid).first()
-        if not produto:
-            produto = Product(codigo_rfid=codigo_rfid, product_type_id=tipo_id)
-            db.add(produto)
-        elif produto.product_type_id != tipo_id:
-            produto.product_type_id = tipo_id
-        produtos_atuais_processados.append(produto)
-    
-    db.flush()
-
-    # 2. Cria e salva o novo snapshot
-    novo_snapshot = InventorySnapshot()
-    db.add(novo_snapshot)
-    db.flush()
-    db.add_all([
-        InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id) for p in produtos_atuais_processados
-    ])
-    db.commit()
-
-    # 3. Redireciona de volta para a página de inventário.
-    # A página irá recarregar e a função inventory_page fará a nova comparação.
-    return RedirectResponse(url=request.url_for("list_inventario"), status_code=status.HTTP_303_SEE_OTHER)
-
-@app.get("/inventario/download", name="download_inventory_csv")
-def download_inventory_csv(db: Session = Depends(get_db)):
-    ultimo = db.query(InventorySnapshot).order_by(InventorySnapshot.created_on.desc()).first()
-    
-    def iter_csv():
-        buf = StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(["codigo_rfid", "tipo", "criado_em"])
-        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
-
-        if ultimo:
-            # Query otimizada para buscar todos os dados de uma vez
-            itens = db.query(Product.codigo_rfid, ProductType.nome, Product.created_on)\
-                      .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                      .join(ProductType, ProductType.id == Product.product_type_id)\
-                      .filter(InventoryItem.snapshot_id == ultimo.id)\
-                      .order_by(Product.codigo_rfid)\
-                      .all()
-            
-            for codigo, tipo, criado_em in itens:
-                writer.writerow([codigo, tipo, criado_em.strftime("%Y-%m-%d %H:%M:%S")])
-                yield buf.getvalue(); buf.seek(0); buf.truncate(0)
-
-    return StreamingResponse(
-        iter_csv(),
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="inventario.csv"'},
-    )
-
 # ===================================================================
 # SEÇÃO 6: STARTUP, SHUTDOWN E TAREFAS EM BACKGROUND
 # ===================================================================
@@ -1264,3 +1641,359 @@ if __name__ == "__main__":
         "app.main:app", host=settings.get("ip", "0.0.0.0"),
         port=int(settings.get("port", 8000)), reload=True
     )
+
+
+========================================
+ARQUIVO: app/models.py
+========================================
+# models.py
+from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine, ForeignKey
+from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+import logging
+logger = logging.getLogger(__name__)
+
+DATABASE_URL = "sqlite:///./base_rtls_hsa.db"
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+Base = declarative_base()
+
+class Andar(Base):
+    __tablename__ = "andares"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    
+    # Relação para acessar os quartos de um andar
+    quartos = relationship("Quarto", back_populates="andar")
+
+# 1. Adicionamos a nova tabela para centralizar a informação dos quartos.
+class Quarto(Base):
+    __tablename__ = "quartos"
+    id   = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    
+    andar_id = Column(Integer, ForeignKey("andares.id"), nullable=False)
+    andar = relationship("Andar", back_populates="quartos")
+
+    # Relações inversas (sem alteração aqui)
+    embarcados = relationship("Embarcado", back_populates="quarto")
+    assets     = relationship("Asset", back_populates="quarto")
+
+class GlobalSetting(Base):
+    __tablename__ = "global_settings"
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=True)
+
+class Asset(Base):
+    __tablename__ = "assets"
+    id          = Column(Integer, primary_key=True, index=True)
+    nome_ativo = Column(String, nullable=False, unique=True)
+    mac_beacon  = Column(String, unique=True, nullable=False, index=True)
+    tipo_ativo = Column(String, nullable=True)
+    quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
+    quarto = relationship("Quarto", back_populates="assets")
+    status = Column(String, default='Online', nullable=False)
+
+
+class Embarcado(Base):
+    __tablename__ = "embarcados"
+    id        = Column(Integer, primary_key=True, index=True)
+    id_esp    = Column(String, unique=True, nullable=False, index=True)
+    last_seen = Column(DateTime(timezone=True), nullable=True)
+    mac_address = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    wifi_signal = Column(Integer, nullable=True)
+    status_rede = Column(String, default="offline", nullable=False)
+    quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
+    rssi_threshold = Column(Integer, nullable=True)
+    quarto = relationship("Quarto", back_populates="embarcados")
+
+
+class ReceivedEvent(Base):
+    __tablename__ = "received_events"
+    id            = Column(Integer, primary_key=True, index=True)
+    esp_id        = Column(String, nullable=False, index=True)
+    ativo        = Column(String, nullable=False, index=True)
+    quarto_nome   = Column(String, nullable=True) 
+    andar_nome = Column(String, nullable=True)
+    action        = Column(String, nullable=False, index=True)    
+    status        = Column(String, nullable=True, index=True)
+    status_detail = Column(String, nullable=True)   
+    rssi          = Column(Integer, nullable=True)
+    wifi          = Column(Integer, nullable=True)
+    data_on       = Column(DateTime(timezone=True), nullable=False, index=True)
+    raw           = Column(JSON, nullable=False)
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
+
+
+========================================
+ARQUIVO: app/mqtt_client.py
+========================================
+# Conteúdo para app/mqtt_client.py
+import paho.mqtt.client as mqtt
+import json
+import asyncio
+import threading
+from datetime import datetime, timezone
+from .config import settings
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Fila para dados de scan (localização)
+scan_data_queue = asyncio.Queue()
+
+# Cache em memória para atualizações de status e um "lock" para segurança
+_esp_status_cache = {}
+_cache_lock = threading.Lock()
+
+client = mqtt.Client()
+
+def get_and_clear_status_cache():
+    """
+    Função segura para a tarefa de batch update obter os dados do cache e limpá-lo.
+    """
+    with _cache_lock:
+        cache_copy = _esp_status_cache.copy()
+        _esp_status_cache.clear()
+        return cache_copy
+
+def publish_command_to_esp(esp_id: str, command: dict):
+    """
+    Publica um comando para o canal individual de um embarcado.
+    """
+    if not client.is_connected():
+        logger.warning(f"[MQTT] Cliente não conectado. Abortando envio de comando para {esp_id}.")
+        return
+
+    command_topic = f"wyrd/rtls/esp/{esp_id}/command"
+    payload = json.dumps(command)
+    logger.info(f"[MQTT] Enviando comando {payload} para a ESP '{esp_id}' no tópico '{command_topic}'")
+    client.publish(command_topic, payload, qos=1)
+
+def on_message(client, userdata, msg):
+    """
+    Callback super rápido que agora SÓ coloca dados na fila e no cache, sem acessar o banco.
+    """
+    topic_parts = msg.topic.split('/')
+    
+    if len(topic_parts) == 5 and topic_parts[4] == "scan_data":
+        esp_id = topic_parts[3]
+        try:
+            payload = json.loads(msg.payload)
+            # 1. Coloca dados de scan na fila do aggregator (como antes)
+            scan_data_queue.put_nowait({"esp_id": esp_id, "payload": payload})
+
+            # 2. Atualiza o cache de status com as novas informações
+            with _cache_lock:
+                update_data = {
+                    "last_seen": datetime.now(timezone.utc)
+                }
+                # AQUI ESTÁ A MÁGICA: Captura o sinal de Wi-Fi do payload
+                if 'w' in payload:
+                    update_data["wifi_signal"] = payload['w']
+                
+                _esp_status_cache[esp_id] = update_data
+
+        except json.JSONDecodeError:
+            logger.warning("[MQTT] JSON inválido recebido no tópico: %s", msg.topic)
+        except Exception as e:
+            logger.error("[MQTT] Erro ao processar mensagem de %s: %s", esp_id, e)
+
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        logger.info("[MQTT] Conectado com sucesso ao Broker MQTT!")
+        client.subscribe("wyrd/rtls/esp/+/scan_data", qos=0) 
+        logger.info("[MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'")
+    else:
+        logger.error(f"[MQTT] Falha ao conectar, código de retorno: {rc}")
+
+def start_mqtt_client():
+    logger.info("[MQTT] Iniciando cliente...")
+    client.on_connect = on_connect
+    client.on_message = on_message
+    try:
+        broker_port = int(settings.get("mqtt_broker_port")) 
+        client.connect(settings.get("mqtt_broker_host"), broker_port, 60) 
+        client.loop_start() 
+    except Exception as e:
+        logger.error(f"[MQTT] Não foi possível conectar ao broker: {e}")
+
+
+========================================
+ARQUIVO: app/services.py
+========================================
+# app/services.py
+
+# ==============================================================================
+# ARQUIVO: services.py (Versão Refatorada para Maior Coesão)
+# FUNÇÃO:  Orquestra as ações de negócio, garantindo a consistência entre o
+#          agregador, o banco de dados e a UI.
+# ==============================================================================
+
+import logging
+from datetime import datetime, timezone
+from sqlalchemy.orm import Session, joinedload
+
+from . import aggregator # Permite que os serviços interajam com o estado do agregador
+from . import mqtt_client
+from .connection_manager import manager
+from .models import Asset, Embarcado, Quarto, ReceivedEvent
+
+logger = logging.getLogger(__name__)
+
+
+async def batch_update_asset_assignments(db: Session, changes: list):
+    """
+    (FUNÇÃO PRINCIPAL E INALTERADA)
+    Processa uma lista de mudanças de localização de ativos numa única transação.
+    """
+    if not changes:
+        return
+
+    try:
+        for change in changes:
+            asset_id = change["asset_id"]
+            new_quarto_id = change["new_quarto_id"]
+            
+            asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
+            if not asset:
+                continue
+
+            quarto_anterior_id = asset.quarto_id
+            nome_quarto_evento = None
+            action = "GET"
+
+            if new_quarto_id is not None:
+                novo_quarto = db.query(Quarto).get(new_quarto_id)
+                if novo_quarto:
+                    nome_quarto_evento = novo_quarto.nome
+            else:
+                action = "OUT"
+                if asset.quarto:
+                    nome_quarto_evento = asset.quarto.nome
+            
+            quarto_evento_obj = None
+            if action == "GET":
+                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first() 
+            else: # action == "OUT"
+                if asset.quarto:
+                    quarto_evento_obj = asset.quarto 
+
+            event = ReceivedEvent(
+                esp_id=change.get("source_esp_id", "server"),
+                ativo=asset.mac_beacon,
+                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else None,
+                # Esta é a linha mais importante que adicionamos
+                andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
+                action=action,
+                status="OK",
+                status_detail=change.get("details"),
+                rssi=change.get("rssi"),
+                data_on=datetime.now(timezone.utc),
+                raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
+            )
+            db.add(event)
+
+            asset.quarto_id = new_quarto_id
+
+        db.commit()
+        
+        logger.info(f"Lote de {len(changes)} mudanças processado e salvo com sucesso.")
+        await manager.broadcast("ATUALIZAR_ESTADO")
+
+    except Exception as e:
+        logger.error(f"ERRO na transação de atualização em lote: {e}", exc_info=True)
+        db.rollback()
+
+
+async def synchronize_and_reset_esp(db: Session, embarcado_id: int):
+    """
+    (LÓGICA CORRIGIDA) Força a remoção de todos os ativos associados
+    ao quarto de um embarcado diretamente no servidor.
+    Esta função NÃO envia mais comandos para a ESP.
+    """
+    try:
+        embarcado = db.query(Embarcado).get(embarcado_id)
+        if not embarcado or not embarcado.quarto_id:
+            logger.warning(f"[SERVICE] Reset solicitado para embarcado ID {embarcado_id}, mas ele não foi encontrado ou não tem quarto associado.")
+            return
+
+        quarto_id_para_limpar = embarcado.quarto_id
+        logger.info(f"[SERVICE] Iniciando remoção forçada de todos os ativos do Quarto ID {quarto_id_para_limpar} (acionado pelo embarcado {embarcado.id_esp}).")
+
+        # 1. Encontra todos os ativos que estão atualmente neste quarto.
+        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id_para_limpar).all()
+
+        if not assets_no_quarto:
+            logger.info(f"[SERVICE] O quarto já estava vazio. Nenhuma ação necessária.")
+            return
+
+        changes_to_commit = []
+        for asset in assets_no_quarto:
+            logger.info(f"[SERVICE] Preparando remoção forçada do ativo '{asset.nome_ativo}' (MAC: {asset.mac_beacon}).")
+            
+            # 2. Limpa o estado em tempo real do ativo no aggregator para parar o processamento.
+            aggregator.clear_asset_state(asset.mac_beacon)
+
+            # 3. Prepara a "mudança de saída" para ser processada em lote.
+            changes_to_commit.append({
+                "asset_id": asset.id,
+                "new_quarto_id": None,
+                "source_esp_id": "manual_reset",
+                "rssi": -999,
+                "details": f"Remoção forçada pelo operador via reset do embarcado '{embarcado.id_esp}'."
+            })
+
+        # 4. Processa todas as saídas de uma vez só, de forma consistente.
+        if changes_to_commit:
+            await batch_update_asset_assignments(db, changes_to_commit)
+            logger.info(f"[SERVICE] {len(changes_to_commit)} ativos foram removidos com sucesso do Quarto ID {quarto_id_para_limpar}.")
+
+    except Exception as e:
+        logger.error(f"[SERVICE] ERRO durante a remoção forçada de ativos para o embarcado ID '{embarcado_id}': {e}", exc_info=True)
+
+
+async def release_assets_for_offline_esp(db: Session, esp_id: str):
+    """
+    (FUNÇÃO CORRIGIDA) Liberta todos os ativos de um quarto cuja ESP ficou offline.
+    """
+    embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
+    if not embarcado or not embarcado.quarto_id:
+        return
+
+    quarto_nome = embarcado.quarto.nome
+    logger.warning(f"[LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Libertando seus ativos...")
+    
+    assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
+    if not assets_no_quarto:
+        return
+
+    changes_to_commit = []
+    for asset in assets_no_quarto:
+        logger.info(f"[LIVENESS] Preparando para libertar ativo '{asset.nome_ativo}'...")
+        
+        # 1. (NOVO) Limpa o estado de cada ativo na memória do agregador.
+        #    Para isso, precisaremos de uma nova função no agregador.
+        aggregator.clear_asset_state(asset.mac_beacon)
+
+        # 2. Prepara a informação de "saída" para cada ativo.
+        changes_to_commit.append({
+            "asset_id": asset.id,
+            "new_quarto_id": None,
+            "source_esp_id": "liveness_check",
+            "rssi": -999,
+            "details": f"Ativo libertado porque a ESP '{esp_id}' do quarto '{quarto_nome}' ficou offline."
+        })
+
+    # 3. Processa todas as saídas de uma só vez através da função principal.
+    if changes_to_commit:
+        logger.info(f"[LIVENESS] Processando a saída de {len(changes_to_commit)} ativos do quarto {quarto_nome}.")
+        await batch_update_asset_assignments(db, changes_to_commit)
+
+
