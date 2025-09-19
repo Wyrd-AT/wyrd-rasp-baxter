@@ -12,9 +12,26 @@ logger = logging.getLogger(__name__)
 # --- Funções "Trabalhadoras" (Síncronas) ---
 
 def _worker_get_mac_to_ip_map() -> dict:
-    """Função trabalhadora que executa o 'arp -a' e processa o resultado."""
+    """
+    Função trabalhadora que primeiro força a atualização da tabela ARP com Nmap 
+    e depois a lê para processar o resultado.
+    """
     try:
-        # Usamos uma codificação compatível com o CMD do Windows em português
+        # PASSO 1: Força a atualização da tabela ARP com um scan Nmap.
+        # Ele busca a faixa de rede do seu arquivo de configuração (config.ini).
+        network_range = settings.get('network_range_scan', '192.168.1.0/24') 
+        logger.info(f"[nmap_scan_worker] Forçando a atualização da tabela ARP com Nmap na faixa: {network_range}...")
+        
+        # Usamos subprocess.run para esperar o comando terminar.
+        # A saída é suprimida pois o objetivo é apenas o efeito colateral de popular o cache.
+        subprocess.run(
+            ["nmap", "-sn", network_range],
+            capture_output=True,
+            timeout=90  # Um tempo maior para o scan da rede.
+        )
+        logger.info(f"[nmap_scan_worker] Tabela ARP atualizada. Lendo o conteúdo...")
+
+        # PASSO 2: Agora, com a tabela ARP atualizada, lê o conteúdo.
         result = subprocess.run(
             "arp -a",
             shell=True,
@@ -22,9 +39,9 @@ def _worker_get_mac_to_ip_map() -> dict:
             text=True,
             timeout=60,
             encoding='cp850'
-        )
+        ) 
         if result.returncode != 0:
-            logger.info(f"[nmap_scan_worker] ERRO: Comando 'arp -a' falhou. Stderr: {result.stderr}")
+            logger.info(f"[nmap_scan_worker] ERRO: Comando 'arp -a' falhou. Stderr: {result.stderr}") 
             return {}
 
         output = result.stdout
@@ -32,10 +49,9 @@ def _worker_get_mac_to_ip_map() -> dict:
         matches = pattern.findall(output)
         mac_ip_map = {mac.lower().replace('-', ':'): ip for ip, mac in matches}
         
-        #logger.info(f"[nmap_scan_worker] Mapa MAC->IP atualizado. {len(mac_ip_map)} dispositivos encontrados.")
         return mac_ip_map
     except Exception as e:
-        logger.info(f"[nmap_scan_worker] ERRO CRÍTICO ao criar mapa MAC->IP: {e}")
+        logger.info(f"[nmap_scan_worker] ERRO CRÍTICO ao criar mapa MAC->IP: {e}") 
         return {}
 
 def _worker_is_host_online(ip_address: str) -> bool:
@@ -46,22 +62,20 @@ def _worker_is_host_online(ip_address: str) -> bool:
     try:
         command = ["nmap", "-sn", "-PE", "-PR", "-T4", ip_address]
         result = subprocess.run(
-            command,
+             command,
             capture_output=True,
             text=True,
             timeout=15
-        )
+        ) 
         
-        # --- CORREÇÃO PRINCIPAL AQUI ---
         # Procuramos por "Host is up" em vez de "Status: Up"
-        if "Host is up" in result.stdout:
+        if "Host is up" in result.stdout: 
             return True
         else:
             return False
-        # --- FIM DA CORREÇÃO ---
             
     except FileNotFoundError:
-        logger.info("\n\n[NMAP] ERRO CRÍTICO: O comando 'nmap' não foi encontrado. Instale o Nmap no seu sistema.\n\n")
+        logger.info("\n\n[NMAP] ERRO CRÍTICO: O comando 'nmap' não foi encontrado. Instale o Nmap no seu sistema.\n\n") 
         return False
     except Exception as e:
         logger.info(f"[nmap_scan_worker] Erro ao executar Nmap para o IP {ip_address}: {e}")
@@ -71,14 +85,12 @@ def _worker_is_host_online(ip_address: str) -> bool:
 
 async def get_mac_to_ip_map_async() -> dict:
     """Interface assíncrona que chama a função trabalhadora numa thread separada."""
-    #logger.info("[nmap_scan_async] Agendando atualização de mapa MAC->IP...")
     loop = asyncio.get_running_loop()
     mac_ip_map = await loop.run_in_executor(None, _worker_get_mac_to_ip_map)
     return mac_ip_map
 
-async def is_host_online_async(ip_address: str) -> bool:
+async def is_host_online_async(ip_address: str) -> bool: 
     """Interface assíncrona que chama a verificação ativa do Nmap numa thread separada."""
-    #logger.info(f"[nmap_scan_async] Agendando verificação ativa do IP: {ip_address} com Nmap...")
     loop = asyncio.get_running_loop()
     is_online = await loop.run_in_executor(None, _worker_is_host_online, ip_address)
     

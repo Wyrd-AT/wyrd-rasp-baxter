@@ -263,6 +263,7 @@ async def _processar_localizacoes():
                     dispatch_payload = {
                         "quarto": quarto_pendente.nome if quarto_pendente else "N/A",
                         "cama":   _asset_map.get(mac, {}).get("nome_ativo", mac),
+                        "modelo": _asset_map.get(mac, {}).get("modelo"), 
                         "status": "ALERTA",
                         "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
                         "wifi":   state.pending_event_details.get("wifi_signal") # Sinal Wi-Fi do ESP
@@ -357,6 +358,7 @@ async def _processar_localizacoes():
                             dispatch_payload = {
                                 "quarto": asset_obj.quarto.nome,
                                 "cama":   asset_info.get("nome_ativo"),
+                                "modelo": _asset_map.get(mac, {}).get("modelo") or getattr(asset_obj, "modelo", None),
                                 "status": "ALERTA",
                                 "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
                             }
@@ -423,7 +425,7 @@ def _load_maps_from_db():
         esps = db.query(Embarcado).all()
         _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
         assets = db.query(Asset).all()
-        _asset_map = { a.mac_beacon: {"id": a.id, "nome_ativo": a.nome_ativo, "quarto_id": a.quarto_id, "wifi_mac": a.mac_address, "status": a.status} for a in assets }
+        _asset_map = { a.mac_beacon: {"id": a.id, "nome_ativo": a.nome_ativo, "modelo": a.modelo, "quarto_id": a.quarto_id, "wifi_mac": a.mac_address, "status": a.status} for a in assets }
         settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
         _config["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", _config["default_rssi_threshold"]))
         _config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))
@@ -523,7 +525,8 @@ def load_configuration():
             'process_interval_sec': '2.0',     
             'reading_timeout_sec': '10',        
             'ema_alpha': '0.4',
-            'dispatch_delay_after_wifi_sec': '5'        
+            'dispatch_delay_after_wifi_sec': '5',
+            'state_log_interval_sec': '30'         
         }
         
         config['Tasks'] = {
@@ -687,16 +690,18 @@ def setup_logging():
         'disable_existing_loggers': False,
         'formatters': {
             'default': {
-                # --- NOVO: Usa a nossa classe de formatação customizada ---
                 '()': SaoPauloTimeFormatter,
                 'format': '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s',
                 'datefmt': '%d/%m/%Y %H:%M:%S',
             },
             'signal_formatter': {
-                # --- NOVO: Usa a nossa classe e adiciona o timestamp ---
                 '()': SaoPauloTimeFormatter,
                 'format': '%(asctime)s - %(message)s',
                 'datefmt': '%d/%m/%Y %H:%M:%S',
+            },
+            # Formatter para o log de estado
+            'state_formatter': {
+                'format': '%(message)s'
             },
         },
         'handlers': {
@@ -706,16 +711,36 @@ def setup_logging():
                 'filename': 'rtls_events.log', 'when': 'D', 'interval': 1, 'backupCount': 7, 'encoding': 'utf-8',
             },
             'signals_handler': {
-                'class': 'logging.handlers.TimedRotatingFileHandler', # <-- Alterado de FileHandler
+                'class': 'logging.handlers.TimedRotatingFileHandler',
                 'formatter': 'signal_formatter',
                 'filename': 'rtls_signals.log', 
-                'when': 'D',            # <-- Rotação diária
-                'interval': 1,          # <-- A cada 1 dia
-                'backupCount': 7,       # <-- Mantém 7 ficheiros antigos
+                'when': 'D',
+                'interval': 1,
+                'backupCount': 7,
+                'encoding': 'utf-8',
+            },
+            # HANDLER PARA OS ARQUIVOS DE LOG DE ESTADO (COM A CORREÇÃO)
+            'state_log_handler': {
+                'class': 'logging.handlers.TimedRotatingFileHandler',
+                'formatter': 'state_formatter', # Garanta que este valor está correto
+                'filename': 'rtls_state.log',
+                'when': 'D',
+                'interval': 1,
+                'backupCount': 3,
                 'encoding': 'utf-8',
             },
         },
-        'loggers': { 'signals': { 'handlers': ['signals_handler'], 'level': 'INFO', 'propagate': False, }, },
+        'loggers': {
+            'signals': { 'handlers': ['signals_handler'], 'level': 'INFO', 'propagate': False, },
+            
+            # --- ADICIONE ESTE BLOCO ---
+            'aggregator_state': {
+                'handlers': ['state_log_handler'],
+                'level': 'INFO',
+                'propagate': False, # Essencial para não poluir os outros logs
+            },
+            # --- FIM DO BLOCO ---
+        },
         'root': { 'handlers': ['console', 'file'], 'level': 'INFO', },
     }
     logging.config.dictConfig(LOGGING_CONFIG)
@@ -771,7 +796,7 @@ from .presence import check_presence
 from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _asset_realtime_state
 from .services import force_asset_removal, release_assets_for_offline_esp
 from . import mqtt_client
-from .aggregator import main_aggregator_loop, batch_update_asset_assignments
+from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _asset_realtime_state
 from .config import settings
 from .auth import authenticate_admin
 from .dispatcher import dispatch_event
@@ -876,6 +901,45 @@ def get_db():
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
 
+STATE_LOG_INTERVAL_SEC = int(settings.get('state_log_interval_sec', 30))
+
+# Crie um logger específico para os estados
+state_logger = logging.getLogger('aggregator_state')
+
+async def log_aggregator_state_task():
+    """
+    Tarefa de background que periodicamente registra o estado em memória de cada
+    ativo do aggregator em um formato JSON estruturado.
+    """
+    logger.info(f"[STATE_LOGGER] Serviço de log de estado do agregador iniciado. Intervalo: {STATE_LOG_INTERVAL_SEC}s.")
+    while True:
+        await asyncio.sleep(STATE_LOG_INTERVAL_SEC)
+        
+        if not _asset_realtime_state:
+            continue
+
+        now = time.time()
+        # Itera sobre uma cópia para evitar problemas de concorrência durante a iteração
+        for mac, state in list(_asset_realtime_state.items()):
+            # Monta um dicionário com os dados mais relevantes do estado do ativo
+            state_snapshot = {
+                "timestamp": now,
+                "mac_beacon": state.mac,
+                "disappearance_count": state.disappearance_count,
+                "candidate_quarto_id": state.candidate_quarto_id,
+                "candidate_since": state.candidate_since,
+                "pending_quarto_id": state.pending_quarto_id,
+                "pending_since": state.pending_wifi_check_since,
+                "disappeared_since": state.disappeared_since,
+                "wifi_unseen_since": state.wifi_unseen_since,
+                "last_strongest_signal": state.last_strongest_signal,
+                "readings_count": len(state.readings),
+                "readings": state.readings # Loga todas as leituras atuais
+            }
+            # Usa o logger para registrar o estado como uma linha JSON
+            state_logger.info(json.dumps(state_snapshot))
+
+            
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     client_id = await manager.connect(websocket)
@@ -1268,6 +1332,24 @@ def esp_handshake(
         "whitelist": whitelist
     }
 
+def _notify_esps_of_asset_change():
+    """
+    Publica o comando 'fetch_config' no tópico MQTT geral para que todas
+    as ESPs atualizem sua whitelist de ativos.
+    """
+    logger.info("[main] Notificando todas as ESPs sobre alteração na lista de ativos.")
+    
+    # Payload do comando que as ESPs esperam
+    command_payload = {"command": "fetch_config"}
+    
+    # Publica no tópico geral que todas as ESPs escutam
+    mqtt_client.client.publish(
+        topic=settings.get("mqtt_esp_command_topic"),
+        payload=json.dumps(command_payload),
+        qos=1
+    )
+    logger.info("[main] Comando de sincronização enviado para o tópico geral.")
+
 def get_or_create_andar(db: Session, nome: str) -> Andar:
     andar = db.query(Andar).filter(Andar.nome == nome).first()
     if not andar:
@@ -1518,6 +1600,7 @@ def create_asset(
         db.add(asset)
         db.commit()
         aggregator.flag_for_reload()
+        _notify_esps_of_asset_change()
     except IntegrityError:
         db.rollback()
         logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
@@ -1562,6 +1645,7 @@ def update_asset(
         
         db.commit()
         aggregator.flag_for_reload() 
+        _notify_esps_of_asset_change()
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
@@ -1572,6 +1656,7 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
         db.delete(asset)
         db.commit()
         aggregator.flag_for_reload()
+        _notify_esps_of_asset_change()
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
 # ===================================================================
@@ -1959,6 +2044,7 @@ async def on_startup():
     running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     running_tasks["guardian_unificado"] = asyncio.create_task(main_guardian_loop())
+    running_tasks["state_logger"] = asyncio.create_task(log_aggregator_state_task())
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 
@@ -2420,11 +2506,16 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
                 dispatch_payload = {
                     "quarto": event.quarto_nome,
                     "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
+                    "modelo": asset_map.get(event.ativo, {}).get("modelo"),
                     "status": "GET",
                     "dataOn": data_zulu, # Usa a variável corrigida
                     "wifi":   event.wifi
                 }
                 
+                if DISPATCH_DELAY_SEC > 0:
+                    logger.info(f"Aguardando {DISPATCH_DELAY_SEC}s antes de despachar o evento ID {event.id}...")
+                    await asyncio.sleep(DISPATCH_DELAY_SEC)
+                    
                 logger.info(f"A despachar evento ID {event.id}: {dispatch_payload}")
                 dispatch_successful = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 

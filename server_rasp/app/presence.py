@@ -1,5 +1,5 @@
 # ==============================================================================
-# ARQUIVO: presence.py (Versão Assíncrona)
+# ARQUIVO: presence.py (Versão Assíncrona e Robusta)
 # ==============================================================================
 import time
 # Importa as novas funções assíncronas do módulo de scan
@@ -15,38 +15,57 @@ CACHE_TTL_SECONDS = 15 # Define a validade do cache (em segundos)
 
 async def check_presence(mac: str) -> bool:
     """
-    Versão ASSÍNCRONA que verifica a presença de um MAC com uma lógica de
-    cache-miss para máxima fiabilidade e performance, sem bloquear o servidor.
+    Versão robusta que verifica a presença e re-confirma o MAC para evitar
+    falsos positivos causados por cache ARP obsoleto e reatribuição de IP por DHCP.
     """
     global _mac_ip_map_cache, _cache_last_updated
     
-    #logger.info(f"[presence_async] Verificando presença do MAC: {mac}")
     target_mac = mac.lower()
     now = time.time()
     
-    # 1. Verifica se o cache expirou
+    # PASSO 1: Tenta encontrar o IP do ativo
     if not _mac_ip_map_cache or (now - _cache_last_updated > CACHE_TTL_SECONDS):
-        #logger.info("[presence_async] Cache do mapa MAC->IP expirado. Atualizando...")
         _mac_ip_map_cache = await get_mac_to_ip_map_async()
         _cache_last_updated = now
         
-    # 2. Tenta encontrar o IP no cache atual
     target_ip = _mac_ip_map_cache.get(target_mac)
     
-    # 3. Lógica de Cache-Miss: Se não encontrou, o cache pode estar desatualizado.
-    #    Força uma nova leitura da rede para garantir.
+    # Lógica de Cache-Miss: Se não encontrou, força uma nova atualização.
     if not target_ip:
-        #logger.info(f"[presence_async] MAC {target_mac} não encontrado no cache. Forçando atualização da rede...")
         _mac_ip_map_cache = await get_mac_to_ip_map_async()
         _cache_last_updated = now
-        
-        # Tenta encontrar o IP novamente no mapa recém-criado
         target_ip = _mac_ip_map_cache.get(target_mac)
 
-    # 4. Se encontrou um IP (seja no cache ou após a atualização), faz a verificação ativa
-    if target_ip:
-        return await is_host_online_async(target_ip)
+    # Se mesmo após a atualização o MAC não tem um IP, ele está offline.
+    if not target_ip:
+        logger.debug(f"[presence_async] MAC {target_mac} não encontrado no mapa da rede. Considerado offline.")
+        return False
+
+    # PASSO 2: Verifica se o IP está respondendo
+    is_online = await is_host_online_async(target_ip)
+    if not is_online:
+        logger.debug(f"[presence_async] IP {target_ip} não respondeu ao Nmap. Considerado offline.")
+        return False
+        
+    # PASSO 3: Se o IP respondeu, verifica se o MAC ainda pertence a ele.
+    # Isso protege contra o caso de outro dispositivo ter assumido o IP.
+    logger.debug(f"[presence_async] IP {target_ip} está online. Re-verificando o MAC associado...")
     
-    # 5. Se mesmo após forçar a atualização o MAC não foi encontrado, ele está offline
-    logger.debug(f"[presence_async] MAC {target_mac} não foi encontrado no mapa da rede. Considerado offline.")
-    return False
+    # Força uma nova leitura da tabela ARP, que foi recentemente atualizada pelo Nmap no passo anterior.
+    current_mac_map = await get_mac_to_ip_map_async()
+    
+    # Inverte o mapa para facilitar a busca por IP
+    ip_to_mac_map = {ip: mac for mac, ip in current_mac_map.items()}
+    
+    current_mac_for_ip = ip_to_mac_map.get(target_ip)
+    
+    if not current_mac_for_ip:
+        logger.warning(f"[presence_async] IP {target_ip} está online, mas não foi encontrado na tabela ARP mais recente. Inconsistência de rede.")
+        return False
+        
+    if current_mac_for_ip == target_mac:
+        logger.debug(f"[presence_async] SUCESSO: O MAC para o IP {target_ip} foi confirmado como {target_mac}.")
+        return True
+    else:
+        logger.warning(f"[presence_async] FALHA DE VERIFICAÇÃO: O IP {target_ip} está online, mas agora pertence ao MAC {current_mac_for_ip} (esperado: {target_mac}).")
+        return False
