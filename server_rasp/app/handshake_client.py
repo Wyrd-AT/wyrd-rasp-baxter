@@ -33,7 +33,7 @@ async def send_challenge_and_get_response(payload: dict) -> bool:
 
         # Aguarda pela resposta com um timeout de 5 segundos
         try:
-            response_data = await asyncio.wait_for(reader.readline(), timeout=5.0)
+            response_data = await asyncio.wait_for(reader.readline(), timeout=15.0)
             if response_data:
                 response_text = response_data.decode().strip()
                 logger.info(f"[TCP-CLIENT] Resposta recebida: {response_text}")
@@ -46,7 +46,7 @@ async def send_challenge_and_get_response(payload: dict) -> bool:
             return False # Resposta vazia ou não confirmada
 
         except asyncio.TimeoutError:
-            logger.warning(f"[TCP-CLIENT] Timeout: Nenhuma resposta recebida de {FINAL_IP}:{FINAL_PORT} em 5 segundos.")
+            logger.warning(f"[TCP-CLIENT] Timeout: Nenhuma resposta recebida de {FINAL_IP}:{FINAL_PORT} em 15 segundos.")
             return False
         except json.JSONDecodeError:
             logger.warning(f"[TCP-CLIENT] Resposta não era um JSON válido.")
