@@ -193,29 +193,39 @@ async def _processar_localizacoes():
 
             # ESTADO 1: PENDENTE (AGUARDANDO WI-FI)
             if state.pending_wifi_check_since is not None:
-                if candidate_quarto_id != state.pending_quarto_id:
-                    logger.info(f"PENDENTE CANCELADO: Ativo {mac} perdeu a candidatura para o quarto {state.pending_quarto_id}. Registrando evento.")
+                # --- INÍCIO DA NOVA LÓGICA DE CANCELAMENTO COM INÉRCIA ---
+                is_still_candidate = (candidate_quarto_id == state.pending_quarto_id)
+
+                if is_still_candidate:
+                    # Se o ativo ainda é um bom candidato, reseta o timer de inércia de saída.
+                    state.pending_candidate_lost_since = None
+                else:
+                    # O ativo perdeu a candidatura. Inicia ou verifica o timer de inércia.
+                    if state.pending_candidate_lost_since is None:
+                        # Primeira vez que perdeu o sinal, apenas marca o tempo e informa no log.
+                        logger.info(f"[PENDING] Ativo {mac} perdeu candidatura para o quarto {state.pending_quarto_id}. Iniciando inércia de saída.")
+                        state.pending_candidate_lost_since = now
                     
-                    # Busca o nome do quarto e do andar para o registro histórico
-                    quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
-                    
-                    # Cria o evento de cancelamento diretamente no banco
-                    cancel_event = ReceivedEvent(
-                        esp_id=state.pending_event_details.get("source_esp_id", "aggregator"),
-                        ativo=mac,
-                        quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
-                        andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
-                        action="GET",
-                        status="Cancelado",
-                        status_detail="Ativo perdeu o sinal de candidato para o quarto enquanto estava pendente.",
-                        rssi=state.last_strongest_signal.get('rssi'),
-                        data_on=datetime.now(timezone.utc),
-                        raw={"reason": "candidate_lost"}
-                    )
-                    db.add(cancel_event)
-                    
-                    clear_asset_candidate_state(mac)
-                    continue
+                    # Verifica se o tempo de inércia de SAÍDA já foi ultrapassado.
+                    elif (now - state.pending_candidate_lost_since) * 1000 > _config["inertia_saida_ms"]:
+                        logger.warning(f"[PENDING] CANCELADO POR INÉRCIA: Ativo {mac} ficou sem sinal consistente por mais de {_config['inertia_saida_ms']}ms.")
+                        
+                        # Bloco de código para registrar o evento de cancelamento (lógica original)
+                        quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
+                        cancel_event = ReceivedEvent(
+                            esp_id=state.pending_event_details.get("source_esp_id", "aggregator"),
+                            ativo=mac,
+                            quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
+                            andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
+                            action="GET", status="Cancelado",
+                            status_detail=f"Cancelado por inércia de saída superior a {_config['inertia_saida_ms']}ms.",
+                            rssi=state.last_strongest_signal.get('rssi'),
+                            data_on=datetime.now(timezone.utc), raw={"reason": "pending_inertia_out"}
+                        )
+                        db.add(cancel_event)
+                        
+                        clear_asset_candidate_state(mac)
+                        continue
 
                 if _wifi_presence_cache.get(mac, False):
                     logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via cache.")
@@ -223,7 +233,8 @@ async def _processar_localizacoes():
                         **state.pending_event_details, 
                         "new_quarto_id": state.pending_quarto_id,
                         "status": "Confirmado",
-                        "details": f"Entrada confirmada após pendência (Wi-Fi detectado)."
+                        "details": f"Entrada confirmada após pendência (Wi-Fi detectado).",
+                        "quarto_context_id": state.pending_quarto_id
                     }
                     changes_to_commit.append(change_details)
                     clear_asset_candidate_state(mac)
@@ -315,7 +326,7 @@ async def _processar_localizacoes():
                         state.disappeared_since = now
                     elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
                         logger.info(f"[BLE] EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} por sinal BLE fraco.")
-                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "details": "Sinal BLE inconsistente com o quarto atual."})
+                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "details": "Sinal BLE inconsistente com o quarto atual.", "action": "OUT"})
                         continue # Pula para o próximo ativo
 
                 # Verificação 2: O Wi-Fi do ativo ainda está presente na rede?
@@ -359,7 +370,8 @@ async def _processar_localizacoes():
                         changes_to_commit.append({
                             "asset_id": asset_id, "new_quarto_id": None,
                             "source_esp_id": "aggregator_wifi_monitor",
-                            "details": f"Removido por ausência de Wi-Fi superior a {WIFI_FAILURE_INERTIA_SEC}s."
+                            "details": f"Removido por ausência de Wi-Fi superior a {WIFI_FAILURE_INERTIA_SEC}s.",
+                            "action": "OUT"
                         })
                         clear_asset_candidate_state(mac)
                 continue
@@ -370,16 +382,40 @@ async def _processar_localizacoes():
                     state.candidate_quarto_id = candidate_quarto_id
                     state.candidate_since = now
                 
-                if state.candidate_since and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
-                    if _wifi_presence_cache.get(mac, False):
-                        logger.info(f"ENTRADA DIRETA: Ativo {mac} com Wi-Fi já presente. Confirmando entrada no Quarto {candidate_quarto_id}.")
-                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Entrada direta com Wi-Fi pré-confirmado."})
+                if state.candidate_since and state.pending_wifi_check_since is None and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:                    # Inércia de entrada foi cumprida. Vamos criar um evento.
+                    is_wifi_present = _wifi_presence_cache.get(mac, False)
+
+                    if is_wifi_present:
+                        # Wi-Fi já está presente! Evento de entrada confirmado direto.
+                        logger.info(f"ENTRADA DIRETA: Ativo {mac} com Wi-Fi já presente. Criando evento 'Confirmado' para o Quarto {candidate_quarto_id}.")
+                        changes_to_commit.append({
+                            "asset_id": asset_id, 
+                            "new_quarto_id": candidate_quarto_id, # Associa ao quarto imediatamente
+                            "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'],
+                            "action": "GET",
+                            "status": "Confirmado",
+                            "details": "Entrada direta com Wi-Fi pré-confirmado.",
+                            "quarto_context_id": candidate_quarto_id
+                        })
                     else:
-                        logger.info(f"EVENTO PENDENTE (em memória): Ativo {mac} -> Quarto {candidate_quarto_id}. Aguardando Wi-Fi.")
+                        # --- ESTA É A PARTE NOVA E PRINCIPAL ---
+                        # Wi-Fi ausente. Cria o primeiro evento "Pendente" e entra no estado de memória.
+                        logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {candidate_quarto_id}. Criando evento GET/Pendente.")
+                        changes_to_commit.append({
+                            "asset_id": asset_id,
+                            "new_quarto_id": None, # IMPORTANTE: Não associa ao quarto ainda
+                            "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'],
+                            "action": "GET",
+                            "status": "Pendente", # Status para diferenciar
+                            "details": "Ativo detectado por BLE. Aguardando confirmação de Wi-Fi.",
+                            "quarto_context_id": candidate_quarto_id 
+                        })
+                        # Agora, define o estado de memória para aguardar o Wi-Fi
                         state.pending_quarto_id = candidate_quarto_id
                         state.pending_wifi_check_since = now
-                        state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Wi-Fi confirmado via cache."}
+                        state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal']}
                     
+                    # Limpa o estado de candidato, pois já foi processado
                     state.candidate_since = None
                     state.candidate_quarto_id = None
             else:

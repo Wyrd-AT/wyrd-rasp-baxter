@@ -1,0 +1,1174 @@
+18/09/2025 15:25:08 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 15:25:08 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 15:25:08 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 15:25:08 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 15:25:08 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 15:25:08 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 15:25:08 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 15:25:08 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 15:25:08 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 15:25:13 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 15:25:13 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 16:01:28 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=33698), ID: afb329ee-018d-40f3-b217-86556d49cab1
+18/09/2025 16:01:33 - INFO - [app.main] - [WebSocket] Conexão com o cliente afb329ee-018d-40f3-b217-86556d49cab1 limpa e encerrada.
+18/09/2025 16:01:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59904), ID: 5d095d9b-b748-41bd-91bf-d4128393faaa
+18/09/2025 16:01:59 - INFO - [app.main] - [WebSocket] Conexão com o cliente 5d095d9b-b748-41bd-91bf-d4128393faaa limpa e encerrada.
+18/09/2025 16:01:59 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42362), ID: bd4f6bf4-bdb5-4e0c-a8cb-6bb2a3e00b70
+18/09/2025 16:08:46 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 16:08:46 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 16:09:03 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:09:04 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:09:05 - INFO - [app.main] - [WebSocket] Conexão com o cliente bd4f6bf4-bdb5-4e0c-a8cb-6bb2a3e00b70 limpa e encerrada.
+18/09/2025 16:09:05 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42272), ID: b042dc67-cd9e-42a2-9810-e4433cbf21be
+18/09/2025 16:09:24 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:09:24 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:09:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente b042dc67-cd9e-42a2-9810-e4433cbf21be limpa e encerrada.
+18/09/2025 16:09:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49814), ID: 54335961-8248-4672-81bd-8d52b22580d8
+18/09/2025 16:09:32 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:09:32 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:09:33 - INFO - [app.main] - [WebSocket] Conexão com o cliente 54335961-8248-4672-81bd-8d52b22580d8 limpa e encerrada.
+18/09/2025 16:09:33 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49832), ID: fe0070ab-dfaf-4ac6-a4e9-f2ea6410d2e5
+18/09/2025 16:10:08 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:11:38 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:12:08 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:12:09 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:12:10 - INFO - [app.main] - [WebSocket] Conexão com o cliente fe0070ab-dfaf-4ac6-a4e9-f2ea6410d2e5 limpa e encerrada.
+18/09/2025 16:12:10 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49970), ID: a3bf1ac7-3677-4941-b1c9-e6befa8cba01
+18/09/2025 16:12:29 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:12:29 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:12:30 - INFO - [app.main] - [WebSocket] Conexão com o cliente a3bf1ac7-3677-4941-b1c9-e6befa8cba01 limpa e encerrada.
+18/09/2025 16:12:30 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42566), ID: 09cf34d1-3a29-400b-8d40-193ad2307847
+18/09/2025 16:13:08 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:14:39 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:15:19 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:15:20 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:15:20 - INFO - [app.main] - [WebSocket] Conexão com o cliente 09cf34d1-3a29-400b-8d40-193ad2307847 limpa e encerrada.
+18/09/2025 16:15:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37976), ID: 1fe7db5b-4af2-40c6-988c-8a25e64ce02c
+18/09/2025 16:15:44 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:15:44 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:15:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1fe7db5b-4af2-40c6-988c-8a25e64ce02c limpa e encerrada.
+18/09/2025 16:15:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39154), ID: 2994a2d5-cef5-4192-bcef-d513008e339a
+18/09/2025 16:16:09 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:16:46 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:16:46 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:16:48 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2994a2d5-cef5-4192-bcef-d513008e339a limpa e encerrada.
+18/09/2025 16:16:48 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42354), ID: 9692c9cc-fa91-4864-95ba-725bbc1c1586
+18/09/2025 16:17:06 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:17:07 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:17:08 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9692c9cc-fa91-4864-95ba-725bbc1c1586 limpa e encerrada.
+18/09/2025 16:17:08 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=36480), ID: 9cbf4b75-841b-4547-aa2e-aa4db2acf39d
+18/09/2025 16:17:40 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:18:11 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:18:11 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:18:12 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9cbf4b75-841b-4547-aa2e-aa4db2acf39d limpa e encerrada.
+18/09/2025 16:18:12 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34986), ID: 5c4fa1de-7d3d-423e-a9b3-6c16625cd91d
+18/09/2025 16:18:35 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:18:35 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:18:36 - INFO - [app.main] - [WebSocket] Conexão com o cliente 5c4fa1de-7d3d-423e-a9b3-6c16625cd91d limpa e encerrada.
+18/09/2025 16:18:36 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52712), ID: 858bf03f-5df9-41b9-99e4-5c41b5ae3198
+18/09/2025 16:19:10 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:19:29 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:19:30 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:19:31 - INFO - [app.main] - [WebSocket] Conexão com o cliente 858bf03f-5df9-41b9-99e4-5c41b5ae3198 limpa e encerrada.
+18/09/2025 16:19:31 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37842), ID: a5ecac9f-90b4-4f0b-a57f-79f9f0e8ce6d
+18/09/2025 16:19:42 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:19:42 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:19:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente a5ecac9f-90b4-4f0b-a57f-79f9f0e8ce6d limpa e encerrada.
+18/09/2025 16:19:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39782), ID: 706682b4-bcc9-4231-9d32-71cefbd162b4
+18/09/2025 16:20:40 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:22:10 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:22:52 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:22:52 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:22:53 - INFO - [app.main] - [WebSocket] Conexão com o cliente 706682b4-bcc9-4231-9d32-71cefbd162b4 limpa e encerrada.
+18/09/2025 16:22:53 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53706), ID: 81d6d8f7-2d70-4c13-8390-b8a30ca3a7c7
+18/09/2025 16:23:06 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:23:07 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:23:07 - INFO - [app.main] - [WebSocket] Conexão com o cliente 81d6d8f7-2d70-4c13-8390-b8a30ca3a7c7 limpa e encerrada.
+18/09/2025 16:23:07 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59784), ID: d54a78e1-b030-4a6a-874b-81d6c178ff68
+18/09/2025 16:23:29 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:23:29 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:23:30 - INFO - [app.main] - [WebSocket] Conexão com o cliente d54a78e1-b030-4a6a-874b-81d6c178ff68 limpa e encerrada.
+18/09/2025 16:23:30 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39908), ID: d9d3a314-5e4e-4ee7-962b-f2abddf419a5
+18/09/2025 16:23:41 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:23:43 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:23:43 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:23:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente d9d3a314-5e4e-4ee7-962b-f2abddf419a5 limpa e encerrada.
+18/09/2025 16:23:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59640), ID: 7621b8d6-e53b-4417-b562-f3a54b6715b2
+18/09/2025 16:24:23 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:24:24 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:24:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7621b8d6-e53b-4417-b562-f3a54b6715b2 limpa e encerrada.
+18/09/2025 16:24:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52776), ID: 5255e2d4-6988-4674-a3bd-d26195e29916
+18/09/2025 16:24:32 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:24:32 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:24:33 - INFO - [app.main] - [WebSocket] Conexão com o cliente 5255e2d4-6988-4674-a3bd-d26195e29916 limpa e encerrada.
+18/09/2025 16:24:33 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52794), ID: 39807000-a6fd-4864-99cb-7b184ea412a4
+18/09/2025 16:24:54 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:24:55 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:24:55 - INFO - [app.main] - [WebSocket] Conexão com o cliente 39807000-a6fd-4864-99cb-7b184ea412a4 limpa e encerrada.
+18/09/2025 16:24:55 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39782), ID: a17ace08-83f1-457a-b834-9d5f09c919af
+18/09/2025 16:25:11 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:25:11 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:25:11 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:25:12 - INFO - [app.main] - [WebSocket] Conexão com o cliente a17ace08-83f1-457a-b834-9d5f09c919af limpa e encerrada.
+18/09/2025 16:25:12 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37620), ID: b8aa0fe4-2780-4282-a50a-4672fbd8fd59
+18/09/2025 16:26:41 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:26:47 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:26:47 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:26:49 - INFO - [app.main] - [WebSocket] Conexão com o cliente b8aa0fe4-2780-4282-a50a-4672fbd8fd59 limpa e encerrada.
+18/09/2025 16:26:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49582), ID: b7e9a901-daac-432a-9723-da5ba6184af4
+18/09/2025 16:26:57 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:26:58 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:26:59 - INFO - [app.main] - [WebSocket] Conexão com o cliente b7e9a901-daac-432a-9723-da5ba6184af4 limpa e encerrada.
+18/09/2025 16:26:59 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=50714), ID: 4451293c-3969-47d1-beda-02ef525b9c33
+18/09/2025 16:27:12 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 16:27:12 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:27:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4451293c-3969-47d1-beda-02ef525b9c33 limpa e encerrada.
+18/09/2025 16:27:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34918), ID: 4885e396-d1d4-4e7f-9cb0-6f23893f005c
+18/09/2025 16:27:48 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:27:49 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:27:49 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4885e396-d1d4-4e7f-9cb0-6f23893f005c limpa e encerrada.
+18/09/2025 16:27:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43860), ID: a365037d-df48-4582-9dcb-3cb8b27e48fe
+18/09/2025 16:28:08 - INFO - [app.main] - [WebSocket] Conexão com o cliente a365037d-df48-4582-9dcb-3cb8b27e48fe limpa e encerrada.
+18/09/2025 16:42:46 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 16:42:46 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 16:42:46 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 16:42:46 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 16:42:46 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 16:42:46 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 16:42:46 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 16:42:46 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 16:42:46 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 16:42:51 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 16:42:51 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 16:42:52 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 16:42:52 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 16:42:56 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39778), ID: 045da5f0-76a9-4fc1-80e4-f647de37148c
+18/09/2025 16:42:57 - INFO - [app.main] - [WebSocket] Conexão com o cliente 045da5f0-76a9-4fc1-80e4-f647de37148c limpa e encerrada.
+18/09/2025 16:42:57 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39780), ID: 76892e04-5e6e-45e1-a0d6-054dcd84e611
+18/09/2025 16:42:58 - INFO - [app.main] - [WebSocket] Conexão com o cliente 76892e04-5e6e-45e1-a0d6-054dcd84e611 limpa e encerrada.
+18/09/2025 16:42:58 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39784), ID: 311adefb-3c19-422c-b643-153f770fd2b5
+18/09/2025 16:42:59 - INFO - [app.main] - [WebSocket] Conexão com o cliente 311adefb-3c19-422c-b643-153f770fd2b5 limpa e encerrada.
+18/09/2025 16:42:59 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39788), ID: 3ad6a9fe-5477-4166-b3ce-b93ee9fde01f
+18/09/2025 16:43:03 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3ad6a9fe-5477-4166-b3ce-b93ee9fde01f limpa e encerrada.
+18/09/2025 16:43:03 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39798), ID: 209e4a54-778c-49ef-ae1d-5bb7befb0a6f
+18/09/2025 16:43:05 - INFO - [app.main] - [WebSocket] Conexão com o cliente 209e4a54-778c-49ef-ae1d-5bb7befb0a6f limpa e encerrada.
+18/09/2025 16:43:05 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38138), ID: 1ea86176-c43e-485b-a3c5-e8cf0002e15c
+18/09/2025 16:43:06 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1ea86176-c43e-485b-a3c5-e8cf0002e15c limpa e encerrada.
+18/09/2025 16:43:06 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38144), ID: efdf18d5-3c20-44c0-8e32-dc4490ae0ca2
+18/09/2025 16:43:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente efdf18d5-3c20-44c0-8e32-dc4490ae0ca2 limpa e encerrada.
+18/09/2025 16:43:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38170), ID: b7cdaad4-6cad-4d2a-84bc-04a4f95a9e6a
+18/09/2025 16:43:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente b7cdaad4-6cad-4d2a-84bc-04a4f95a9e6a limpa e encerrada.
+18/09/2025 16:43:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43146), ID: f370f6bd-51d1-4a75-8e03-7774f9775aac
+18/09/2025 16:43:16 - WARNING - [app.main] - [LIVENESS] ESPs considerados offline nesta verificação: ['WRD00000004']
+18/09/2025 16:43:16 - WARNING - [app.services] - [LIVENESS] ESP WRD00000004 (Quarto: Observação) ficou offline. Libertando seus ativos...
+18/09/2025 16:43:16 - INFO - [app.services] - [LIVENESS] Preparando para libertar ativo 'Teste FA6F'...
+18/09/2025 16:43:16 - INFO - [app.aggregator] - Estado de memória para o ativo df:fb:d8:d9:fa:6f foi limpo.
+18/09/2025 16:43:16 - INFO - [app.services] - [LIVENESS] Processando a saída de 1 ativos do quarto Observação.
+18/09/2025 16:43:16 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:43:17 - INFO - [app.main] - [WebSocket] Conexão com o cliente f370f6bd-51d1-4a75-8e03-7774f9775aac limpa e encerrada.
+18/09/2025 16:43:17 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43152), ID: b278e2c0-a4dc-4a5f-94ea-f302b594897d
+18/09/2025 16:44:15 - INFO - [app.main] - [WebSocket] Conexão com o cliente b278e2c0-a4dc-4a5f-94ea-f302b594897d limpa e encerrada.
+18/09/2025 16:44:15 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42444), ID: 934b9937-d884-46ec-bfd1-bb0a974239e7
+18/09/2025 16:44:16 - INFO - [app.main] - [WebSocket] Conexão com o cliente 934b9937-d884-46ec-bfd1-bb0a974239e7 limpa e encerrada.
+18/09/2025 16:44:16 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:44:16 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42454), ID: a1bd268b-7d3a-4e8f-83ce-be32676d70ec
+18/09/2025 16:44:19 - INFO - [app.main] - [WebSocket] Conexão com o cliente a1bd268b-7d3a-4e8f-83ce-be32676d70ec limpa e encerrada.
+18/09/2025 16:44:19 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42482), ID: 616cb000-03e0-45d1-867b-8cb989330c30
+18/09/2025 16:44:20 - INFO - [app.main] - [WebSocket] Conexão com o cliente 616cb000-03e0-45d1-867b-8cb989330c30 limpa e encerrada.
+18/09/2025 16:44:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42488), ID: 2d20a674-f425-456b-b12c-31fef2441be1
+18/09/2025 16:45:46 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:47:17 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:48:47 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:50:18 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:50:36 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2d20a674-f425-456b-b12c-31fef2441be1 limpa e encerrada.
+18/09/2025 16:50:37 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51754), ID: 0bc17203-1f29-419f-82f3-42f3a7fc3d7d
+18/09/2025 16:50:37 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0bc17203-1f29-419f-82f3-42f3a7fc3d7d limpa e encerrada.
+18/09/2025 16:50:37 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51760), ID: 9e92ef62-060a-46eb-846c-43e57d807f22
+18/09/2025 16:50:38 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9e92ef62-060a-46eb-846c-43e57d807f22 limpa e encerrada.
+18/09/2025 16:50:38 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51764), ID: 3f1655a1-8b5c-4cbd-8ed8-2ad0a19e41f7
+18/09/2025 16:50:39 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3f1655a1-8b5c-4cbd-8ed8-2ad0a19e41f7 limpa e encerrada.
+18/09/2025 16:50:39 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51816), ID: 398cd624-cb29-4f1d-a53f-03ec9408a03e
+18/09/2025 16:50:39 - INFO - [app.main] - [WebSocket] Conexão com o cliente 398cd624-cb29-4f1d-a53f-03ec9408a03e limpa e encerrada.
+18/09/2025 16:50:39 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51832), ID: 4df1d203-c875-49d1-a56a-dba8cf094680
+18/09/2025 16:50:40 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4df1d203-c875-49d1-a56a-dba8cf094680 limpa e encerrada.
+18/09/2025 16:50:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51842), ID: 91a03f05-5ee7-4e81-91db-124669dcc497
+18/09/2025 16:50:40 - INFO - [app.main] - [WebSocket] Conexão com o cliente 91a03f05-5ee7-4e81-91db-124669dcc497 limpa e encerrada.
+18/09/2025 16:50:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51850), ID: 42cc6135-3939-49c2-aa96-1762ae245ddd
+18/09/2025 16:50:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente 42cc6135-3939-49c2-aa96-1762ae245ddd limpa e encerrada.
+18/09/2025 16:50:41 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51854), ID: 920a1312-92ef-4d2c-9b41-f3f7a8698688
+18/09/2025 16:50:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente 920a1312-92ef-4d2c-9b41-f3f7a8698688 limpa e encerrada.
+18/09/2025 16:50:41 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51862), ID: fcb5c23c-6340-48ae-8a8d-f9fc96615693
+18/09/2025 16:51:48 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:53:19 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:54:49 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:56:19 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 16:56:51 - INFO - [app.main] - [WebSocket] Conexão com o cliente fcb5c23c-6340-48ae-8a8d-f9fc96615693 limpa e encerrada.
+18/09/2025 16:56:53 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 16:56:53 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 16:56:55 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 16:56:55 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 16:56:55 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 16:56:55 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 16:56:55 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 16:56:55 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 16:56:55 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 16:57:00 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 16:57:00 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 16:57:00 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53654), ID: a5475ecb-cf3b-493c-a676-0a3ecf450ad7
+18/09/2025 16:57:00 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 16:57:01 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 16:57:03 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:57:04 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:57:05 - INFO - [app.main] - [WebSocket] Conexão com o cliente a5475ecb-cf3b-493c-a676-0a3ecf450ad7 limpa e encerrada.
+18/09/2025 16:57:06 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54384), ID: 4d5f9e3f-37a5-4746-a422-40be94bad0c1
+18/09/2025 16:57:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4d5f9e3f-37a5-4746-a422-40be94bad0c1 limpa e encerrada.
+18/09/2025 16:57:15 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 16:57:15 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 16:57:15 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 16:57:15 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 16:57:15 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 16:57:15 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 16:57:15 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 16:57:15 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 16:57:15 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 16:57:20 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 16:57:20 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 16:57:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59254), ID: 3ba0334a-8bb5-442f-8732-95c3549f68e1
+18/09/2025 16:57:20 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 16:57:20 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 16:57:35 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3ba0334a-8bb5-442f-8732-95c3549f68e1 limpa e encerrada.
+18/09/2025 16:57:37 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 16:57:37 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 16:57:37 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 16:57:37 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 16:57:37 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 16:57:37 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 16:57:37 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 16:57:37 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 16:57:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 16:57:42 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 16:57:42 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 16:57:42 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=55944), ID: a0ec502e-8d43-4c43-9523-79531935a0e8
+18/09/2025 16:57:42 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 16:57:42 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 16:58:04 - INFO - [app.main] - [WebSocket] Conexão com o cliente a0ec502e-8d43-4c43-9523-79531935a0e8 limpa e encerrada.
+18/09/2025 16:58:04 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 16:58:04 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 16:58:04 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 16:58:04 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 16:58:04 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 16:58:04 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 16:58:04 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 16:58:04 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 16:58:04 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 16:58:09 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 16:58:09 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 16:58:09 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52502), ID: a29e758e-e323-469a-966e-3955bafdf170
+18/09/2025 16:58:09 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 16:58:09 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 16:58:34 - INFO - [app.main] - [WebSocket] Conexão com o cliente a29e758e-e323-469a-966e-3955bafdf170 limpa e encerrada.
+18/09/2025 16:58:34 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 16:58:34 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 16:58:34 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 16:58:34 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 16:58:34 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 16:58:34 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 16:58:34 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 16:58:34 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 16:58:34 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 16:58:39 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 16:58:39 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 16:58:39 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41024), ID: fa859039-2163-4359-81e6-a2a4e2f99f65
+18/09/2025 16:58:40 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 16:58:40 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 16:59:04 - WARNING - [app.main] - [LIVENESS] ESPs considerados offline nesta verificação: ['WRD00000004']
+18/09/2025 16:59:04 - WARNING - [app.services] - [LIVENESS] ESP WRD00000004 (Quarto: Observação) ficou offline. Libertando seus ativos...
+18/09/2025 16:59:04 - INFO - [app.services] - [LIVENESS] Preparando para libertar ativo 'Teste FA6F'...
+18/09/2025 16:59:04 - INFO - [app.aggregator] - Estado de memória para o ativo df:fb:d8:d9:fa:6f foi limpo.
+18/09/2025 16:59:04 - INFO - [app.services] - [LIVENESS] Processando a saída de 1 ativos do quarto Observação.
+18/09/2025 16:59:05 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:59:06 - INFO - [app.main] - [WebSocket] Conexão com o cliente fa859039-2163-4359-81e6-a2a4e2f99f65 limpa e encerrada.
+18/09/2025 16:59:06 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37794), ID: 23c727f7-ac57-4c06-9924-c99bc04acb86
+18/09/2025 16:59:27 - INFO - [app.main] - [WebSocket] Conexão com o cliente 23c727f7-ac57-4c06-9924-c99bc04acb86 limpa e encerrada.
+18/09/2025 16:59:28 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 16:59:28 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 16:59:28 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 16:59:28 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 16:59:28 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 16:59:28 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 16:59:28 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 16:59:28 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 16:59:28 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 16:59:33 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 16:59:33 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 16:59:33 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=50118), ID: 7aec1133-e250-4738-a8ec-ea755c33d759
+18/09/2025 16:59:33 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 16:59:33 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 16:59:34 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 16:59:34 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 16:59:35 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7aec1133-e250-4738-a8ec-ea755c33d759 limpa e encerrada.
+18/09/2025 16:59:35 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35296), ID: 81c7de78-2766-44d1-83c7-801aeac06d5a
+18/09/2025 16:59:58 - INFO - [app.main] - [WebSocket] Conexão com o cliente 81c7de78-2766-44d1-83c7-801aeac06d5a limpa e encerrada.
+18/09/2025 17:00:37 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49030), ID: 2ede84c0-bd3a-4f11-ab45-449b2f449e44
+18/09/2025 17:00:39 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2ede84c0-bd3a-4f11-ab45-449b2f449e44 limpa e encerrada.
+18/09/2025 17:00:39 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49042), ID: 65353a6f-308b-4a9a-aed3-ee7dd6948621
+18/09/2025 17:00:58 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:02:28 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:03:59 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:05:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente 65353a6f-308b-4a9a-aed3-ee7dd6948621 limpa e encerrada.
+18/09/2025 17:05:21 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37410), ID: 9a58ffcb-7d62-440e-8ac0-c0bc941412ba
+18/09/2025 17:05:22 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9a58ffcb-7d62-440e-8ac0-c0bc941412ba limpa e encerrada.
+18/09/2025 17:05:24 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37418), ID: 0f68a9af-02f8-43e2-b484-f37e9ef525d9
+18/09/2025 17:05:29 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:07:00 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:08:30 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:08:30 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0f68a9af-02f8-43e2-b484-f37e9ef525d9 limpa e encerrada.
+18/09/2025 17:08:31 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42308), ID: ebe312d9-dec0-444f-9516-81a4b2d725cf
+18/09/2025 17:08:32 - INFO - [app.main] - [WebSocket] Conexão com o cliente ebe312d9-dec0-444f-9516-81a4b2d725cf limpa e encerrada.
+18/09/2025 17:08:32 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42320), ID: 3ae55af9-decd-427a-b679-b686b40c5ced
+18/09/2025 17:10:00 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:11:31 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:13:01 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:13:48 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3ae55af9-decd-427a-b679-b686b40c5ced limpa e encerrada.
+18/09/2025 17:14:32 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 17:14:32 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 17:14:32 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 17:14:32 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 17:14:32 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 17:14:32 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 17:14:32 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 17:14:32 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 17:14:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 17:14:37 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 17:14:37 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 17:14:39 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 17:14:39 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 17:18:37 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 17:18:37 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 17:18:37 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 17:18:37 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 17:18:37 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 17:18:37 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 17:18:37 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 17:18:37 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 17:18:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 17:18:42 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 17:18:42 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 17:18:43 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 17:18:43 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 17:19:06 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 17:19:06 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 17:19:06 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 17:19:06 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 17:19:06 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 17:19:06 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 17:19:06 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 17:19:06 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 17:19:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 17:19:11 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 17:19:11 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 17:19:12 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 17:19:12 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 17:19:36 - WARNING - [app.main] - [LIVENESS] ESPs considerados offline nesta verificação: ['WRD00000004']
+18/09/2025 17:19:36 - WARNING - [app.services] - [LIVENESS] ESP WRD00000004 (Quarto: Observação) ficou offline. Libertando seus ativos...
+18/09/2025 17:19:36 - INFO - [app.services] - [LIVENESS] Preparando para libertar ativo 'Teste FA6F'...
+18/09/2025 17:19:36 - INFO - [app.aggregator] - Estado de memória para o ativo df:fb:d8:d9:fa:6f foi limpo.
+18/09/2025 17:19:36 - INFO - [app.services] - [LIVENESS] Processando a saída de 1 ativos do quarto Observação.
+18/09/2025 17:19:37 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 17:20:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:22:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:23:18 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 17:23:18 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 17:23:18 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 17:23:18 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 17:23:18 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 17:23:18 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 17:23:18 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 17:23:18 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 17:23:18 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 17:23:23 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 17:23:23 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 17:23:24 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 17:23:24 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 17:23:24 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 17:23:24 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 17:24:48 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:26:18 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:27:15 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 17:27:15 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 17:27:15 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 17:27:15 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 17:27:15 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 17:27:15 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 17:27:15 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 17:27:15 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 17:27:15 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 17:27:20 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 17:27:20 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 17:27:22 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 17:27:22 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 17:28:07 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=58236), ID: 39534187-4787-45a1-80b8-0491a37dd7a3
+18/09/2025 17:28:45 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:28:52 - INFO - [app.main] - [WebSocket] Conexão com o cliente 39534187-4787-45a1-80b8-0491a37dd7a3 limpa e encerrada.
+18/09/2025 17:28:52 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60844), ID: fccff157-f3f0-4b03-8adf-73f9506ae168
+18/09/2025 17:28:52 - INFO - [app.main] - [WebSocket] Conexão com o cliente fccff157-f3f0-4b03-8adf-73f9506ae168 limpa e encerrada.
+18/09/2025 17:28:52 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60886), ID: 2c3f9e40-1939-4c64-bd2f-8ebabb048dad
+18/09/2025 17:30:08 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2c3f9e40-1939-4c64-bd2f-8ebabb048dad limpa e encerrada.
+18/09/2025 17:30:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=45796), ID: 67ff9887-3b3d-416f-9991-f3b8229377db
+18/09/2025 17:30:15 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:30:27 - INFO - [app.main] - [WebSocket] Conexão com o cliente 67ff9887-3b3d-416f-9991-f3b8229377db limpa e encerrada.
+18/09/2025 17:30:27 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49094), ID: 85f20464-94ec-40df-994a-d32ab6858e20
+18/09/2025 17:30:28 - INFO - [app.main] - [WebSocket] Conexão com o cliente 85f20464-94ec-40df-994a-d32ab6858e20 limpa e encerrada.
+18/09/2025 17:30:28 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49110), ID: cb792a28-2eda-4f35-92e8-334e1e268608
+18/09/2025 17:30:29 - INFO - [app.main] - [WebSocket] Conexão com o cliente cb792a28-2eda-4f35-92e8-334e1e268608 limpa e encerrada.
+18/09/2025 17:30:29 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49124), ID: ca910f81-99ab-468f-b40b-c0274897c781
+18/09/2025 17:30:29 - INFO - [app.main] - [WebSocket] Conexão com o cliente ca910f81-99ab-468f-b40b-c0274897c781 limpa e encerrada.
+18/09/2025 17:30:30 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49130), ID: 561e3df5-05a1-4980-887d-c45b1315484e
+18/09/2025 17:30:30 - INFO - [app.main] - [WebSocket] Conexão com o cliente 561e3df5-05a1-4980-887d-c45b1315484e limpa e encerrada.
+18/09/2025 17:30:30 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49136), ID: 69340bd5-5f4c-49f5-97fc-7f0138d6a0a5
+18/09/2025 17:30:30 - INFO - [app.main] - [WebSocket] Conexão com o cliente 69340bd5-5f4c-49f5-97fc-7f0138d6a0a5 limpa e encerrada.
+18/09/2025 17:30:31 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49140), ID: 0a167f11-184d-48ff-a7b2-3a205233174c
+18/09/2025 17:31:45 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:33:16 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:34:44 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0a167f11-184d-48ff-a7b2-3a205233174c limpa e encerrada.
+18/09/2025 17:34:44 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 17:34:44 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 17:34:44 - INFO - [app.main] - INFO: Inserindo tipos: ['Servidor', 'Roteador', 'Cabo']
+18/09/2025 17:34:45 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 17:34:45 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 17:34:45 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 17:34:45 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 17:34:45 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 17:34:45 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 17:34:45 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 17:34:50 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 17:34:50 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 17:34:50 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49654), ID: f294ac6b-4ecc-441d-9adb-10c997dbaf39
+18/09/2025 17:34:52 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 17:34:52 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 17:34:53 - INFO - [app.main] - [WebSocket] Conexão com o cliente f294ac6b-4ecc-441d-9adb-10c997dbaf39 limpa e encerrada.
+18/09/2025 17:34:53 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49740), ID: 53a94dda-4af5-4b41-96f1-39dac30a77cf
+18/09/2025 17:36:15 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:37:45 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:39:15 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:40:46 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:42:17 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:42:24 - INFO - [app.main] - [WebSocket] Conexão com o cliente 53a94dda-4af5-4b41-96f1-39dac30a77cf limpa e encerrada.
+18/09/2025 17:42:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=57708), ID: c8f8051f-f2c0-40bc-ba4c-18c5bb2be9fa
+18/09/2025 17:42:32 - INFO - [app.main] - [WebSocket] Conexão com o cliente c8f8051f-f2c0-40bc-ba4c-18c5bb2be9fa limpa e encerrada.
+18/09/2025 17:42:32 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=57800), ID: 84a9e518-9855-43f8-9f38-e9455ef48fe3
+18/09/2025 17:43:29 - INFO - [app.main] - [WebSocket] Conexão com o cliente 84a9e518-9855-43f8-9f38-e9455ef48fe3 limpa e encerrada.
+18/09/2025 17:43:47 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:44:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56802), ID: 8d3fea93-0ed7-4ba2-b196-2fc967dac377
+18/09/2025 17:44:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente 8d3fea93-0ed7-4ba2-b196-2fc967dac377 limpa e encerrada.
+18/09/2025 17:44:41 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56870), ID: dd9f1a73-707f-45d1-af1f-8c6eee3744cd
+18/09/2025 17:44:53 - INFO - [app.main] - [WebSocket] Conexão com o cliente dd9f1a73-707f-45d1-af1f-8c6eee3744cd limpa e encerrada.
+18/09/2025 17:44:53 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49794), ID: 6636936b-319f-4a2c-aa97-7cbbce99b965
+18/09/2025 17:45:03 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6636936b-319f-4a2c-aa97-7cbbce99b965 limpa e encerrada.
+18/09/2025 17:45:03 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=36906), ID: 33fe5982-d133-46f6-aa60-d54650c450e5
+18/09/2025 17:45:03 - INFO - [app.main] - [WebSocket] Conexão com o cliente 33fe5982-d133-46f6-aa60-d54650c450e5 limpa e encerrada.
+18/09/2025 17:45:03 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=36930), ID: e6c7c7f2-1cd5-4ffa-8caf-e39a84e5ba01
+18/09/2025 17:45:04 - INFO - [app.main] - [WebSocket] Conexão com o cliente e6c7c7f2-1cd5-4ffa-8caf-e39a84e5ba01 limpa e encerrada.
+18/09/2025 17:45:04 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56006), ID: 779803e9-bb06-4249-9005-9ba29a5abd37
+18/09/2025 17:45:11 - INFO - [app.main] - [WebSocket] Conexão com o cliente 779803e9-bb06-4249-9005-9ba29a5abd37 limpa e encerrada.
+18/09/2025 17:45:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56058), ID: 3f24d8f3-382c-4ba3-82b0-af58538256a8
+18/09/2025 17:45:17 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:45:22 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3f24d8f3-382c-4ba3-82b0-af58538256a8 limpa e encerrada.
+18/09/2025 17:45:22 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56648), ID: 0eabfd66-297c-460d-b539-8aa51cb8764e
+18/09/2025 17:45:23 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0eabfd66-297c-460d-b539-8aa51cb8764e limpa e encerrada.
+18/09/2025 17:45:23 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56676), ID: 881bf0b8-c294-4022-86e6-9cde30a46545
+18/09/2025 17:45:23 - INFO - [app.main] - [WebSocket] Conexão com o cliente 881bf0b8-c294-4022-86e6-9cde30a46545 limpa e encerrada.
+18/09/2025 17:45:23 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56678), ID: 88224a08-4474-436a-83a2-ae1fe50d03ee
+18/09/2025 17:45:24 - INFO - [app.main] - [WebSocket] Conexão com o cliente 88224a08-4474-436a-83a2-ae1fe50d03ee limpa e encerrada.
+18/09/2025 17:45:24 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56692), ID: d9448b72-1a20-47d0-8f08-b6c41f61e810
+18/09/2025 17:45:24 - INFO - [app.main] - [WebSocket] Conexão com o cliente d9448b72-1a20-47d0-8f08-b6c41f61e810 limpa e encerrada.
+18/09/2025 17:45:24 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48676), ID: 7d31f074-2627-48a1-bd74-f2e6c5e87991
+18/09/2025 17:45:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7d31f074-2627-48a1-bd74-f2e6c5e87991 limpa e encerrada.
+18/09/2025 17:45:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48764), ID: 871ed06a-e665-42cd-b977-3c72c00c0587
+18/09/2025 17:45:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente 871ed06a-e665-42cd-b977-3c72c00c0587 limpa e encerrada.
+18/09/2025 17:45:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48820), ID: def07de0-1852-4b7c-a7d5-7f780450a910
+18/09/2025 17:45:31 - INFO - [app.main] - [WebSocket] Conexão com o cliente def07de0-1852-4b7c-a7d5-7f780450a910 limpa e encerrada.
+18/09/2025 17:45:34 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34564), ID: 6192cee9-d387-45bb-88ff-cf5b100c1e3b
+18/09/2025 17:45:36 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6192cee9-d387-45bb-88ff-cf5b100c1e3b limpa e encerrada.
+18/09/2025 17:45:36 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34588), ID: cc32a192-e40e-4778-ad4d-c99ae9b9916d
+18/09/2025 17:46:08 - INFO - [app.main] - [WebSocket] Conexão com o cliente cc32a192-e40e-4778-ad4d-c99ae9b9916d limpa e encerrada.
+18/09/2025 17:46:10 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 17:46:10 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 17:46:10 - INFO - [app.main] - INFO: Tipos já existentes. Nenhuma inserção necessária.
+18/09/2025 17:46:10 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 17:46:10 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 17:46:10 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 17:46:10 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 17:46:10 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 17:46:10 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 1 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 17:46:10 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 17:46:15 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 17:46:15 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 17:46:15 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=57404), ID: 1957c92f-83a2-440c-ba57-54dccf5d3923
+18/09/2025 17:46:17 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 17:46:17 - INFO - [app.main] - Enviando configuração para WRD00000004: 1 ativos na whitelist.
+18/09/2025 17:46:37 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1957c92f-83a2-440c-ba57-54dccf5d3923 limpa e encerrada.
+18/09/2025 17:46:37 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39024), ID: ff573e2e-9d45-4ffe-8f89-9a6abab86901
+18/09/2025 17:46:50 - INFO - [app.main] - [WebSocket] Conexão com o cliente ff573e2e-9d45-4ffe-8f89-9a6abab86901 limpa e encerrada.
+18/09/2025 17:47:40 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:48:12 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39824), ID: 3b189d90-f4e0-4874-86b5-c91093ff519c
+18/09/2025 17:48:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3b189d90-f4e0-4874-86b5-c91093ff519c limpa e encerrada.
+18/09/2025 17:48:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39838), ID: b87f832a-e4d2-44e4-8a9b-795c0001dccc
+18/09/2025 17:48:15 - INFO - [app.main] - [WebSocket] Conexão com o cliente b87f832a-e4d2-44e4-8a9b-795c0001dccc limpa e encerrada.
+18/09/2025 17:48:15 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=57944), ID: f2d16c22-2625-46c7-a78c-af8582551df4
+18/09/2025 17:48:15 - INFO - [app.main] - [WebSocket] Conexão com o cliente f2d16c22-2625-46c7-a78c-af8582551df4 limpa e encerrada.
+18/09/2025 17:48:15 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=57960), ID: 227bb309-1b17-4c40-99c4-0e2586d18a2a
+18/09/2025 17:48:15 - INFO - [app.main] - [WebSocket] Conexão com o cliente 227bb309-1b17-4c40-99c4-0e2586d18a2a limpa e encerrada.
+18/09/2025 17:48:15 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=57966), ID: 453fedbf-3be2-4c7d-b4bb-e710da2cc1b6
+18/09/2025 17:48:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente 453fedbf-3be2-4c7d-b4bb-e710da2cc1b6 limpa e encerrada.
+18/09/2025 17:48:21 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=58000), ID: 8c4e67c2-45e8-466b-b170-bf4d721f217e
+18/09/2025 17:48:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente 8c4e67c2-45e8-466b-b170-bf4d721f217e limpa e encerrada.
+18/09/2025 17:48:22 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=58042), ID: b5b0a7f8-00a5-4f4d-8746-302c742e5664
+18/09/2025 17:48:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente b5b0a7f8-00a5-4f4d-8746-302c742e5664 limpa e encerrada.
+18/09/2025 17:48:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=55942), ID: 589edf7f-8416-40f3-9eb5-d231e1972475
+18/09/2025 17:48:27 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 17:48:27 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 17:48:27 - INFO - [app.main] - [WebSocket] Conexão com o cliente 589edf7f-8416-40f3-9eb5-d231e1972475 limpa e encerrada.
+18/09/2025 17:48:28 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=55946), ID: 53c20f19-73f9-46ab-b0ac-5ac396acbd3e
+18/09/2025 17:48:39 - INFO - [app.aggregator] - EVENTO IN: Ativo df:fb:d8:d9:fa:6f confirmado no Quarto 4.
+18/09/2025 17:48:39 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 17:48:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente 53c20f19-73f9-46ab-b0ac-5ac396acbd3e limpa e encerrada.
+18/09/2025 17:48:41 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49342), ID: 4a99aa26-5a58-4029-a867-49d11156e9fe
+18/09/2025 17:49:10 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:49:29 - INFO - [app.aggregator] - EVENTO OUT (SINAL FRACO): Ativo df:fb:d8:d9:fa:6f marcado para remoção do Quarto 4.
+18/09/2025 17:49:30 - INFO - [app.services] - Lote de 1 mudanças processado e salvo com sucesso.
+18/09/2025 17:49:31 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4a99aa26-5a58-4029-a867-49d11156e9fe limpa e encerrada.
+18/09/2025 17:49:31 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52094), ID: ffc0be2b-4f9e-44f7-932c-1c6f9b5475e0
+18/09/2025 17:49:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente ffc0be2b-4f9e-44f7-932c-1c6f9b5475e0 limpa e encerrada.
+18/09/2025 17:53:49 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 17:53:49 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 17:53:55 - INFO - [app.main] - INFO: Detectados 0/6 quartos. Criando os quartos fixos restantes...
+18/09/2025 17:53:55 - ERROR - [app.main] - ERRO ao 'semear' o banco de dados com quartos fixos: (sqlite3.IntegrityError) NOT NULL constraint failed: quartos.andar_id
+[SQL: INSERT INTO quartos (nome, andar_id) VALUES (?, ?) RETURNING id]
+[parameters: ('Quarto 1', None)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+18/09/2025 17:53:55 - INFO - [app.main] - INFO: Inserindo tipos: ['Servidor', 'Roteador', 'Cabo']
+18/09/2025 17:53:55 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 17:53:55 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 17:53:55 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 17:53:55 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 17:53:55 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 17:53:55 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 17:53:55 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 17:54:00 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 17:54:00 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 17:54:01 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 17:54:01 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000004
+18/09/2025 17:54:01 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+18/09/2025 17:54:01 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=47092), ID: 67ea3eb1-c2e2-4d4b-8438-a7e0bb203ea8
+18/09/2025 17:54:19 - INFO - [app.main] - [WebSocket] Conexão com o cliente 67ea3eb1-c2e2-4d4b-8438-a7e0bb203ea8 limpa e encerrada.
+18/09/2025 17:54:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38848), ID: 60840c56-dbba-43f3-bd22-7289b383e7bb
+18/09/2025 17:54:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente 60840c56-dbba-43f3-bd22-7289b383e7bb limpa e encerrada.
+18/09/2025 17:54:44 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38466), ID: 6c8e75ab-1c3b-44f9-8a05-81811b40085c
+18/09/2025 17:55:25 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:55:50 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6c8e75ab-1c3b-44f9-8a05-81811b40085c limpa e encerrada.
+18/09/2025 17:55:50 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=44206), ID: 12edf1f2-dd24-415e-a9e9-8fc6f8947190
+18/09/2025 17:56:19 - INFO - [app.main] - [WebSocket] Conexão com o cliente 12edf1f2-dd24-415e-a9e9-8fc6f8947190 limpa e encerrada.
+18/09/2025 17:56:19 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51292), ID: 08a535b0-5cba-4765-b441-ea42560596a7
+18/09/2025 17:56:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente 08a535b0-5cba-4765-b441-ea42560596a7 limpa e encerrada.
+18/09/2025 17:56:21 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51302), ID: 72d59371-e8f6-4e9a-9cb2-1ce97d37a149
+18/09/2025 17:56:23 - INFO - [app.main] - [WebSocket] Conexão com o cliente 72d59371-e8f6-4e9a-9cb2-1ce97d37a149 limpa e encerrada.
+18/09/2025 17:56:24 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=33268), ID: ba0bd6a2-eb3d-492b-a100-a64c10cbbee0
+18/09/2025 17:56:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente ba0bd6a2-eb3d-492b-a100-a64c10cbbee0 limpa e encerrada.
+18/09/2025 17:56:55 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:57:07 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39992), ID: 769fd55f-e6d8-46b9-9ae4-8036770314cd
+18/09/2025 17:57:07 - INFO - [app.main] - [WebSocket] Conexão com o cliente 769fd55f-e6d8-46b9-9ae4-8036770314cd limpa e encerrada.
+18/09/2025 17:57:07 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=40002), ID: a5e12c53-a761-4413-80e4-090d165bb123
+18/09/2025 17:57:08 - INFO - [app.main] - [WebSocket] Conexão com o cliente a5e12c53-a761-4413-80e4-090d165bb123 limpa e encerrada.
+18/09/2025 17:57:09 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=40032), ID: e1a5155c-9f42-41e4-ac61-f9534cdcfe50
+18/09/2025 17:57:09 - INFO - [app.main] - [WebSocket] Conexão com o cliente e1a5155c-9f42-41e4-ac61-f9534cdcfe50 limpa e encerrada.
+18/09/2025 17:57:09 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=40040), ID: a8f851a2-359e-4b66-85b6-591870b8e6c4
+18/09/2025 17:57:10 - INFO - [app.main] - [WebSocket] Conexão com o cliente a8f851a2-359e-4b66-85b6-591870b8e6c4 limpa e encerrada.
+18/09/2025 17:57:10 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=40056), ID: 7321e2d2-a96a-48b6-bc3d-2c2cb8af5707
+18/09/2025 17:57:12 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7321e2d2-a96a-48b6-bc3d-2c2cb8af5707 limpa e encerrada.
+18/09/2025 17:57:12 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=40058), ID: a8359a6e-80a9-485f-b864-c8fa745261e7
+18/09/2025 17:58:17 - INFO - [app.main] - [WebSocket] Conexão com o cliente a8359a6e-80a9-485f-b864-c8fa745261e7 limpa e encerrada.
+18/09/2025 17:58:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49752), ID: 4ebcac3a-6cec-4fb1-8d63-948e46efb90d
+18/09/2025 17:58:25 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 17:59:55 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:01:25 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:02:39 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4ebcac3a-6cec-4fb1-8d63-948e46efb90d limpa e encerrada.
+18/09/2025 18:02:39 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60672), ID: aa37243d-7e4b-47bb-9196-a909392aab7f
+18/09/2025 18:02:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente aa37243d-7e4b-47bb-9196-a909392aab7f limpa e encerrada.
+18/09/2025 18:02:55 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:03:56 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 18:03:56 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 18:04:01 - INFO - [app.main] - INFO: Detectados 0/6 quartos. Criando os quartos fixos restantes...
+18/09/2025 18:04:01 - ERROR - [app.main] - ERRO ao 'semear' o banco de dados com quartos fixos: (sqlite3.IntegrityError) NOT NULL constraint failed: quartos.andar_id
+[SQL: INSERT INTO quartos (nome, andar_id) VALUES (?, ?) RETURNING id]
+[parameters: ('Quarto 1', None)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+18/09/2025 18:04:01 - INFO - [app.main] - INFO: Inserindo tipos: ['Servidor', 'Roteador', 'Cabo']
+18/09/2025 18:04:02 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 18:04:02 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 18:04:02 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 18:04:02 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 18:04:02 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 18:04:02 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:04:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 18:04:07 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 18:04:07 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 18:04:08 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 18:04:08 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000004
+18/09/2025 18:04:08 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+18/09/2025 18:05:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:06:24 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35718), ID: 271ea6ed-659f-41a1-8452-1c15ad3b29d9
+18/09/2025 18:06:42 - INFO - [app.main] - [WebSocket] Conexão com o cliente 271ea6ed-659f-41a1-8452-1c15ad3b29d9 limpa e encerrada.
+18/09/2025 18:06:42 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41064), ID: 25400376-148b-4da2-b6fd-9cfdf206ad2f
+18/09/2025 18:07:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:08:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:10:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:11:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:11:34 - INFO - [app.main] - [WebSocket] Conexão com o cliente 25400376-148b-4da2-b6fd-9cfdf206ad2f limpa e encerrada.
+18/09/2025 18:11:35 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 18:11:35 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 18:11:35 - INFO - [app.main] - INFO: Detectados 0/6 quartos. Criando os quartos fixos restantes...
+18/09/2025 18:11:35 - ERROR - [app.main] - ERRO ao 'semear' o banco de dados com quartos fixos: (sqlite3.IntegrityError) NOT NULL constraint failed: quartos.andar_id
+[SQL: INSERT INTO quartos (nome, andar_id) VALUES (?, ?) RETURNING id]
+[parameters: ('Quarto 1', None)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+18/09/2025 18:11:35 - INFO - [app.main] - INFO: Tipos já existentes. Nenhuma inserção necessária.
+18/09/2025 18:11:35 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 18:11:35 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 18:11:35 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 18:11:35 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 18:11:35 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 18:11:35 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:11:35 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 18:11:40 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 18:11:40 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 18:11:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43580), ID: 1ff7ad51-ba24-4691-9e9c-a4d310540c39
+18/09/2025 18:11:41 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 18:11:41 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000004
+18/09/2025 18:11:41 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+18/09/2025 18:12:30 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1ff7ad51-ba24-4691-9e9c-a4d310540c39 limpa e encerrada.
+18/09/2025 18:12:30 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34184), ID: ca24b480-bc87-473d-8d35-33a1c9e7fe2c
+18/09/2025 18:12:32 - INFO - [app.main] - [WebSocket] Conexão com o cliente ca24b480-bc87-473d-8d35-33a1c9e7fe2c limpa e encerrada.
+18/09/2025 18:12:32 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34196), ID: 16971a24-0d89-48b2-89d7-e59201cb0ced
+18/09/2025 18:12:37 - INFO - [app.main] - [WebSocket] Conexão com o cliente 16971a24-0d89-48b2-89d7-e59201cb0ced limpa e encerrada.
+18/09/2025 18:12:37 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34780), ID: 651afe18-a27d-4e4e-8a23-4bb74b80f086
+18/09/2025 18:12:49 - INFO - [app.main] - [WebSocket] Conexão com o cliente 651afe18-a27d-4e4e-8a23-4bb74b80f086 limpa e encerrada.
+18/09/2025 18:12:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53798), ID: e535f7ad-48ac-4ced-8f73-62e8a0a501f4
+18/09/2025 18:13:05 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:13:16 - INFO - [app.main] - [WebSocket] Conexão com o cliente e535f7ad-48ac-4ced-8f73-62e8a0a501f4 limpa e encerrada.
+18/09/2025 18:13:16 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=47080), ID: 6ce93592-6631-450a-a652-9367aacfb6ad
+18/09/2025 18:14:35 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:16:05 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:17:22 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6ce93592-6631-450a-a652-9367aacfb6ad limpa e encerrada.
+18/09/2025 18:18:09 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 18:18:09 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 18:18:09 - INFO - [app.main] - INFO: Detectados 0/6 quartos. Criando os quartos fixos restantes...
+18/09/2025 18:18:09 - ERROR - [app.main] - ERRO ao 'semear' o banco de dados com quartos fixos: (sqlite3.IntegrityError) NOT NULL constraint failed: quartos.andar_id
+[SQL: INSERT INTO quartos (nome, andar_id) VALUES (?, ?) RETURNING id]
+[parameters: ('Quarto 1', None)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+18/09/2025 18:18:09 - INFO - [app.main] - INFO: Tipos já existentes. Nenhuma inserção necessária.
+18/09/2025 18:18:09 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 18:18:09 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 18:18:09 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 18:18:09 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 18:18:09 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 18:18:09 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:18:09 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 18:18:14 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 18:18:14 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 18:18:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52304), ID: 227e2d21-5131-4b34-9c00-3c95bbd55d33
+18/09/2025 18:18:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54480), ID: 6100bba3-ebbe-4ec3-bbe6-b6dcd6ff0339
+18/09/2025 18:18:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente 227e2d21-5131-4b34-9c00-3c95bbd55d33 limpa e encerrada.
+18/09/2025 18:18:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6100bba3-ebbe-4ec3-bbe6-b6dcd6ff0339 limpa e encerrada.
+18/09/2025 18:18:15 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 18:18:15 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000004
+18/09/2025 18:18:15 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+18/09/2025 18:18:18 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42256), ID: df9e592e-009c-4166-b883-dceeca8e9e3f
+18/09/2025 18:19:00 - INFO - [app.main] - [WebSocket] Conexão com o cliente df9e592e-009c-4166-b883-dceeca8e9e3f limpa e encerrada.
+18/09/2025 18:19:00 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60754), ID: 54e3f653-c873-4fd1-a949-3399e557f04c
+18/09/2025 18:19:39 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:19:48 - INFO - [app.main] - [WebSocket] Conexão com o cliente 54e3f653-c873-4fd1-a949-3399e557f04c limpa e encerrada.
+18/09/2025 18:19:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=50680), ID: d4788951-1284-4560-a72d-0a1e49102822
+18/09/2025 18:19:54 - INFO - [app.main] - [WebSocket] Conexão com o cliente d4788951-1284-4560-a72d-0a1e49102822 limpa e encerrada.
+18/09/2025 18:19:54 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48570), ID: 363978b7-d6aa-419a-ba80-8cbda05686be
+18/09/2025 18:19:55 - INFO - [app.main] - [WebSocket] Conexão com o cliente 363978b7-d6aa-419a-ba80-8cbda05686be limpa e encerrada.
+18/09/2025 18:19:55 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48596), ID: ebbee675-b686-4b5a-b664-dc63f579c724
+18/09/2025 18:19:56 - INFO - [app.main] - [WebSocket] Conexão com o cliente ebbee675-b686-4b5a-b664-dc63f579c724 limpa e encerrada.
+18/09/2025 18:19:56 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48602), ID: 42be1b70-1bcf-4339-959d-49b0b59dca7a
+18/09/2025 18:19:56 - INFO - [app.main] - [WebSocket] Conexão com o cliente 42be1b70-1bcf-4339-959d-49b0b59dca7a limpa e encerrada.
+18/09/2025 18:19:56 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48614), ID: 82d9af33-cde6-424d-84ea-fc0e809c5af6
+18/09/2025 18:21:09 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:21:32 - INFO - [app.main] - [WebSocket] Conexão com o cliente 82d9af33-cde6-424d-84ea-fc0e809c5af6 limpa e encerrada.
+18/09/2025 18:21:32 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37720), ID: a44b8910-fa8e-495a-bb84-a6d76a2216ad
+18/09/2025 18:22:03 - INFO - [app.main] - [WebSocket] Conexão com o cliente a44b8910-fa8e-495a-bb84-a6d76a2216ad limpa e encerrada.
+18/09/2025 18:22:39 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:24:09 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:24:38 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 18:24:38 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 18:24:38 - INFO - [app.main] - INFO: Detectados 0/6 quartos. Criando os quartos fixos restantes...
+18/09/2025 18:24:38 - ERROR - [app.main] - ERRO ao 'semear' o banco de dados com quartos fixos: (sqlite3.IntegrityError) NOT NULL constraint failed: quartos.andar_id
+[SQL: INSERT INTO quartos (nome, andar_id) VALUES (?, ?) RETURNING id]
+[parameters: ('Quarto 1', None)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+18/09/2025 18:24:38 - INFO - [app.main] - INFO: Tipos já existentes. Nenhuma inserção necessária.
+18/09/2025 18:24:38 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 18:24:38 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 18:24:38 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 18:24:38 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 18:24:38 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 18:24:38 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:24:38 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 18:24:43 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 18:24:43 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 18:24:45 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 18:24:45 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000004
+18/09/2025 18:24:45 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+18/09/2025 18:25:06 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+18/09/2025 18:25:06 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+18/09/2025 18:25:06 - INFO - [app.main] - INFO: Detectados 0/6 quartos. Criando os quartos fixos restantes...
+18/09/2025 18:25:06 - ERROR - [app.main] - ERRO ao 'semear' o banco de dados com quartos fixos: (sqlite3.IntegrityError) NOT NULL constraint failed: quartos.andar_id
+[SQL: INSERT INTO quartos (nome, andar_id) VALUES (?, ?) RETURNING id]
+[parameters: ('Quarto 1', None)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+18/09/2025 18:25:06 - INFO - [app.main] - INFO: Tipos já existentes. Nenhuma inserção necessária.
+18/09/2025 18:25:06 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+18/09/2025 18:25:06 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+18/09/2025 18:25:06 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+18/09/2025 18:25:06 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+18/09/2025 18:25:06 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+18/09/2025 18:25:06 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:25:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+18/09/2025 18:25:11 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+18/09/2025 18:25:11 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+18/09/2025 18:25:12 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+18/09/2025 18:25:12 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000004
+18/09/2025 18:25:12 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+18/09/2025 18:25:24 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35706), ID: 6a3ff45d-197e-4e80-b7b5-07b384a19691
+18/09/2025 18:25:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6a3ff45d-197e-4e80-b7b5-07b384a19691 limpa e encerrada.
+18/09/2025 18:25:53 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46130), ID: 2ab3372c-c96e-4d23-8c6d-f56887d0c8aa
+18/09/2025 18:25:54 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2ab3372c-c96e-4d23-8c6d-f56887d0c8aa limpa e encerrada.
+18/09/2025 18:25:56 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48140), ID: 581b6f24-b53d-4a2a-b84b-fb5bf295bd8a
+18/09/2025 18:26:00 - INFO - [app.main] - [WebSocket] Conexão com o cliente 581b6f24-b53d-4a2a-b84b-fb5bf295bd8a limpa e encerrada.
+18/09/2025 18:26:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:27:29 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46998), ID: f2ddc0d1-066d-4994-8394-740b2caa21eb
+18/09/2025 18:27:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente f2ddc0d1-066d-4994-8394-740b2caa21eb limpa e encerrada.
+18/09/2025 18:27:42 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54104), ID: ac8fd491-3599-47d3-8e9a-c81d4be9e22c
+18/09/2025 18:27:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente ac8fd491-3599-47d3-8e9a-c81d4be9e22c limpa e encerrada.
+18/09/2025 18:27:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54108), ID: 4ae22fae-f6a6-40e8-973c-7f8ba15ddca3
+18/09/2025 18:27:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4ae22fae-f6a6-40e8-973c-7f8ba15ddca3 limpa e encerrada.
+18/09/2025 18:27:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59054), ID: af08a0bf-b9e5-4b54-9eb4-76fa489dea56
+18/09/2025 18:27:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente af08a0bf-b9e5-4b54-9eb4-76fa489dea56 limpa e encerrada.
+18/09/2025 18:27:46 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59064), ID: f035fbf5-9551-412e-929e-9275b89510dd
+18/09/2025 18:27:46 - INFO - [app.main] - [WebSocket] Conexão com o cliente f035fbf5-9551-412e-929e-9275b89510dd limpa e encerrada.
+18/09/2025 18:27:46 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59072), ID: 49a2e5d1-8026-42f7-8bae-4e3a1bf17737
+18/09/2025 18:27:48 - INFO - [app.main] - [WebSocket] Conexão com o cliente 49a2e5d1-8026-42f7-8bae-4e3a1bf17737 limpa e encerrada.
+18/09/2025 18:27:48 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59080), ID: 07c89098-3673-437f-b9a9-10d0853756c3
+18/09/2025 18:27:50 - INFO - [app.main] - [WebSocket] Conexão com o cliente 07c89098-3673-437f-b9a9-10d0853756c3 limpa e encerrada.
+18/09/2025 18:27:50 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59084), ID: 7706baee-0683-4f8f-b6fc-5cc998e6e6a6
+18/09/2025 18:27:58 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7706baee-0683-4f8f-b6fc-5cc998e6e6a6 limpa e encerrada.
+18/09/2025 18:27:58 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=50046), ID: 35947255-aad9-48c1-a7b8-3324c3047268
+18/09/2025 18:28:00 - INFO - [app.main] - [WebSocket] Conexão com o cliente 35947255-aad9-48c1-a7b8-3324c3047268 limpa e encerrada.
+18/09/2025 18:28:00 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=50056), ID: 5f683328-e1b5-4609-ba29-a5bf0cb84dd7
+18/09/2025 18:28:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:28:09 - INFO - [app.main] - [WebSocket] Conexão com o cliente 5f683328-e1b5-4609-ba29-a5bf0cb84dd7 limpa e encerrada.
+18/09/2025 18:28:09 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46896), ID: e7b4bcf4-1db6-486d-89ac-090266199a6a
+18/09/2025 18:28:23 - INFO - [app.main] - [WebSocket] Conexão com o cliente e7b4bcf4-1db6-486d-89ac-090266199a6a limpa e encerrada.
+18/09/2025 18:28:23 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49944), ID: b5e92176-8bc9-4fe4-82ce-683f1f4523be
+18/09/2025 18:28:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente b5e92176-8bc9-4fe4-82ce-683f1f4523be limpa e encerrada.
+18/09/2025 18:28:26 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=44302), ID: 2a2c257d-b655-48fc-8bed-258efa06a576
+18/09/2025 18:28:26 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2a2c257d-b655-48fc-8bed-258efa06a576 limpa e encerrada.
+18/09/2025 18:28:27 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=44312), ID: 39e473f9-60c4-456e-b104-61bf1d868086
+18/09/2025 18:28:27 - INFO - [app.main] - [WebSocket] Conexão com o cliente 39e473f9-60c4-456e-b104-61bf1d868086 limpa e encerrada.
+18/09/2025 18:28:27 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=44314), ID: 74e5150f-8db7-47ce-8c9a-bf08c230d5ed
+18/09/2025 18:28:28 - INFO - [app.main] - [WebSocket] Conexão com o cliente 74e5150f-8db7-47ce-8c9a-bf08c230d5ed limpa e encerrada.
+18/09/2025 18:28:28 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=44322), ID: c8dc43c8-3e72-47cf-95b7-f6d9c9053fc4
+18/09/2025 18:28:35 - INFO - [app.main] - [WebSocket] Conexão com o cliente c8dc43c8-3e72-47cf-95b7-f6d9c9053fc4 limpa e encerrada.
+18/09/2025 18:28:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=45426), ID: dda23e66-a820-44a3-a8b2-944a5e5b4cf2
+18/09/2025 18:28:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente dda23e66-a820-44a3-a8b2-944a5e5b4cf2 limpa e encerrada.
+18/09/2025 18:29:08 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52544), ID: fe3d33fe-cf2b-48b0-9b3d-296207fd618b
+18/09/2025 18:29:11 - INFO - [app.main] - [WebSocket] Conexão com o cliente fe3d33fe-cf2b-48b0-9b3d-296207fd618b limpa e encerrada.
+18/09/2025 18:29:12 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52560), ID: 8c7c4e21-9072-4329-ad15-1c97c269f2ed
+18/09/2025 18:29:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente 8c7c4e21-9072-4329-ad15-1c97c269f2ed limpa e encerrada.
+18/09/2025 18:29:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56578), ID: e1f48ba4-7354-444c-bf9f-5358e6a73c0f
+18/09/2025 18:29:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente e1f48ba4-7354-444c-bf9f-5358e6a73c0f limpa e encerrada.
+18/09/2025 18:29:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56586), ID: c9eb4df5-7b14-4759-a4cc-cdaa904e2767
+18/09/2025 18:29:15 - INFO - [app.main] - [WebSocket] Conexão com o cliente c9eb4df5-7b14-4759-a4cc-cdaa904e2767 limpa e encerrada.
+18/09/2025 18:29:15 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56588), ID: f4a95b0d-7889-46e3-ab18-272d91cdc21a
+18/09/2025 18:29:16 - INFO - [app.main] - [WebSocket] Conexão com o cliente f4a95b0d-7889-46e3-ab18-272d91cdc21a limpa e encerrada.
+18/09/2025 18:29:16 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56602), ID: 40824d37-8abf-400e-ba2d-f8439e128128
+18/09/2025 18:29:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:29:40 - INFO - [app.main] - [WebSocket] Conexão com o cliente 40824d37-8abf-400e-ba2d-f8439e128128 limpa e encerrada.
+18/09/2025 18:29:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53628), ID: fb18b3ee-1f23-4b4b-a1fb-44cb5af34467
+18/09/2025 18:29:47 - INFO - [app.main] - [WebSocket] Conexão com o cliente fb18b3ee-1f23-4b4b-a1fb-44cb5af34467 limpa e encerrada.
+18/09/2025 18:29:47 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37624), ID: 4c34b794-223f-41b6-8873-9e7ee6776953
+18/09/2025 18:29:48 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4c34b794-223f-41b6-8873-9e7ee6776953 limpa e encerrada.
+18/09/2025 18:29:48 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37634), ID: d599bce4-f204-43c2-bccb-c91855151560
+18/09/2025 18:29:52 - INFO - [app.main] - [WebSocket] Conexão com o cliente d599bce4-f204-43c2-bccb-c91855151560 limpa e encerrada.
+18/09/2025 18:29:52 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37644), ID: 7e5538e2-01d6-4835-9565-5fef42d905a7
+18/09/2025 18:29:52 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7e5538e2-01d6-4835-9565-5fef42d905a7 limpa e encerrada.
+18/09/2025 18:29:52 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37660), ID: f1450821-4750-4805-8754-7fe4bcbe156f
+18/09/2025 18:29:56 - INFO - [app.main] - [WebSocket] Conexão com o cliente f1450821-4750-4805-8754-7fe4bcbe156f limpa e encerrada.
+18/09/2025 18:29:56 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41562), ID: ed043514-d33a-4f8d-9cf2-607f16c33a26
+18/09/2025 18:29:56 - INFO - [app.main] - [WebSocket] Conexão com o cliente ed043514-d33a-4f8d-9cf2-607f16c33a26 limpa e encerrada.
+18/09/2025 18:29:56 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41570), ID: 6e502fbd-3e65-4d1b-876d-d80bdaa83b18
+18/09/2025 18:29:57 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6e502fbd-3e65-4d1b-876d-d80bdaa83b18 limpa e encerrada.
+18/09/2025 18:29:57 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41574), ID: 492f8ed0-3f70-467c-b78c-1138f36a7853
+18/09/2025 18:29:58 - INFO - [app.main] - [WebSocket] Conexão com o cliente 492f8ed0-3f70-467c-b78c-1138f36a7853 limpa e encerrada.
+18/09/2025 18:29:58 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41576), ID: c53a3b7d-a8d8-448c-8f1c-fe0fc7d8dc0f
+18/09/2025 18:29:58 - INFO - [app.main] - [WebSocket] Conexão com o cliente c53a3b7d-a8d8-448c-8f1c-fe0fc7d8dc0f limpa e encerrada.
+18/09/2025 18:29:59 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41582), ID: 02e7ddec-c75d-4006-9b6a-29d7b91915f9
+18/09/2025 18:29:59 - INFO - [app.main] - [WebSocket] Conexão com o cliente 02e7ddec-c75d-4006-9b6a-29d7b91915f9 limpa e encerrada.
+18/09/2025 18:29:59 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41598), ID: dfb06bb9-a7f4-4d2e-a45f-33011f6501b4
+18/09/2025 18:30:01 - INFO - [app.main] - [WebSocket] Conexão com o cliente dfb06bb9-a7f4-4d2e-a45f-33011f6501b4 limpa e encerrada.
+18/09/2025 18:30:01 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41610), ID: 7d184053-f956-42d0-a6c8-f75b00760a3e
+18/09/2025 18:30:02 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7d184053-f956-42d0-a6c8-f75b00760a3e limpa e encerrada.
+18/09/2025 18:30:02 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41620), ID: 8457b213-e76a-4164-ada5-d366870d6e7b
+18/09/2025 18:30:03 - INFO - [app.main] - [WebSocket] Conexão com o cliente 8457b213-e76a-4164-ada5-d366870d6e7b limpa e encerrada.
+18/09/2025 18:30:04 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=41624), ID: cdd799ff-09ee-411b-9b16-a74b766b3ab2
+18/09/2025 18:30:04 - INFO - [app.main] - [WebSocket] Conexão com o cliente cdd799ff-09ee-411b-9b16-a74b766b3ab2 limpa e encerrada.
+18/09/2025 18:30:05 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52826), ID: d04bfe71-95c6-4688-a46e-1de5db36a513
+18/09/2025 18:30:06 - INFO - [app.main] - [WebSocket] Conexão com o cliente d04bfe71-95c6-4688-a46e-1de5db36a513 limpa e encerrada.
+18/09/2025 18:30:06 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52834), ID: 6c9e61fe-e80a-414a-83eb-c40bd911e1b0
+18/09/2025 18:30:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6c9e61fe-e80a-414a-83eb-c40bd911e1b0 limpa e encerrada.
+18/09/2025 18:30:15 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60624), ID: 81c4bf08-a592-40e2-b975-635f51164920
+18/09/2025 18:30:16 - INFO - [app.main] - [WebSocket] Conexão com o cliente 81c4bf08-a592-40e2-b975-635f51164920 limpa e encerrada.
+18/09/2025 18:30:16 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60648), ID: aef6c531-858f-4060-8092-105624594e0c
+18/09/2025 18:30:17 - INFO - [app.main] - [WebSocket] Conexão com o cliente aef6c531-858f-4060-8092-105624594e0c limpa e encerrada.
+18/09/2025 18:30:17 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60676), ID: f3f0288f-b064-476d-adf2-a9c9ecd746de
+18/09/2025 18:30:18 - INFO - [app.main] - [WebSocket] Conexão com o cliente f3f0288f-b064-476d-adf2-a9c9ecd746de limpa e encerrada.
+18/09/2025 18:30:18 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60688), ID: 269498f1-a69e-4dcd-a7a5-c69be3e27e3c
+18/09/2025 18:30:19 - INFO - [app.main] - [WebSocket] Conexão com o cliente 269498f1-a69e-4dcd-a7a5-c69be3e27e3c limpa e encerrada.
+18/09/2025 18:30:19 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60702), ID: ee502418-a2c4-4fd9-94b5-8ad4d76ecddc
+18/09/2025 18:30:20 - INFO - [app.main] - [WebSocket] Conexão com o cliente ee502418-a2c4-4fd9-94b5-8ad4d76ecddc limpa e encerrada.
+18/09/2025 18:30:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60706), ID: 1cc6228d-ea98-4c52-9ab3-32c48eee86f4
+18/09/2025 18:30:20 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1cc6228d-ea98-4c52-9ab3-32c48eee86f4 limpa e encerrada.
+18/09/2025 18:30:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60716), ID: a00c5ece-9683-4ae2-9dcf-778ea4ae8c6c
+18/09/2025 18:30:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente a00c5ece-9683-4ae2-9dcf-778ea4ae8c6c limpa e encerrada.
+18/09/2025 18:30:21 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60728), ID: c4a3cb4a-0d36-4a59-a6fc-b21eb15f39d2
+18/09/2025 18:30:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente c4a3cb4a-0d36-4a59-a6fc-b21eb15f39d2 limpa e encerrada.
+18/09/2025 18:30:21 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60736), ID: 5eb7b51f-60e7-4258-93ef-6e286535fbe3
+18/09/2025 18:30:22 - INFO - [app.main] - [WebSocket] Conexão com o cliente 5eb7b51f-60e7-4258-93ef-6e286535fbe3 limpa e encerrada.
+18/09/2025 18:30:22 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60744), ID: 33509596-3ce3-447a-8cc8-1a80e5d88b54
+18/09/2025 18:30:25 - INFO - [app.main] - [WebSocket] Conexão com o cliente 33509596-3ce3-447a-8cc8-1a80e5d88b54 limpa e encerrada.
+18/09/2025 18:30:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=58834), ID: 2e14d0dd-081e-4e1f-9196-183aeda878eb
+18/09/2025 18:30:26 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2e14d0dd-081e-4e1f-9196-183aeda878eb limpa e encerrada.
+18/09/2025 18:30:27 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=58846), ID: 250ba2e9-4807-4c50-8d07-c0fdd59e0396
+18/09/2025 18:30:54 - INFO - [app.main] - [WebSocket] Conexão com o cliente 250ba2e9-4807-4c50-8d07-c0fdd59e0396 limpa e encerrada.
+18/09/2025 18:30:54 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34868), ID: f128f951-6db1-4408-b48f-29720be2d12e
+18/09/2025 18:30:56 - INFO - [app.main] - [WebSocket] Conexão com o cliente f128f951-6db1-4408-b48f-29720be2d12e limpa e encerrada.
+18/09/2025 18:30:56 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34882), ID: 591b555a-8c2f-4a71-9371-915eddcf7f66
+18/09/2025 18:30:58 - INFO - [app.main] - [WebSocket] Conexão com o cliente 591b555a-8c2f-4a71-9371-915eddcf7f66 limpa e encerrada.
+18/09/2025 18:30:58 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34890), ID: 9271cbcc-2720-44eb-9aec-dd666222940b
+18/09/2025 18:31:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:31:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9271cbcc-2720-44eb-9aec-dd666222940b limpa e encerrada.
+18/09/2025 18:31:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49824), ID: 6284afae-680c-401e-93b4-360212822c3f
+18/09/2025 18:32:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6284afae-680c-401e-93b4-360212822c3f limpa e encerrada.
+18/09/2025 18:32:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=36276), ID: b14989f1-8450-4599-8bce-414799139015
+18/09/2025 18:32:16 - INFO - [app.main] - [WebSocket] Conexão com o cliente b14989f1-8450-4599-8bce-414799139015 limpa e encerrada.
+18/09/2025 18:32:16 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59810), ID: f410b97a-ada7-4d4d-9132-188bdfe16aaf
+18/09/2025 18:32:17 - INFO - [app.main] - [WebSocket] Conexão com o cliente f410b97a-ada7-4d4d-9132-188bdfe16aaf limpa e encerrada.
+18/09/2025 18:32:17 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59816), ID: 4140bbde-cf1c-450b-a899-909ad87d2658
+18/09/2025 18:32:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:33:04 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4140bbde-cf1c-450b-a899-909ad87d2658 limpa e encerrada.
+18/09/2025 18:33:05 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54464), ID: 799d0743-1637-4683-8d39-c6cf27d3eae4
+18/09/2025 18:33:11 - INFO - [app.main] - [WebSocket] Conexão com o cliente 799d0743-1637-4683-8d39-c6cf27d3eae4 limpa e encerrada.
+18/09/2025 18:33:11 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54480), ID: 8a9e2387-dbe3-46d9-8bbd-f5517ccc81f0
+18/09/2025 18:34:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:35:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:37:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:37:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente 8a9e2387-dbe3-46d9-8bbd-f5517ccc81f0 limpa e encerrada.
+18/09/2025 18:37:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=36688), ID: b046f744-e8e9-4f1b-9313-e6c65972771c
+18/09/2025 18:37:44 - INFO - [app.main] - [WebSocket] Conexão com o cliente b046f744-e8e9-4f1b-9313-e6c65972771c limpa e encerrada.
+18/09/2025 18:37:44 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=36692), ID: e2255985-75c0-49d9-a643-0031f3e35283
+18/09/2025 18:37:44 - INFO - [app.main] - [WebSocket] Conexão com o cliente e2255985-75c0-49d9-a643-0031f3e35283 limpa e encerrada.
+18/09/2025 18:37:44 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53874), ID: 88e25323-6a1f-42e4-b00f-07c2bd9efb1c
+18/09/2025 18:37:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente 88e25323-6a1f-42e4-b00f-07c2bd9efb1c limpa e encerrada.
+18/09/2025 18:37:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53884), ID: 6488822c-99d4-43b5-b5b0-1f237e81cf82
+18/09/2025 18:37:46 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6488822c-99d4-43b5-b5b0-1f237e81cf82 limpa e encerrada.
+18/09/2025 18:37:46 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53896), ID: 2defec5a-3d11-40d1-a74f-acc2e4023b58
+18/09/2025 18:38:12 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2defec5a-3d11-40d1-a74f-acc2e4023b58 limpa e encerrada.
+18/09/2025 18:38:12 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56696), ID: 3f78887c-6b70-4fcd-b34d-f0953465e095
+18/09/2025 18:38:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3f78887c-6b70-4fcd-b34d-f0953465e095 limpa e encerrada.
+18/09/2025 18:38:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56698), ID: 589cb9d0-8c5a-4e9b-bb4b-517d007d5aae
+18/09/2025 18:38:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente 589cb9d0-8c5a-4e9b-bb4b-517d007d5aae limpa e encerrada.
+18/09/2025 18:38:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56590), ID: 3490f13d-b30f-4cdd-8a50-8e5d949d2e67
+18/09/2025 18:38:16 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3490f13d-b30f-4cdd-8a50-8e5d949d2e67 limpa e encerrada.
+18/09/2025 18:38:16 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56594), ID: 4a5151e5-e9c5-4ba4-9929-9178a449e018
+18/09/2025 18:38:20 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4a5151e5-e9c5-4ba4-9929-9178a449e018 limpa e encerrada.
+18/09/2025 18:38:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:39:19 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38130), ID: 416f46a8-42d1-4a1f-8138-4bcc50b8a0bf
+18/09/2025 18:39:20 - INFO - [app.main] - [WebSocket] Conexão com o cliente 416f46a8-42d1-4a1f-8138-4bcc50b8a0bf limpa e encerrada.
+18/09/2025 18:39:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38180), ID: be00d114-751b-47c1-a592-b7916b709ab1
+18/09/2025 18:39:55 - INFO - [app.main] - [WebSocket] Conexão com o cliente be00d114-751b-47c1-a592-b7916b709ab1 limpa e encerrada.
+18/09/2025 18:39:55 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=33142), ID: 1e7bbcfb-7183-4827-9e9e-74bad9157956
+18/09/2025 18:40:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:40:48 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1e7bbcfb-7183-4827-9e9e-74bad9157956 limpa e encerrada.
+18/09/2025 18:40:48 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46690), ID: 55ee1ab4-5a66-478a-af69-6d64e0711000
+18/09/2025 18:40:49 - INFO - [app.main] - [WebSocket] Conexão com o cliente 55ee1ab4-5a66-478a-af69-6d64e0711000 limpa e encerrada.
+18/09/2025 18:40:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46708), ID: 28ad460e-9533-4028-abfa-d130a617d32a
+18/09/2025 18:40:50 - INFO - [app.main] - [WebSocket] Conexão com o cliente 28ad460e-9533-4028-abfa-d130a617d32a limpa e encerrada.
+18/09/2025 18:40:50 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46720), ID: 1410f08e-0ad2-40dc-8ef1-8c7653ae73e7
+18/09/2025 18:40:50 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1410f08e-0ad2-40dc-8ef1-8c7653ae73e7 limpa e encerrada.
+18/09/2025 18:40:50 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46724), ID: 8ecee1d1-8813-47bf-81fc-0e34c88379cc
+18/09/2025 18:40:51 - INFO - [app.main] - [WebSocket] Conexão com o cliente 8ecee1d1-8813-47bf-81fc-0e34c88379cc limpa e encerrada.
+18/09/2025 18:40:52 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46726), ID: f9cab812-e1d9-4fe5-8044-f7f6bbe4ff26
+18/09/2025 18:41:00 - INFO - [app.main] - [WebSocket] Conexão com o cliente f9cab812-e1d9-4fe5-8044-f7f6bbe4ff26 limpa e encerrada.
+18/09/2025 18:41:01 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54540), ID: a925eb92-9d37-40a7-a3c0-18726e9a11b5
+18/09/2025 18:41:02 - INFO - [app.main] - [WebSocket] Conexão com o cliente a925eb92-9d37-40a7-a3c0-18726e9a11b5 limpa e encerrada.
+18/09/2025 18:41:02 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54544), ID: 69c9a7fe-8185-49e7-af7c-a91c07b3281b
+18/09/2025 18:41:09 - INFO - [app.main] - [WebSocket] Conexão com o cliente 69c9a7fe-8185-49e7-af7c-a91c07b3281b limpa e encerrada.
+18/09/2025 18:41:09 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53576), ID: ec8f9c42-4702-4d16-b942-c333456fa8c0
+18/09/2025 18:41:09 - INFO - [app.main] - [WebSocket] Conexão com o cliente ec8f9c42-4702-4d16-b942-c333456fa8c0 limpa e encerrada.
+18/09/2025 18:41:09 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53596), ID: e74fcc60-ef7a-4110-8c00-e174e9ede0c7
+18/09/2025 18:41:10 - INFO - [app.main] - [WebSocket] Conexão com o cliente e74fcc60-ef7a-4110-8c00-e174e9ede0c7 limpa e encerrada.
+18/09/2025 18:41:10 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53606), ID: a526351c-7044-4a04-929e-d88c43769f88
+18/09/2025 18:41:10 - INFO - [app.main] - [WebSocket] Conexão com o cliente a526351c-7044-4a04-929e-d88c43769f88 limpa e encerrada.
+18/09/2025 18:41:10 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53612), ID: edd34a1e-6854-4448-a07e-874bd3a338ff
+18/09/2025 18:41:11 - INFO - [app.main] - [WebSocket] Conexão com o cliente edd34a1e-6854-4448-a07e-874bd3a338ff limpa e encerrada.
+18/09/2025 18:41:11 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53656), ID: 3e09742c-c0dd-4f78-8027-41d7e23628d5
+18/09/2025 18:41:18 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3e09742c-c0dd-4f78-8027-41d7e23628d5 limpa e encerrada.
+18/09/2025 18:41:18 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54062), ID: c514de34-6b98-4737-b822-82754e8d7d0b
+18/09/2025 18:41:19 - INFO - [app.main] - [WebSocket] Conexão com o cliente c514de34-6b98-4737-b822-82754e8d7d0b limpa e encerrada.
+18/09/2025 18:41:19 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54064), ID: b71fddb2-4114-47c7-aaaa-6e29f1585afa
+18/09/2025 18:41:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente b71fddb2-4114-47c7-aaaa-6e29f1585afa limpa e encerrada.
+18/09/2025 18:41:21 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54074), ID: 40605fba-aee8-4140-acdb-b3ee499ef1ed
+18/09/2025 18:41:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente 40605fba-aee8-4140-acdb-b3ee499ef1ed limpa e encerrada.
+18/09/2025 18:41:21 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54090), ID: fce1a4d7-ce07-4e77-b268-9a449c1dd941
+18/09/2025 18:41:22 - INFO - [app.main] - [WebSocket] Conexão com o cliente fce1a4d7-ce07-4e77-b268-9a449c1dd941 limpa e encerrada.
+18/09/2025 18:41:22 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54094), ID: 5992ef03-5e91-420d-8d51-8ef547424fe0
+18/09/2025 18:41:23 - INFO - [app.main] - [WebSocket] Conexão com o cliente 5992ef03-5e91-420d-8d51-8ef547424fe0 limpa e encerrada.
+18/09/2025 18:41:23 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54096), ID: cb7106c9-9cc6-4e4d-ab53-7bfcc9b54796
+18/09/2025 18:41:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:41:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente cb7106c9-9cc6-4e4d-ab53-7bfcc9b54796 limpa e encerrada.
+18/09/2025 18:41:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56432), ID: acac889d-c010-4007-bd4c-1f5724a31443
+18/09/2025 18:41:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente acac889d-c010-4007-bd4c-1f5724a31443 limpa e encerrada.
+18/09/2025 18:41:44 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56438), ID: 647bdfd3-3442-49a9-8e85-7fbf487665e8
+18/09/2025 18:41:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente 647bdfd3-3442-49a9-8e85-7fbf487665e8 limpa e encerrada.
+18/09/2025 18:41:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59484), ID: 68eab223-f4c5-409f-9d02-2e84ac952d2c
+18/09/2025 18:41:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente 68eab223-f4c5-409f-9d02-2e84ac952d2c limpa e encerrada.
+18/09/2025 18:41:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59488), ID: 1f098fb8-7f40-4175-8ce1-54e1427b3420
+18/09/2025 18:41:54 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1f098fb8-7f40-4175-8ce1-54e1427b3420 limpa e encerrada.
+18/09/2025 18:41:54 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38876), ID: 0028cb6f-43ef-4ebb-b7cd-8bea77315b44
+18/09/2025 18:41:54 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0028cb6f-43ef-4ebb-b7cd-8bea77315b44 limpa e encerrada.
+18/09/2025 18:41:55 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38908), ID: 06716b8e-de7e-421b-a282-3e0001063935
+18/09/2025 18:42:42 - INFO - [app.main] - [WebSocket] Conexão com o cliente 06716b8e-de7e-421b-a282-3e0001063935 limpa e encerrada.
+18/09/2025 18:42:42 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=50374), ID: 7e0c4e23-199b-4be8-9eba-bb7b683f5014
+18/09/2025 18:42:42 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7e0c4e23-199b-4be8-9eba-bb7b683f5014 limpa e encerrada.
+18/09/2025 18:42:42 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=50400), ID: ef70bf82-57bc-4a25-b24f-40b2785bf9dd
+18/09/2025 18:42:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente ef70bf82-57bc-4a25-b24f-40b2785bf9dd limpa e encerrada.
+18/09/2025 18:42:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37218), ID: 2334eca0-3a3f-47e4-83e0-f41192bcdcf5
+18/09/2025 18:42:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente 2334eca0-3a3f-47e4-83e0-f41192bcdcf5 limpa e encerrada.
+18/09/2025 18:42:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37230), ID: 0317556b-c9ee-44b0-8e57-95ae27e5abf1
+18/09/2025 18:43:04 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0317556b-c9ee-44b0-8e57-95ae27e5abf1 limpa e encerrada.
+18/09/2025 18:43:04 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38902), ID: 68389544-cabc-4f23-91e4-0fb3b75fb9a8
+18/09/2025 18:43:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:43:35 - INFO - [app.main] - [WebSocket] Conexão com o cliente 68389544-cabc-4f23-91e4-0fb3b75fb9a8 limpa e encerrada.
+18/09/2025 18:43:35 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=59858), ID: 017255f7-dc02-4842-bdcb-932eead339f8
+18/09/2025 18:44:11 - INFO - [app.main] - [WebSocket] Conexão com o cliente 017255f7-dc02-4842-bdcb-932eead339f8 limpa e encerrada.
+18/09/2025 18:44:11 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52540), ID: 0e24be44-a872-43b5-8ad0-52b5d7e04acf
+18/09/2025 18:44:12 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0e24be44-a872-43b5-8ad0-52b5d7e04acf limpa e encerrada.
+18/09/2025 18:44:12 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52560), ID: 73fc7fdd-64f9-4b61-9cc0-cbf5d30d1b08
+18/09/2025 18:44:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente 73fc7fdd-64f9-4b61-9cc0-cbf5d30d1b08 limpa e encerrada.
+18/09/2025 18:44:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52576), ID: f2513b61-fc0e-4a39-b7f3-40a814e06134
+18/09/2025 18:44:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente f2513b61-fc0e-4a39-b7f3-40a814e06134 limpa e encerrada.
+18/09/2025 18:44:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52580), ID: ec28df83-25a4-4bd5-964b-6e1223e56c11
+18/09/2025 18:44:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente ec28df83-25a4-4bd5-964b-6e1223e56c11 limpa e encerrada.
+18/09/2025 18:44:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51552), ID: cb64e7d5-4eb7-46dd-82a8-feceda45ca2e
+18/09/2025 18:44:15 - INFO - [app.main] - [WebSocket] Conexão com o cliente cb64e7d5-4eb7-46dd-82a8-feceda45ca2e limpa e encerrada.
+18/09/2025 18:44:16 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51556), ID: ac34d50a-a59d-45b1-b76c-85a7225a9ee1
+18/09/2025 18:44:16 - INFO - [app.main] - [WebSocket] Conexão com o cliente ac34d50a-a59d-45b1-b76c-85a7225a9ee1 limpa e encerrada.
+18/09/2025 18:44:16 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51574), ID: 84c9af4d-efc7-41db-8574-ba2ea6985145
+18/09/2025 18:44:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+18/09/2025 18:44:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente 84c9af4d-efc7-41db-8574-ba2ea6985145 limpa e encerrada.
+18/09/2025 18:44:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34028), ID: bb703f96-6f35-4a1e-ab8d-1aeb42ef4982
+18/09/2025 18:44:50 - INFO - [app.main] - [WebSocket] Conexão com o cliente bb703f96-6f35-4a1e-ab8d-1aeb42ef4982 limpa e encerrada.
+18/09/2025 18:44:50 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34060), ID: 3354aa96-cb42-41d4-9ae0-3eb72287bdf7
+18/09/2025 18:46:28 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3354aa96-cb42-41d4-9ae0-3eb72287bdf7 limpa e encerrada.
+18/09/2025 18:46:28 - INFO - [app.main] - Andar '1º Andar' não encontrado. Criando novo registro.
+18/09/2025 18:46:29 - INFO - [app.main] - Quarto 'Imagens' não encontrado. Criando e associando ao andar ID 1.
+18/09/2025 18:46:29 - INFO - [app.main] - [main] Embarcado 'WRD00000001' criado. Disparando reset automático.
+18/09/2025 18:46:29 - INFO - [app.mqtt_client] - [MQTT] Enviando comando {"type": "command", "data": {"name": "FETCH_CONFIG"}} para a ESP 'WRD00000001' no tópico 'wyrd/rtls/esp/WRD00000001/command'
+18/09/2025 18:46:29 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=55724), ID: 22c8701b-0a2f-4762-ba8a-577a0dd678c4
+18/09/2025 18:46:30 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 1 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:46:51 - INFO - [app.main] - [WebSocket] Conexão com o cliente 22c8701b-0a2f-4762-ba8a-577a0dd678c4 limpa e encerrada.
+18/09/2025 18:46:51 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52266), ID: f65cd15c-fa4a-4705-a77e-bb88e1c89c82
+18/09/2025 18:47:08 - INFO - [app.main] - [WebSocket] Conexão com o cliente f65cd15c-fa4a-4705-a77e-bb88e1c89c82 limpa e encerrada.
+18/09/2025 18:47:08 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35380), ID: 3d3ef543-b94b-4b24-becf-abb6cc4c27ac
+18/09/2025 18:47:12 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3d3ef543-b94b-4b24-becf-abb6cc4c27ac limpa e encerrada.
+18/09/2025 18:47:12 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35392), ID: 987c083c-781e-42c1-877b-9b352f09e827
+18/09/2025 18:47:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente 987c083c-781e-42c1-877b-9b352f09e827 limpa e encerrada.
+18/09/2025 18:47:13 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35428), ID: a42c27eb-3f9c-417e-9ddd-a200c0ea1d45
+18/09/2025 18:47:24 - INFO - [app.main] - [WebSocket] Conexão com o cliente a42c27eb-3f9c-417e-9ddd-a200c0ea1d45 limpa e encerrada.
+18/09/2025 18:47:24 - INFO - [app.main] - Andar 'Térreo' não encontrado. Criando novo registro.
+18/09/2025 18:47:24 - INFO - [app.main] - Quarto 'SPA' não encontrado. Criando e associando ao andar ID 2.
+18/09/2025 18:47:25 - INFO - [app.main] - [main] Embarcado 'WRD00000002' criado. Disparando reset automático.
+18/09/2025 18:47:25 - INFO - [app.mqtt_client] - [MQTT] Enviando comando {"type": "command", "data": {"name": "FETCH_CONFIG"}} para a ESP 'WRD00000002' no tópico 'wyrd/rtls/esp/WRD00000002/command'
+18/09/2025 18:47:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37844), ID: ae23a929-c0b0-4c9d-b837-2dd10ecf7fee
+18/09/2025 18:47:26 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 2 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:47:33 - INFO - [app.main] - [WebSocket] Conexão com o cliente ae23a929-c0b0-4c9d-b837-2dd10ecf7fee limpa e encerrada.
+18/09/2025 18:47:33 - INFO - [app.main] - Quarto 'Trauma' não encontrado. Criando e associando ao andar ID 2.
+18/09/2025 18:47:33 - INFO - [app.main] - [main] Embarcado 'WRD00000003' criado. Disparando reset automático.
+18/09/2025 18:47:33 - INFO - [app.mqtt_client] - [MQTT] Enviando comando {"type": "command", "data": {"name": "FETCH_CONFIG"}} para a ESP 'WRD00000003' no tópico 'wyrd/rtls/esp/WRD00000003/command'
+18/09/2025 18:47:33 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37862), ID: 0a558d67-49cb-49ca-8833-6ec6710b0536
+18/09/2025 18:47:34 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 3 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:47:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0a558d67-49cb-49ca-8833-6ec6710b0536 limpa e encerrada.
+18/09/2025 18:47:41 - INFO - [app.main] - Quarto 'Observação' não encontrado. Criando e associando ao andar ID 2.
+18/09/2025 18:47:42 - INFO - [app.main] - [main] Embarcado 'WRD00000004' criado. Disparando reset automático.
+18/09/2025 18:47:42 - INFO - [app.mqtt_client] - [MQTT] Enviando comando {"type": "command", "data": {"name": "FETCH_CONFIG"}} para a ESP 'WRD00000004' no tópico 'wyrd/rtls/esp/WRD00000004/command'
+18/09/2025 18:47:42 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37248), ID: 201ef931-8be1-4824-8ecf-55977299eb9e
+18/09/2025 18:47:42 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 4 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:47:51 - INFO - [app.main] - [WebSocket] Conexão com o cliente 201ef931-8be1-4824-8ecf-55977299eb9e limpa e encerrada.
+18/09/2025 18:47:51 - INFO - [app.main] - Quarto 'Recepção' não encontrado. Criando e associando ao andar ID 2.
+18/09/2025 18:47:52 - INFO - [app.main] - [main] Embarcado 'WRD00000005' criado. Disparando reset automático.
+18/09/2025 18:47:52 - INFO - [app.mqtt_client] - [MQTT] Enviando comando {"type": "command", "data": {"name": "FETCH_CONFIG"}} para a ESP 'WRD00000005' no tópico 'wyrd/rtls/esp/WRD00000005/command'
+18/09/2025 18:47:52 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43734), ID: 0059e269-fae8-4912-85b9-834516133fb5
+18/09/2025 18:47:52 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 5 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:48:48 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0059e269-fae8-4912-85b9-834516133fb5 limpa e encerrada.
+18/09/2025 18:48:48 - INFO - [app.main] - Quarto 'CER' não encontrado. Criando e associando ao andar ID 2.
+18/09/2025 18:48:49 - INFO - [app.main] - [main] Embarcado 'WRD00000006' criado. Disparando reset automático.
+18/09/2025 18:48:49 - INFO - [app.mqtt_client] - [MQTT] Enviando comando {"type": "command", "data": {"name": "FETCH_CONFIG"}} para a ESP 'WRD00000006' no tópico 'wyrd/rtls/esp/WRD00000006/command'
+18/09/2025 18:48:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37384), ID: bfb22240-bdb2-46b8-b075-2f38e420fda6
+18/09/2025 18:48:51 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+18/09/2025 18:55:11 - INFO - [app.main] - [WebSocket] Conexão com o cliente bfb22240-bdb2-46b8-b075-2f38e420fda6 limpa e encerrada.
+18/09/2025 18:55:50 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60808), ID: bd86349b-ba3c-410e-8d3f-21425b0a91ef
+18/09/2025 18:55:51 - INFO - [app.main] - [WebSocket] Conexão com o cliente bd86349b-ba3c-410e-8d3f-21425b0a91ef limpa e encerrada.
+18/09/2025 18:55:51 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60828), ID: d681a3f3-d955-4331-ac3e-156ed5252c67
+19/09/2025 12:39:34 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+19/09/2025 12:39:34 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+19/09/2025 12:39:34 - INFO - [app.main] - INFO: Tipos já existentes. Nenhuma inserção necessária.
+19/09/2025 12:39:34 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+19/09/2025 12:39:34 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+19/09/2025 12:39:34 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+19/09/2025 12:39:34 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+19/09/2025 12:39:34 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+19/09/2025 12:39:34 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+19/09/2025 12:39:34 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+19/09/2025 12:39:39 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+19/09/2025 12:39:39 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+19/09/2025 12:40:30 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39676), ID: 4c2cf5e3-b64c-4590-b6a3-4cc93dac3515
+19/09/2025 12:40:30 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39686), ID: 76090b3d-6809-4792-b1ba-9be6ab6e2995
+19/09/2025 12:41:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4c2cf5e3-b64c-4590-b6a3-4cc93dac3515 limpa e encerrada.
+19/09/2025 12:41:14 - INFO - [app.main] - [WebSocket] Conexão com o cliente 76090b3d-6809-4792-b1ba-9be6ab6e2995 limpa e encerrada.
+19/09/2025 13:17:15 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+19/09/2025 13:17:15 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+19/09/2025 13:17:16 - INFO - [app.main] - INFO: Tipos já existentes. Nenhuma inserção necessária.
+19/09/2025 13:17:16 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+19/09/2025 13:17:16 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+19/09/2025 13:17:16 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+19/09/2025 13:17:16 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+19/09/2025 13:17:16 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+19/09/2025 13:17:16 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+19/09/2025 13:17:16 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+19/09/2025 13:17:21 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+19/09/2025 13:17:21 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+19/09/2025 13:17:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54310), ID: cefdd711-bd6b-4758-bd86-ef81a3ddcc1d
+19/09/2025 13:17:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54326), ID: c36749a1-e666-4162-89b5-2c6394374766
+19/09/2025 13:17:50 - INFO - [app.main] - [WebSocket] Conexão com o cliente c36749a1-e666-4162-89b5-2c6394374766 limpa e encerrada.
+19/09/2025 13:17:50 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=54338), ID: cb7308e4-9475-4b66-a3fc-c48135ab755a
+19/09/2025 13:18:39 - INFO - [app.main] - [WebSocket] Conexão com o cliente cb7308e4-9475-4b66-a3fc-c48135ab755a limpa e encerrada.
+19/09/2025 13:18:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53434), ID: de2179c7-7a81-421c-b00b-d306568ccb56
+19/09/2025 13:18:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente de2179c7-7a81-421c-b00b-d306568ccb56 limpa e encerrada.
+19/09/2025 13:18:41 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53442), ID: fc6bd0bc-b336-48bc-b14a-1ca7e358b5ed
+19/09/2025 13:18:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente fc6bd0bc-b336-48bc-b14a-1ca7e358b5ed limpa e encerrada.
+19/09/2025 13:18:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53458), ID: 4338e5ee-8461-4d53-9fad-f3f04ae13cfb
+19/09/2025 13:18:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente 4338e5ee-8461-4d53-9fad-f3f04ae13cfb limpa e encerrada.
+19/09/2025 13:18:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53466), ID: 5e5af359-36b4-47dc-946b-74c84b7a738f
+19/09/2025 13:19:01 - INFO - [app.main] - [WebSocket] Conexão com o cliente 5e5af359-36b4-47dc-946b-74c84b7a738f limpa e encerrada.
+19/09/2025 13:19:01 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48914), ID: 02ff19f9-0ee6-4ab7-b446-667d3aab0e2a
+19/09/2025 13:19:05 - INFO - [app.main] - [WebSocket] Conexão com o cliente 02ff19f9-0ee6-4ab7-b446-667d3aab0e2a limpa e encerrada.
+19/09/2025 13:19:05 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48920), ID: 841b02c3-3060-448b-bbb4-6f2b8911528a
+19/09/2025 13:19:06 - INFO - [app.main] - [WebSocket] Conexão com o cliente 841b02c3-3060-448b-bbb4-6f2b8911528a limpa e encerrada.
+19/09/2025 13:19:06 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48934), ID: 9f4df859-58b3-4c78-9db2-11489bef883f
+19/09/2025 13:19:08 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9f4df859-58b3-4c78-9db2-11489bef883f limpa e encerrada.
+19/09/2025 13:19:08 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=48940), ID: 12f3c0a2-0114-473e-ab81-0a41f6b29d97
+19/09/2025 13:19:10 - INFO - [app.main] - [WebSocket] Conexão com o cliente 12f3c0a2-0114-473e-ab81-0a41f6b29d97 limpa e encerrada.
+19/09/2025 13:19:10 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52556), ID: c0633daf-0b8a-49da-bb74-569c27a14ad1
+19/09/2025 13:19:15 - INFO - [app.main] - [WebSocket] Conexão com o cliente c0633daf-0b8a-49da-bb74-569c27a14ad1 limpa e encerrada.
+19/09/2025 13:19:15 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52560), ID: d4445bb7-47d3-478f-9664-ea410fe2b8bd
+19/09/2025 13:19:26 - INFO - [app.main] - [WebSocket] Conexão com o cliente d4445bb7-47d3-478f-9664-ea410fe2b8bd limpa e encerrada.
+19/09/2025 13:19:26 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43400), ID: a0487a5f-5e34-465b-af99-288c07fa17e2
+19/09/2025 13:19:39 - INFO - [app.main] - [WebSocket] Conexão com o cliente a0487a5f-5e34-465b-af99-288c07fa17e2 limpa e encerrada.
+19/09/2025 13:19:39 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42914), ID: da9e1fdf-6899-4f3b-b995-483e72d00a5c
+19/09/2025 13:19:40 - INFO - [app.main] - [WebSocket] Conexão com o cliente da9e1fdf-6899-4f3b-b995-483e72d00a5c limpa e encerrada.
+19/09/2025 13:19:41 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43612), ID: 96b6e02a-ed22-4b9a-a622-74ec6eb90d5c
+19/09/2025 13:19:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente 96b6e02a-ed22-4b9a-a622-74ec6eb90d5c limpa e encerrada.
+19/09/2025 13:19:42 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43620), ID: 9230e018-832a-444c-a105-78190f282cbd
+19/09/2025 13:19:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9230e018-832a-444c-a105-78190f282cbd limpa e encerrada.
+19/09/2025 13:19:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43630), ID: c64fd5d5-4c53-4310-ac97-a37b10fa830e
+19/09/2025 13:19:44 - INFO - [app.main] - [WebSocket] Conexão com o cliente c64fd5d5-4c53-4310-ac97-a37b10fa830e limpa e encerrada.
+19/09/2025 13:19:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=43650), ID: 3a776ca3-707d-4387-946f-8ac38efe3f76
+19/09/2025 13:26:03 - INFO - [app.main] - [WebSocket] Conexão com o cliente 3a776ca3-707d-4387-946f-8ac38efe3f76 limpa e encerrada.
+19/09/2025 13:26:03 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51756), ID: 628795df-5d00-4cba-ae61-c78d1fa409c6
+19/09/2025 13:26:50 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 192.168.42.9, FW: 0.4.0)
+19/09/2025 13:26:50 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+19/09/2025 13:29:00 - INFO - [app.main] - [WebSocket] Conexão com o cliente 628795df-5d00-4cba-ae61-c78d1fa409c6 limpa e encerrada.
+19/09/2025 13:29:00 - INFO - [app.main] - [WebSocket] Conexão com o cliente cefdd711-bd6b-4758-bd86-ef81a3ddcc1d limpa e encerrada.
+19/09/2025 13:29:18 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+19/09/2025 13:29:18 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+19/09/2025 13:29:18 - INFO - [app.main] - INFO: Tipos já existentes. Nenhuma inserção necessária.
+19/09/2025 13:29:18 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+19/09/2025 13:29:18 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+19/09/2025 13:29:18 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+19/09/2025 13:29:18 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+19/09/2025 13:29:18 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+19/09/2025 13:29:18 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 6 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+19/09/2025 13:29:18 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+19/09/2025 13:29:23 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+19/09/2025 13:29:23 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+19/09/2025 13:29:24 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42890), ID: fa2d60fd-2ded-4590-ba76-2a5de8c688a0
+19/09/2025 13:29:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=42922), ID: 22d31aa7-08fc-42f3-bfeb-c4789a9a3e89
+19/09/2025 13:29:26 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 192.168.42.9, FW: 0.4.0)
+19/09/2025 13:29:26 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+19/09/2025 13:30:48 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:30:56 - INFO - [app.main] - [WebSocket] Conexão com o cliente fa2d60fd-2ded-4590-ba76-2a5de8c688a0 limpa e encerrada.
+19/09/2025 13:30:57 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=47270), ID: 690ef913-56fd-4144-8441-c9e8ebb3358e
+19/09/2025 13:31:02 - INFO - [app.main] - [WebSocket] Conexão com o cliente 22d31aa7-08fc-42f3-bfeb-c4789a9a3e89 limpa e encerrada.
+19/09/2025 13:32:18 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:33:49 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:35:19 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:36:49 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:38:20 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:39:50 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:41:20 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:41:33 - INFO - [app.main] - [WebSocket] Conexão com o cliente 690ef913-56fd-4144-8441-c9e8ebb3358e limpa e encerrada.
+19/09/2025 13:41:34 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52300), ID: 60c87de9-17fd-4de1-9efc-53b2ff8d0aac
+19/09/2025 13:41:35 - INFO - [app.main] - [WebSocket] Conexão com o cliente 60c87de9-17fd-4de1-9efc-53b2ff8d0aac limpa e encerrada.
+19/09/2025 13:41:35 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52306), ID: 6af02fdb-4222-40e4-b490-f2f046368be3
+19/09/2025 13:41:36 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6af02fdb-4222-40e4-b490-f2f046368be3 limpa e encerrada.
+19/09/2025 13:41:36 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=52310), ID: a65b4d9f-6248-4a2c-9606-b4ff7d1fa7cd
+19/09/2025 13:42:51 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:44:21 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:45:52 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:46:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente a65b4d9f-6248-4a2c-9606-b4ff7d1fa7cd limpa e encerrada.
+19/09/2025 13:46:21 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56474), ID: f72f6fcb-23c4-45fb-a189-5afd0c0d8142
+19/09/2025 13:46:22 - INFO - [app.main] - [WebSocket] Conexão com o cliente f72f6fcb-23c4-45fb-a189-5afd0c0d8142 limpa e encerrada.
+19/09/2025 13:46:22 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56494), ID: c385faf8-ed02-49ce-a881-a5e3c214e75a
+19/09/2025 13:47:22 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:48:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:49:19 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000004 (MAC: 8C:4F:00:3A:38:BC, IP: 192.168.42.9, FW: 0.4.0)
+19/09/2025 13:49:19 - INFO - [app.main] - Enviando configuração para WRD00000004: 0 ativos na whitelist.
+19/09/2025 13:50:24 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:51:54 - INFO - [app.main] - [WebSocket] Conexão com o cliente c385faf8-ed02-49ce-a881-a5e3c214e75a limpa e encerrada.
+19/09/2025 13:51:54 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39872), ID: 1e5c86a8-f472-4c21-9c68-3e5c9e680a7d
+19/09/2025 13:51:55 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:51:55 - INFO - [app.main] - [WebSocket] Conexão com o cliente 1e5c86a8-f472-4c21-9c68-3e5c9e680a7d limpa e encerrada.
+19/09/2025 13:51:55 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39892), ID: 491a2518-d4eb-4faf-8b53-10a03cb028da
+19/09/2025 13:51:57 - INFO - [app.main] - [WebSocket] Conexão com o cliente 491a2518-d4eb-4faf-8b53-10a03cb028da limpa e encerrada.
+19/09/2025 13:51:57 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39904), ID: be8d6044-80ce-4833-8bcf-3c636c13b416
+19/09/2025 13:53:25 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:54:55 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:56:26 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 13:57:57 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 1 embarcados no banco de dados.
+19/09/2025 14:00:27 - WARNING - [app.main] - [LIVENESS] ESPs considerados offline nesta verificação: ['WRD00000004']
+19/09/2025 14:00:27 - WARNING - [app.services] - [LIVENESS] ESP WRD00000004 (Quarto: Observação) ficou offline. Libertando seus ativos...
+19/09/2025 14:07:45 - INFO - [app.main] - [WebSocket] Conexão com o cliente be8d6044-80ce-4833-8bcf-3c636c13b416 limpa e encerrada.
+19/09/2025 14:07:45 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37266), ID: 6621caac-297b-48f2-98fc-6a0f7520ce77
+19/09/2025 14:07:46 - INFO - [app.main] - [WebSocket] Conexão com o cliente 6621caac-297b-48f2-98fc-6a0f7520ce77 limpa e encerrada.
+19/09/2025 14:07:46 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=37268), ID: 160a6a1e-83ae-4e43-89ec-31752ff8c552
+19/09/2025 14:08:09 - INFO - [app.main] - [WebSocket] Conexão com o cliente 160a6a1e-83ae-4e43-89ec-31752ff8c552 limpa e encerrada.
+19/09/2025 14:08:09 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53788), ID: f9824a38-6291-4d27-8935-83c0cf4610c7
+19/09/2025 14:09:35 - INFO - [app.main] - [WebSocket] Conexão com o cliente f9824a38-6291-4d27-8935-83c0cf4610c7 limpa e encerrada.
+19/09/2025 14:09:35 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=34424), ID: 74ea7a9c-079f-404d-bdf2-d29b9f09464b
+19/09/2025 14:10:24 - INFO - [app.main] - [WebSocket] Conexão com o cliente 74ea7a9c-079f-404d-bdf2-d29b9f09464b limpa e encerrada.
+19/09/2025 14:10:24 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=45088), ID: 3b54e7fc-b67c-425c-bad7-7f7ccf0b4815

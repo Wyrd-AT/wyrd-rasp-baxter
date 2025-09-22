@@ -307,29 +307,6 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
 
     return Response(status_code=status.HTTP_200_OK)
 
-# @app.post("/rssi-report", status_code=status.HTTP_204_NO_CONTENT)
-# async def receive_rssi_report(report_data: Dict):
-#     """
-#     Recebe um relatório de RSSI de uma ESP via POST e o retransmite
-#     para todos os clientes conectados via WebSocket.
-#     """
-#     esp_id = report_data.get("esp_id") 
-#     report_payload = report_data.get("report")
-
-#     if not esp_id or report_payload is None:
-#         raise HTTPException(status_code=400, detail="Payload do relatório incompleto.")
-    
-#     client_id = pending_rssi_requests.pop(esp_id, None)
-#     if client_id:
-#         logger.info("Relatório da ESP '%s' recebido. Enviando para o cliente '%s'.", esp_id, client_id)
-#         websocket_message = {"type": "RSSI_REPORT", "esp_id": esp_id, "report": report_data.get("report")}
-
-#         await manager.send_to_client(client_id, json.dumps(websocket_message))
-#     else:
-#         logger.warning("Relatório da ESP '%s' recebido, mas nenhum cliente estava à espera dele.", esp_id)
-
-#     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
 @app.get("/api/assets/map", name="get_assets_map")
 def get_assets_map(db: Session = Depends(get_db)):
     """
