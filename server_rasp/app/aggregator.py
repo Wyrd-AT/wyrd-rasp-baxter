@@ -368,28 +368,15 @@ async def _processar_localizacoes():
                     state.candidate_since = now
                 
                 if state.candidate_since and state.pending_wifi_check_since is None and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
-                    # Inércia de entrada foi cumprida.
-                    # O fluxo agora é PADRÃO: sempre cria um evento "Pendente" e entra no estado de memória.
-                    logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {candidate_quarto_id}. Criando evento GET/Pendente e aguardando handshake.")
-                    changes_to_commit.append({
-                        "asset_id": asset_id,
-                        "new_quarto_id": None, # Não associa ao quarto ainda
-                        "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'],
-                        "action": "GET",
-                        "status": "Pendente",
-                        "details": "Ativo detectado por BLE. Aguardando confirmação de Wi-Fi via handshake.",
-                        "quarto_context_id": candidate_quarto_id 
-                    })
-                    # Define o estado de memória para aguardar a resposta do handshake
+                    logger.info(f"EVENTO PENDENTE (em memória): Ativo {mac} -> Quarto {candidate_quarto_id}. Aguardando handshake.")
+                    
                     state.pending_quarto_id = candidate_quarto_id
                     state.pending_wifi_check_since = now
                     state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal']}
                     
-                    # Limpa o estado de candidato, pois já foi processado
                     state.candidate_since = None
                     state.candidate_quarto_id = None
             else:
-                # LÓGICA DE ABORTO DE PENDENTE CORRIGIDA
                 if state.candidate_quarto_id is not None:
                     logger.info(f"Ativo {mac} perdeu seu sinal de candidato para o quarto {state.candidate_quarto_id}. Abortando processo de entrada.")
                     clear_asset_candidate_state(mac)
