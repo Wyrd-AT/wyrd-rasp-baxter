@@ -285,7 +285,7 @@ async def confirm_presence_handshake(request: Request, db: Session = Depends(get
         return PlainTextResponse("Asset not found")
 
     logger.info(f"[HANDSHAKE-CALLBACK] Confirmação de presença recebida para {asset.mac_beacon} ({nome_cama}).")
-    _handshake_confirmed_assets.add(asset.mac_beacon)
+    aggregator.confirm_asset_by_handshake(asset.mac_beacon)
     
     return PlainTextResponse("OK")
 
