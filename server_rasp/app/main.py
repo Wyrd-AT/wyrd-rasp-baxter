@@ -412,41 +412,64 @@ GUARDIAN_LOG_INTERVAL_SEC = 120 # Logar a cada 120 segundos (2 minutos)
 
 async def wifi_guardian_task_unificada(db: Session):
     """
-    Esta tarefa agora usa o cliente TCP para verificar a presença de ativos
-    pendentes e confirmados.
+    Esta tarefa verifica a presença de ativos, enviando um desafio
+    com os detalhes completos (incluindo modelo e quarto).
     """
     try:
-        # Pega a lista de ativos PENDENTES
-        pending_assets = aggregator.get_pending_states_for_ui()
-        assets_to_check = {asset['ativo_mac']: asset for asset in pending_assets}
-
-        # Pega a lista de ativos CONFIRMADOS
-        confirmed_assets_db = db.query(Asset).filter(Asset.quarto_id != None).all()
-        for asset in confirmed_assets_db:
-            if asset.mac_beacon not in assets_to_check:
-                assets_to_check[asset.mac_beacon] = {"nome_ativo": asset.nome_ativo, "modelo": asset.modelo}
+        # 1. Pega a lista de ativos PENDENTES da memória do agregador
+        pending_assets_list = aggregator.get_pending_states_for_ui()
         
+        # 2. Pega a lista de ativos CONFIRMADOS do banco de dados
+        confirmed_assets_db = db.query(Asset).options(joinedload(Asset.quarto)).filter(Asset.quarto_id != None).all()
+        
+        # 3. Junta tudo numa lista única para verificação
+        assets_to_check = []
+        
+        # Processa os pendentes para adicionar à lista de checagem
+        for asset_info in pending_assets_list:
+            quarto_obj = db.query(Quarto).filter(Quarto.id == asset_info.get("pending_quarto_id")).first()
+            assets_to_check.append({
+                "mac": asset_info.get("ativo_mac"),
+                "nome_ativo": asset_info.get("nome_ativo"),
+                "modelo": aggregator._asset_map.get(asset_info.get("ativo_mac"), {}).get("modelo"),
+                "quarto_alvo": quarto_obj.nome if quarto_obj else "N/A"
+            })
+            
+        # Processa os confirmados para adicionar à lista de checagem
+        for asset in confirmed_assets_db:
+            # Evita checar duas vezes se um ativo já está na lista de pendentes
+            if not any(a["mac"] == asset.mac_beacon for a in assets_to_check):
+                 assets_to_check.append({
+                    "mac": asset.mac_beacon,
+                    "nome_ativo": asset.nome_ativo,
+                    "modelo": asset.modelo,
+                    "quarto_alvo": asset.quarto.nome if asset.quarto else "N/A"
+                })
+
         if not assets_to_check:
             return
 
-        for mac, asset_info in assets_to_check.items():
-            logger.debug(f"[GUARDIAN-TCP] Verificando presença para {mac}...")
+        # 4. Para cada ativo na lista, monta o payload completo e envia
+        for asset_data in assets_to_check:
+            logger.debug(f"[GUARDIAN] Verificando presença para {asset_data['mac']}...")
             
+            # --- MONTAGEM DO NOVO PAYLOAD ---
             challenge_payload = {
-                "cama": asset_info.get("nome_ativo"),
-                "modelo": asset_info.get("modelo"),
+                "cama": asset_data.get("nome_ativo"),
+                "modelo": asset_data.get("modelo"),          # <-- MODELO DA CAMA
+                "quarto": asset_data.get("quarto_alvo"),      # <-- QUARTO ALVO/ATUAL
                 "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
             }
             
-            # Chama o cliente e aguarda a resposta True/False
+            # A chamada aqui dependerá da sua escolha final (TCP ou WebSocket)
+            # Exemplo para a versão TCP:
             is_present = await handshake_client.send_challenge_and_get_response(challenge_payload)
 
             if is_present:
-                # Se presente, avisa o agregador para atualizar seu estado.
-                aggregator.confirm_asset_by_handshake(mac)
+                aggregator.confirm_asset_by_handshake(asset_data['mac'])
 
     except Exception as e:
-        logger.error(f"[GUARDIAN-TCP] Erro crítico na tarefa: {e}", exc_info=True)
+        logger.error(f"[GUARDIAN] Erro crítico na tarefa: {e}", exc_info=True)
 
 async def main_guardian_loop():
     """
