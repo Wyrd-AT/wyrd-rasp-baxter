@@ -66,6 +66,7 @@ _wifi_failure_counts = defaultdict(int)
 _wifi_presence_cache = {}
 
 _handshake_challenge_sent = {}
+_handshake_confirmed_assets = set() 
 
 try:
     base_path = sys._MEIPASS
@@ -269,24 +270,22 @@ def get_server_time():
 @app.post("/api/presence/confirm", name="confirm_presence_handshake", status_code=200)
 async def confirm_presence_handshake(request: Request, db: Session = Depends(get_db)):
     """
-    Endpoint de callback que recebe a confirmação do sistema final e
-    AVISA o agregador para atualizar seu estado interno.
+    Endpoint de callback para o sistema final confirmar a presença de um ativo.
     """
     data = await request.json()
     nome_cama = data.get("cama")
     status_confirmado = data.get("status")
 
     if not nome_cama or status_confirmado != "TRUE":
-        raise HTTPException(status_code=400, detail="Payload inválido.")
+        raise HTTPException(status_code=400, detail="Payload inválido. 'cama' e 'status: TRUE' são necessários.")
 
     asset = db.query(Asset).filter(Asset.nome_ativo == nome_cama).first()
     if not asset:
         logger.warning(f"[HANDSHAKE-CALLBACK] Confirmação recebida para a cama '{nome_cama}', mas ela não foi encontrada no DB.")
         return PlainTextResponse("Asset not found")
 
-    # --- LÓGICA ATUALIZADA ---
-    # Em vez de modificar uma variável local, chama a função no agregador.
-    aggregator.confirm_asset_by_handshake(asset.mac_beacon)
+    logger.info(f"[HANDSHAKE-CALLBACK] Confirmação de presença recebida para {asset.mac_beacon} ({nome_cama}).")
+    _handshake_confirmed_assets.add(asset.mac_beacon)
     
     return PlainTextResponse("OK")
 
@@ -451,22 +450,17 @@ async def wifi_guardian_task_unificada(db: Session):
 
         # 4. Para cada ativo na lista, monta o payload completo e envia
         for asset_data in assets_to_check:
-            logger.debug(f"[GUARDIAN] Verificando presença para {asset_data['mac']}...")
+            logger.debug(f"[GUARDIAN-CALLBACK] Enviando desafio para {asset_data['mac']}...")
             
-            # --- MONTAGEM DO NOVO PAYLOAD ---
             challenge_payload = {
                 "cama": asset_data.get("nome_ativo"),
-                "modelo": asset_data.get("modelo"),          # <-- MODELO DA CAMA
-                "quarto": asset_data.get("quarto_alvo"),      # <-- QUARTO ALVO/ATUAL
+                "modelo": asset_data.get("modelo"),
+                "quarto": asset_data.get("quarto_alvo"),
                 "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
             }
             
-            # A chamada aqui dependerá da sua escolha final (TCP ou WebSocket)
-            # Exemplo para a versão TCP:
-            is_present = await handshake_client.send_challenge_and_get_response(challenge_payload)
-
-            if is_present:
-                aggregator.confirm_asset_by_handshake(asset_data['mac'])
+            # Apenas chama a função de envio, não espera um retorno True/False
+            await handshake_client.send_challenge(challenge_payload)
 
     except Exception as e:
         logger.error(f"[GUARDIAN] Erro crítico na tarefa: {e}", exc_info=True)

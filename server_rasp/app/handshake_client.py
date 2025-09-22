@@ -12,54 +12,29 @@ FINAL_IP = settings.get("final_ip")
 # Para o seu teste, vamos usar a porta 9502 como pediu
 FINAL_PORT = settings.get("handshake_tcp_port", 9502) 
 
-async def send_challenge_and_get_response(payload: dict) -> bool:
+async def send_challenge(payload: dict):
     """
-    Abre uma conexão TCP, envia um desafio JSON, aguarda uma resposta JSON,
-    e retorna True se a resposta for bem-sucedida, senão False.
+    Abre uma conexão TCP e envia um desafio "fire-and-forget".
+    Não espera por uma resposta nesta conexão.
     """
     challenge_payload = {**payload, "status": "SERVER"}
-    
+    writer = None  # Define writer como None inicialmente
     try:
-        logger.debug(f"[TCP-CLIENT] Conectando a {FINAL_IP}:{FINAL_PORT}...")
-        reader, writer = await asyncio.open_connection(FINAL_IP, FINAL_PORT)
+        logger.debug(f"[TCP-CHALLENGE] Conectando a {FINAL_IP}:{FINAL_PORT} para enviar desafio...")
+        # Abre a conexão com um timeout para a própria conexão
+        _, writer = await asyncio.wait_for(asyncio.open_connection(FINAL_IP, FINAL_PORT), timeout=5.0)
 
-        # Prepara a mensagem de desafio
         message_to_send = json.dumps(challenge_payload) + '\n'
-        logger.info(f"[TCP-CLIENT] Enviando desafio: {message_to_send.strip()}")
+        logger.info(f"[TCP-CHALLENGE] Enviando desafio: {message_to_send.strip()}")
         
-        # Envia a mensagem
         writer.write(message_to_send.encode())
         await writer.drain()
-
-        # Aguarda pela resposta com um timeout de 5 segundos
-        try:
-            response_data = await asyncio.wait_for(reader.readline(), timeout=15.0)
-            if response_data:
-                response_text = response_data.decode().strip()
-                logger.info(f"[TCP-CLIENT] Resposta recebida: {response_text}")
-                
-                response_json = json.loads(response_text)
-                # Verifica se a resposta é a confirmação que esperamos
-                if response_json.get("status") == "TRUE":
-                    return True # SUCESSO!
-
-            return False # Resposta vazia ou não confirmada
-
-        except asyncio.TimeoutError:
-            logger.warning(f"[TCP-CLIENT] Timeout: Nenhuma resposta recebida de {FINAL_IP}:{FINAL_PORT} em 15 segundos.")
-            return False
-        except json.JSONDecodeError:
-            logger.warning(f"[TCP-CLIENT] Resposta não era um JSON válido.")
-            return False
-
-    except ConnectionRefusedError:
-        logger.error(f"[TCP-CLIENT] Conexão recusada por {FINAL_IP}:{FINAL_PORT}.")
-        return False
+        
     except Exception as e:
-        logger.error(f"[TCP-CLIENT] Erro inesperado na comunicação TCP: {e}")
-        return False
+        logger.error(f"[TCP-CHALLENGE] Falha ao enviar desafio: {e}")
     finally:
-        # Garante que a conexão seja sempre fechada
-        if 'writer' in locals() and not writer.is_closing():
+        # Garante que a conexão seja sempre fechada após o envio
+        if writer and not writer.is_closing():
             writer.close()
             await writer.wait_closed()
+            logger.debug(f"[TCP-CHALLENGE] Conexão de envio fechada.")
