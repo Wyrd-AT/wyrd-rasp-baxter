@@ -412,37 +412,41 @@ GUARDIAN_LOG_INTERVAL_SEC = 120 # Logar a cada 120 segundos (2 minutos)
 
 async def wifi_guardian_task_unificada(db: Session):
     """
-    Agora, esta tarefa apenas encontra ativos pendentes e os coloca
-    na fila para o cliente WebSocket enviar o desafio.
+    Esta tarefa agora usa o cliente TCP para verificar a presença de ativos
+    pendentes e confirmados.
     """
     try:
-        now = time.time()
+        # Pega a lista de ativos PENDENTES
         pending_assets = aggregator.get_pending_states_for_ui()
+        assets_to_check = {asset['ativo_mac']: asset for asset in pending_assets}
 
-        for asset_info in pending_assets:
-            mac = asset_info.get("ativo_mac")
-            
-            # Envia um desafio a cada 60 segundos para um ativo que permanece pendente
-            if (now - _handshake_challenge_sent.get(mac, 0)) > 60:
-                logger.info(f"[GUARDIAN-WS] Ativo {mac} está pendente. Enfileirando desafio de presença...")
-                
-                quarto_pendente = db.query(Quarto).filter(Quarto.id == asset_info.get("pending_quarto_id")).first()
-
-                challenge_payload = {
-                    "quarto": quarto_pendente.nome if quarto_pendente else "N/A",
-                    "cama": asset_info.get("nome_ativo"),
-                    "modelo": aggregator._asset_map.get(mac, {}).get("modelo"),
-                    "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-                }
-                
-                await handshake_client.send_challenge(challenge_payload)
-                _handshake_challenge_sent[mac] = now
+        # Pega a lista de ativos CONFIRMADOS
+        confirmed_assets_db = db.query(Asset).filter(Asset.quarto_id != None).all()
+        for asset in confirmed_assets_db:
+            if asset.mac_beacon not in assets_to_check:
+                assets_to_check[asset.mac_beacon] = {"nome_ativo": asset.nome_ativo, "modelo": asset.modelo}
         
-        # A lógica de vigiar os ativos confirmados pode ser adicionada aqui depois,
-        # seguindo o mesmo padrão de enfileirar desafios.
+        if not assets_to_check:
+            return
+
+        for mac, asset_info in assets_to_check.items():
+            logger.debug(f"[GUARDIAN-TCP] Verificando presença para {mac}...")
+            
+            challenge_payload = {
+                "cama": asset_info.get("nome_ativo"),
+                "modelo": asset_info.get("modelo"),
+                "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+            }
+            
+            # Chama o cliente e aguarda a resposta True/False
+            is_present = await handshake_client.send_challenge_and_get_response(challenge_payload)
+
+            if is_present:
+                # Se presente, avisa o agregador para atualizar seu estado.
+                aggregator.confirm_asset_by_handshake(mac)
 
     except Exception as e:
-        logger.error(f"[GUARDIAN-WS] Erro crítico na tarefa: {e}", exc_info=True)
+        logger.error(f"[GUARDIAN-TCP] Erro crítico na tarefa: {e}", exc_info=True)
 
 async def main_guardian_loop():
     """
@@ -1291,7 +1295,6 @@ async def on_startup():
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     running_tasks["guardian_unificado"] = asyncio.create_task(main_guardian_loop())
     running_tasks["state_logger"] = asyncio.create_task(log_aggregator_state_task())
-    running_tasks["handshake_client"] = asyncio.create_task(handshake_client.run_client()) # <-- ADICIONE ESTA LINHA
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 
