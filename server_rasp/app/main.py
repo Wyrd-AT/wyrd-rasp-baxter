@@ -34,6 +34,7 @@ from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request as StarletteRequest
 from starlette.exceptions import WebSocketException 
+from starlette.responses import PlainTextResponse
 from collections import defaultdict
 
 from .models import (
@@ -48,6 +49,7 @@ from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _a
 from .config import settings
 from .auth import authenticate_admin
 from .dispatcher import dispatch_event
+from . import handshake_client
 
 logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 
@@ -59,9 +61,11 @@ WIFI_FAILURE_TOLERANCE = int(settings.get('wifi_failure_tolerance', 3))
 ESP_STATUS_UPDATE_INTERVAL_SEC = int(settings.get('esp_status_interval_sec', 90))
 WIFI_GUARDIAN_INTERVAL_SEC = int(settings.get('monitor_wifi_interval_sec', 60))
 
-pending_rssi_requests = {} 
+pending_rssi_requests = {}
 _wifi_failure_counts = defaultdict(int)
 _wifi_presence_cache = {}
+
+_handshake_challenge_sent = {}
 
 try:
     base_path = sys._MEIPASS
@@ -262,6 +266,30 @@ def get_server_time():
     """
     return {"unix_time": int(time.time())}
 
+@app.post("/api/presence/confirm", name="confirm_presence_handshake", status_code=200)
+async def confirm_presence_handshake(request: Request, db: Session = Depends(get_db)):
+    """
+    Endpoint de callback que recebe a confirmação do sistema final e
+    AVISA o agregador para atualizar seu estado interno.
+    """
+    data = await request.json()
+    nome_cama = data.get("cama")
+    status_confirmado = data.get("status")
+
+    if not nome_cama or status_confirmado != "TRUE":
+        raise HTTPException(status_code=400, detail="Payload inválido.")
+
+    asset = db.query(Asset).filter(Asset.nome_ativo == nome_cama).first()
+    if not asset:
+        logger.warning(f"[HANDSHAKE-CALLBACK] Confirmação recebida para a cama '{nome_cama}', mas ela não foi encontrada no DB.")
+        return PlainTextResponse("Asset not found")
+
+    # --- LÓGICA ATUALIZADA ---
+    # Em vez de modificar uma variável local, chama a função no agregador.
+    aggregator.confirm_asset_by_handshake(asset.mac_beacon)
+    
+    return PlainTextResponse("OK")
+
 @app.get("/", name="main")
 def main_page(request: Request):
     return RedirectResponse(url=request.url_for("login_page"), status_code=303)
@@ -384,44 +412,37 @@ GUARDIAN_LOG_INTERVAL_SEC = 120 # Logar a cada 120 segundos (2 minutos)
 
 async def wifi_guardian_task_unificada(db: Session):
     """
-    Verifica a presença Wi-Fi de todos os ativos, atualiza o cache do agregador
-    e lida com a lógica de falhas de conexão.
+    Agora, esta tarefa apenas encontra ativos pendentes e os coloca
+    na fila para o cliente WebSocket enviar o desafio.
     """
     try:
-        # Busca todos os ativos que possuem um MAC de Wi-Fi cadastrado
-        assets_to_check = db.query(
-            Asset.nome_ativo, Asset.mac_beacon, Asset.mac_address, Asset.quarto_id
-        ).filter(Asset.mac_address.isnot(None)).all()
+        now = time.time()
+        pending_assets = aggregator.get_pending_states_for_ui()
 
-        if not assets_to_check:
-            _wifi_failure_counts.clear()
-            return
-
-        # Executa todas as verificações de presença em paralelo
-        tasks = [check_presence(mac_wifi) for _, _, mac_wifi, _ in assets_to_check]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        current_wifi_presence = {}
-        
-        for (nome_ativo, mac_beacon, mac_wifi, quarto_id), result in zip(assets_to_check, results):
-            is_present = isinstance(result, bool) and result
-
-            # Popula o cache que será usado pelo aggregator
-            current_wifi_presence[mac_beacon] = is_present
+        for asset_info in pending_assets:
+            mac = asset_info.get("ativo_mac")
             
-            # Lógica de contagem de falhas (para o guardião de ativos já alocados)
-            if is_present:
-                if mac_wifi in _wifi_failure_counts:
-                    del _wifi_failure_counts[mac_wifi]
-            else:
-                if quarto_id is not None:
-                    _wifi_failure_counts[mac_wifi] += 1
+            # Envia um desafio a cada 60 segundos para um ativo que permanece pendente
+            if (now - _handshake_challenge_sent.get(mac, 0)) > 60:
+                logger.info(f"[GUARDIAN-WS] Ativo {mac} está pendente. Enfileirando desafio de presença...")
+                
+                quarto_pendente = db.query(Quarto).filter(Quarto.id == asset_info.get("pending_quarto_id")).first()
+
+                challenge_payload = {
+                    "quarto": quarto_pendente.nome if quarto_pendente else "N/A",
+                    "cama": asset_info.get("nome_ativo"),
+                    "modelo": aggregator._asset_map.get(mac, {}).get("modelo"),
+                    "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+                }
+                
+                await handshake_client.send_challenge(challenge_payload)
+                _handshake_challenge_sent[mac] = now
         
-        # Envia o cache atualizado para o aggregator
-        aggregator.update_wifi_presence_cache(current_wifi_presence)
+        # A lógica de vigiar os ativos confirmados pode ser adicionada aqui depois,
+        # seguindo o mesmo padrão de enfileirar desafios.
 
     except Exception as e:
-        logger.error(f"[GUARDIAN-UNIFICADO] Erro crítico na tarefa: {e}", exc_info=True)
+        logger.error(f"[GUARDIAN-WS] Erro crítico na tarefa: {e}", exc_info=True)
 
 async def main_guardian_loop():
     """
@@ -1270,6 +1291,7 @@ async def on_startup():
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     running_tasks["guardian_unificado"] = asyncio.create_task(main_guardian_loop())
     running_tasks["state_logger"] = asyncio.create_task(log_aggregator_state_task())
+    running_tasks["handshake_client"] = asyncio.create_task(handshake_client.run_client()) # <-- ADICIONE ESTA LINHA
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 

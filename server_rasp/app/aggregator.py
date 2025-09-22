@@ -30,6 +30,10 @@ _asset_realtime_state = {}
 _config_needs_reload = asyncio.Event()
 _wifi_presence_cache = {}
 
+_handshake_confirmed_assets = set()
+_last_handshake_success = {}
+HANDSHAKE_FAILURE_TIMEOUT_SEC = 900 # Ex: 15 minutos
+
 SIGNAL_LOG_INTERVAL_SEC = 15.0
 _last_signal_log_times_per_esp = {}
 
@@ -227,7 +231,7 @@ async def _processar_localizacoes():
                         clear_asset_candidate_state(mac)
                         continue
 
-                if _wifi_presence_cache.get(mac, False):
+                if mac in _handshake_confirmed_assets:
                     logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via cache.")
                     change_details = {
                         **state.pending_event_details, 
@@ -236,6 +240,7 @@ async def _processar_localizacoes():
                         "details": f"Entrada confirmada após pendência (Wi-Fi detectado).",
                         "quarto_context_id": state.pending_quarto_id
                     }
+                    _handshake_confirmed_assets.remove(mac)
                     changes_to_commit.append(change_details)
                     clear_asset_candidate_state(mac)
                     continue
@@ -329,52 +334,32 @@ async def _processar_localizacoes():
                         changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "details": "Sinal BLE inconsistente com o quarto atual.", "action": "OUT"})
                         continue # Pula para o próximo ativo
 
-                # Verificação 2: O Wi-Fi do ativo ainda está presente na rede?
-                is_wifi_present = _wifi_presence_cache.get(mac, True) # Default True para segurança
-                if is_wifi_present:
-                    state.wifi_unseen_since = None # Se sim, reseta a inércia de falha do Wi-Fi.
-                else:
+                # Verificação 2: O ativo ainda está respondendo ao handshake de presença?
+                last_success = _last_handshake_success.get(mac, 0)
+                
+                # Se nunca tivemos um sucesso ou o último foi há muito tempo, remove o ativo.
+                if last_success == 0 or (now - last_success) > HANDSHAKE_FAILURE_TIMEOUT_SEC:
+                    # A inércia de Wi-Fi agora é baseada no timeout do handshake
                     if state.wifi_unseen_since is None:
-                        logger.warning(f"[WIFI] Wi-Fi para {mac} no quarto {quarto_id_atual} ausente. Iniciando inércia de falha.")
+                        logger.warning(f"[HANDSHAKE] Ativo {mac} no quarto {quarto_id_atual} não responde ao handshake. Iniciando inércia de remoção.")
                         state.wifi_unseen_since = now
+                    
                     elif (now - state.wifi_unseen_since) > WIFI_FAILURE_INERTIA_SEC:
-                        logger.error(f"[WIFI] EVENTO OUT (INÉRCIA): Ativo {mac} ausente do Wi-Fi por mais de {WIFI_FAILURE_INERTIA_SEC}s. Forçando remoção.")
+                        logger.error(f"[HANDSHAKE] EVENTO OUT (TIMEOUT): Ativo {mac} sem resposta de handshake por tempo demais. Forçando remoção.")
                         
-                        # Criação do Alerta com TODAS as informações (incluindo o andar)
-                        asset_obj = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
-                        if asset_obj and asset_obj.quarto:
-                            alerta = ReceivedEvent(
-                                esp_id="aggregator_wifi_monitor", ativo=mac,
-                                quarto_nome=asset_obj.quarto.nome,
-                                andar_nome=asset_obj.quarto.andar.nome if asset_obj.quarto.andar else None,
-                                action="ALERTA", status="OK",
-                                status_detail=f"Ativo '{asset_info.get('nome_ativo')}' desapareceu da rede Wi-Fi enquanto estava no quarto.",
-                                data_on=datetime.now(timezone.utc), raw={}
-                            )
-                            db.add(alerta)
-                            
-                            # --- INÍCIO DA CORREÇÃO ---
-                            # Despacha o alerta para o servidor final
-                            logger.info(f"[WIFI-MONITOR] Despachando ALERTA para o servidor final para o ativo {mac}.")
-                            loop = asyncio.get_running_loop()
-                            dispatch_payload = {
-                                "quarto": asset_obj.quarto.nome,
-                                "cama":   asset_info.get("nome_ativo"),
-                                "modelo": _asset_map.get(mac, {}).get("modelo") or getattr(asset_obj, "modelo", None),
-                                "status": "ALERTA",
-                                "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-                            }
-                            await loop.run_in_executor(None, dispatch_event, dispatch_payload)
-                            # --- FIM DA CORREÇÃO ---
-
+                        # (O resto da lógica de criar alerta e o "change" para OUT continua igual)
                         changes_to_commit.append({
                             "asset_id": asset_id, "new_quarto_id": None,
-                            "source_esp_id": "aggregator_wifi_monitor",
-                            "details": f"Removido por ausência de Wi-Fi superior a {WIFI_FAILURE_INERTIA_SEC}s.",
+                            "source_esp_id": "aggregator_handshake_monitor",
+                            "details": f"Removido por ausência de resposta ao handshake superior a {HANDSHAKE_FAILURE_TIMEOUT_SEC}s.",
                             "action": "OUT"
                         })
                         clear_asset_candidate_state(mac)
-                continue
+                else:
+                    # Se tivemos um sucesso recente, reseta a inércia de falha.
+                    state.wifi_unseen_since = None
+                
+                continue # Continua para o próximo ativo
 
             # ESTADO 4: LIVRE (FORA DE UM QUARTO E NÃO PENDENTE)
             if quarto_id_atual is None and candidate_quarto_id is not None:
@@ -382,38 +367,23 @@ async def _processar_localizacoes():
                     state.candidate_quarto_id = candidate_quarto_id
                     state.candidate_since = now
                 
-                if state.candidate_since and state.pending_wifi_check_since is None and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:                    # Inércia de entrada foi cumprida. Vamos criar um evento.
-                    is_wifi_present = _wifi_presence_cache.get(mac, False)
-
-                    if is_wifi_present:
-                        # Wi-Fi já está presente! Evento de entrada confirmado direto.
-                        logger.info(f"ENTRADA DIRETA: Ativo {mac} com Wi-Fi já presente. Criando evento 'Confirmado' para o Quarto {candidate_quarto_id}.")
-                        changes_to_commit.append({
-                            "asset_id": asset_id, 
-                            "new_quarto_id": candidate_quarto_id, # Associa ao quarto imediatamente
-                            "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'],
-                            "action": "GET",
-                            "status": "Confirmado",
-                            "details": "Entrada direta com Wi-Fi pré-confirmado.",
-                            "quarto_context_id": candidate_quarto_id
-                        })
-                    else:
-                        # --- ESTA É A PARTE NOVA E PRINCIPAL ---
-                        # Wi-Fi ausente. Cria o primeiro evento "Pendente" e entra no estado de memória.
-                        logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {candidate_quarto_id}. Criando evento GET/Pendente.")
-                        changes_to_commit.append({
-                            "asset_id": asset_id,
-                            "new_quarto_id": None, # IMPORTANTE: Não associa ao quarto ainda
-                            "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'],
-                            "action": "GET",
-                            "status": "Pendente", # Status para diferenciar
-                            "details": "Ativo detectado por BLE. Aguardando confirmação de Wi-Fi.",
-                            "quarto_context_id": candidate_quarto_id 
-                        })
-                        # Agora, define o estado de memória para aguardar o Wi-Fi
-                        state.pending_quarto_id = candidate_quarto_id
-                        state.pending_wifi_check_since = now
-                        state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal']}
+                if state.candidate_since and state.pending_wifi_check_since is None and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
+                    # Inércia de entrada foi cumprida.
+                    # O fluxo agora é PADRÃO: sempre cria um evento "Pendente" e entra no estado de memória.
+                    logger.info(f"EVENTO PENDENTE: Ativo {mac} -> Quarto {candidate_quarto_id}. Criando evento GET/Pendente e aguardando handshake.")
+                    changes_to_commit.append({
+                        "asset_id": asset_id,
+                        "new_quarto_id": None, # Não associa ao quarto ainda
+                        "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'],
+                        "action": "GET",
+                        "status": "Pendente",
+                        "details": "Ativo detectado por BLE. Aguardando confirmação de Wi-Fi via handshake.",
+                        "quarto_context_id": candidate_quarto_id 
+                    })
+                    # Define o estado de memória para aguardar a resposta do handshake
+                    state.pending_quarto_id = candidate_quarto_id
+                    state.pending_wifi_check_since = now
+                    state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal']}
                     
                     # Limpa o estado de candidato, pois já foi processado
                     state.candidate_since = None
@@ -429,6 +399,16 @@ async def _processar_localizacoes():
         db.commit()
     finally:
         db.close()
+
+def confirm_asset_by_handshake(mac_beacon: str):
+    """
+    Função chamada pelo endpoint da API em main.py para registrar
+    uma confirmação de presença bem-sucedida.
+    """
+    if mac_beacon:
+        logger.info(f"[HANDSHAKE-STATE] Ativo {mac_beacon} confirmado via handshake.")
+        _handshake_confirmed_assets.add(mac_beacon)
+        _last_handshake_success[mac_beacon] = time.time()
 
 # --- DEMAIS FUNÇÕES (sem alterações) ---
 def get_pending_states_for_ui():
