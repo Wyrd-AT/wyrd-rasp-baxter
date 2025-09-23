@@ -31,8 +31,9 @@ _config_needs_reload = asyncio.Event()
 _wifi_presence_cache = {}
 
 _handshake_confirmed_assets = set()
+_handshake_invalidated_assets = set()
 _last_handshake_success = {}
-HANDSHAKE_FAILURE_TIMEOUT_SEC = 900 # Ex: 15 minutos
+HANDSHAKE_FAILURE_TIMEOUT_SEC = 180 # Ex: 3 minutos
 
 SIGNAL_LOG_INTERVAL_SEC = 15.0
 _last_signal_log_times_per_esp = {}
@@ -89,6 +90,12 @@ def clear_asset_candidate_state(mac_beacon_to_clear: str):
         state.pending_event_details = {}; 
         state.wifi_unseen_since = None
         state.warning_stage = 0; state.last_warning_time = None
+        state.pending_candidate_lost_since = None
+
+        _handshake_confirmed_assets.discard(mac_beacon_to_clear)
+        _handshake_invalidated_assets.discard(mac_beacon_to_clear)
+        _last_handshake_success.pop(mac_beacon_to_clear, None) # Remove o timer
+        
         logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
         return True
     return False
@@ -101,37 +108,17 @@ def flag_for_reload():
 
 def cancel_and_log_manual_pending_event(mac_beacon_to_cancel: str) -> bool:
     """
-    Encontra um ativo em estado pendente, cria um evento de cancelamento manual
-    no banco de dados e depois limpa seu estado da memória.
+    Encontra um ativo em estado pendente e limpa seu estado da memória
+    sem criar um evento de cancelamento.
     """
     if mac_beacon_to_cancel in _asset_realtime_state:
         state = _asset_realtime_state[mac_beacon_to_cancel]
         
         # Procede apenas se o ativo estiver realmente em estado pendente
         if state.pending_wifi_check_since is not None:
-            db = SessionLocal()
-            try:
-                logger.info(f"Cancelamento manual para {mac_beacon_to_cancel}. Registrando evento.")
-                quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
-                
-                cancel_event = ReceivedEvent(
-                    esp_id="operator_ui",
-                    ativo=mac_beacon_to_cancel,
-                    quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
-                    andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
-                    action="GET",
-                    status="Cancelado",
-                    status_detail="Cancelado manualmente pelo operador.",
-                    rssi=state.last_strongest_signal.get('rssi'),
-                    data_on=datetime.now(timezone.utc),
-                    raw={"reason": "manual_cancel"}
-                )
-                db.add(cancel_event)
-                db.commit()
-            finally:
-                db.close()
+            logger.info(f"Cancelamento manual para {mac_beacon_to_cancel}. Limpando estado de memória.")
             
-            # Agora, limpa o estado da memória
+            # Apenas limpa o estado da memória.
             clear_asset_candidate_state(mac_beacon_to_cancel)
             return True
     return False
@@ -197,53 +184,38 @@ async def _processar_localizacoes():
 
             # ESTADO 1: PENDENTE (AGUARDANDO WI-FI)
             if state.pending_wifi_check_since is not None:
-                # --- INÍCIO DA NOVA LÓGICA DE CANCELAMENTO COM INÉRCIA ---
-                is_still_candidate = (candidate_quarto_id == state.pending_quarto_id)
-
-                if is_still_candidate:
-                    # Se o ativo ainda é um bom candidato, reseta o timer de inércia de saída.
-                    state.pending_candidate_lost_since = None
-                else:
-                    # O ativo perdeu a candidatura. Inicia ou verifica o timer de inércia.
-                    if state.pending_candidate_lost_since is None:
-                        # Primeira vez que perdeu o sinal, apenas marca o tempo e informa no log.
-                        logger.info(f"[PENDING] Ativo {mac} perdeu candidatura para o quarto {state.pending_quarto_id}. Iniciando inércia de saída.")
-                        state.pending_candidate_lost_since = now
-                    
-                    # Verifica se o tempo de inércia de SAÍDA já foi ultrapassado.
-                    elif (now - state.pending_candidate_lost_since) * 1000 > _config["inertia_saida_ms"]:
-                        logger.warning(f"[PENDING] CANCELADO POR INÉRCIA: Ativo {mac} ficou sem sinal consistente por mais de {_config['inertia_saida_ms']}ms.")
-                        
-                        # Bloco de código para registrar o evento de cancelamento (lógica original)
-                        quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
-                        cancel_event = ReceivedEvent(
-                            esp_id=state.pending_event_details.get("source_esp_id", "aggregator"),
-                            ativo=mac,
-                            quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
-                            andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
-                            action="GET", status="Cancelado",
-                            status_detail=f"Cancelado por inércia de saída superior a {_config['inertia_saida_ms']}ms.",
-                            rssi=state.last_strongest_signal.get('rssi'),
-                            data_on=datetime.now(timezone.utc), raw={"reason": "pending_inertia_out"}
-                        )
-                        db.add(cancel_event)
-                        
-                        clear_asset_candidate_state(mac)
-                        continue
-
+                
+                # A verificação de 'invalidate' FOI REMOVIDA daqui.
+                # Agora, a primeira verificação é a de CONFIRMAÇÃO.
                 if mac in _handshake_confirmed_assets:
-                    logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via cache.")
+                    logger.info(f"EVENTO CONFIRMADO (HANDSHAKE OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via callback.")
                     change_details = {
                         **state.pending_event_details, 
                         "new_quarto_id": state.pending_quarto_id,
                         "status": "Confirmado",
-                        "details": f"Entrada confirmada após pendência (Wi-Fi detectado).",
+                        "details": f"Entrada confirmada após pendência (Handshake OK).",
                         "quarto_context_id": state.pending_quarto_id
                     }
-                    _handshake_confirmed_assets.remove(mac)
                     changes_to_commit.append(change_details)
+                    _handshake_confirmed_assets.remove(mac) # Consome o flag de confirmação
                     clear_asset_candidate_state(mac)
                     continue
+
+                # VERIFICAÇÃO 3: A candidatura de SINAL BLE foi perdida por inércia?
+                is_still_candidate = (candidate_quarto_id == state.pending_quarto_id)
+                if not is_still_candidate:
+                    if state.pending_candidate_lost_since is None:
+                        logger.info(f"[PENDING] Ativo {mac} perdeu candidatura para o quarto {state.pending_quarto_id}. Iniciando inércia de saída.")
+                        state.pending_candidate_lost_since = now
+                    elif (now - state.pending_candidate_lost_since) * 1000 > _config["inertia_saida_ms"]:
+                        logger.warning(f"[PENDING] CANCELADO POR INÉRCIA DE BLE: Ativo {mac} ficou sem sinal consistente. Limpando estado.")
+                        clear_asset_candidate_state(mac)
+                        continue
+                else:
+                    # Se o ativo ainda é um bom candidato, reseta o timer de inércia.
+                    state.pending_candidate_lost_since = None
+
+                # VERIFICAÇÃO 4: Se nada acima aconteceu, checa se precisa enviar um ALERTA de timeout.
                 pending_duration_sec = now - state.pending_wifi_check_since
                 
                 def issue_warning(detail_text):
@@ -332,34 +304,39 @@ async def _processar_localizacoes():
                     elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
                         logger.info(f"[BLE] EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} por sinal BLE fraco.")
                         changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "details": "Sinal BLE inconsistente com o quarto atual.", "action": "OUT"})
+                        clear_asset_candidate_state(mac)
                         continue # Pula para o próximo ativo
 
                 # Verificação 2: O ativo ainda está respondendo ao handshake de presença?
+                
+                # --- NOVA VERIFICAÇÃO DE ALTA PRIORIDADE ---
+                if mac in _handshake_invalidated_assets:
+                    logger.error(f"[HANDSHAKE] EVENTO OUT (CALLBACK FALSE): Ativo {mac} removido do quarto {quarto_id_atual} por resposta explícita 'FALSE'.")
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": "aggregator_handshake_monitor",
+                        "details": "Removido por confirmação explícita de ausência (callback 'FALSE').",
+                        "action": "OUT"
+                    })
+                    _handshake_invalidated_assets.remove(mac) # Consome o flag
+                    clear_asset_candidate_state(mac)
+                    continue # Processo concluído para este ativo
+
+                # A lógica de timeout original continua abaixo, como um fallback.
                 last_success = _last_handshake_success.get(mac, 0)
                 
                 # Se nunca tivemos um sucesso ou o último foi há muito tempo, remove o ativo.
-                if last_success == 0 or (now - last_success) > HANDSHAKE_FAILURE_TIMEOUT_SEC:
-                    # A inércia de Wi-Fi agora é baseada no timeout do handshake
-                    if state.wifi_unseen_since is None:
-                        logger.warning(f"[HANDSHAKE] Ativo {mac} no quarto {quarto_id_atual} não responde ao handshake. Iniciando inércia de remoção.")
-                        state.wifi_unseen_since = now
+                if last_success != 0 and (now - last_success) > HANDSHAKE_FAILURE_TIMEOUT_SEC:
+                    logger.error(f"[HANDSHAKE] EVENTO OUT (TIMEOUT): Ativo {mac} sem resposta de handshake por mais de {HANDSHAKE_FAILURE_TIMEOUT_SEC}s. Forçando remoção.")
                     
-                    elif (now - state.wifi_unseen_since) > WIFI_FAILURE_INERTIA_SEC:
-                        logger.error(f"[HANDSHAKE] EVENTO OUT (TIMEOUT): Ativo {mac} sem resposta de handshake por tempo demais. Forçando remoção.")
-                        
-                        # (O resto da lógica de criar alerta e o "change" para OUT continua igual)
-                        changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": None,
-                            "source_esp_id": "aggregator_handshake_monitor",
-                            "details": f"Removido por ausência de resposta ao handshake superior a {HANDSHAKE_FAILURE_TIMEOUT_SEC}s.",
-                            "action": "OUT"
-                        })
-                        clear_asset_candidate_state(mac)
-                else:
-                    # Se tivemos um sucesso recente, reseta a inércia de falha.
-                    state.wifi_unseen_since = None
-                
-                continue # Continua para o próximo ativo
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": "aggregator_handshake_monitor",
+                        "details": f"Removido por ausência de resposta ao handshake superior a {HANDSHAKE_FAILURE_TIMEOUT_SEC}s.",
+                        "action": "OUT"
+                    })
+                    clear_asset_candidate_state(mac)
+                    continue # Pula para o próximo ativo
 
             # ESTADO 4: LIVRE (FORA DE UM QUARTO E NÃO PENDENTE)
             if quarto_id_atual is None and candidate_quarto_id is not None:
@@ -396,6 +373,12 @@ def confirm_asset_by_handshake(mac_beacon: str):
         logger.info(f"[HANDSHAKE-STATE] Ativo {mac_beacon} confirmado via handshake.")
         _handshake_confirmed_assets.add(mac_beacon)
         _last_handshake_success[mac_beacon] = time.time()
+
+def invalidate_asset_by_handshake(mac_beacon: str):
+    """Função chamada pelo endpoint da API para registrar uma invalidação explícita."""
+    if mac_beacon:
+        logger.warning(f"[HANDSHAKE-STATE] Ativo {mac_beacon} invalidado via callback 'FALSE'.")
+        _handshake_invalidated_assets.add(mac_beacon)
 
 # --- DEMAIS FUNÇÕES (sem alterações) ---
 def get_pending_states_for_ui():

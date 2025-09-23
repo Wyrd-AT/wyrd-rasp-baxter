@@ -332,7 +332,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .status-vencido {background-color: #966a0b}
 .action-get { color: #28a745; font-weight: bold; }
 .action-out { color: #dc3545; font-weight: bold; }
-.action-warning { color: #fd7e14; font-weight: bold; }
+.action-alerta { color: #fd7e14; font-weight: bold; }
 
 /* --- Seção de Eventos Pendentes --- */
 .pending-events-section { margin-bottom: 3rem; border: 1px solid #fd7e14; border-radius: 8px; padding: 1.5rem; background-color: #fff9f3; }

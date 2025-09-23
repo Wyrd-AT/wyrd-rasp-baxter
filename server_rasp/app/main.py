@@ -269,24 +269,28 @@ def get_server_time():
 
 @app.post("/api/presence/confirm", name="confirm_presence_handshake", status_code=200)
 async def confirm_presence_handshake(request: Request, db: Session = Depends(get_db)):
-    """
-    Endpoint de callback para o sistema final confirmar a presença de um ativo.
-    """
     data = await request.json()
     nome_cama = data.get("cama")
-    status_confirmado = data.get("status")
+    status_response = data.get("status") # Renomeado para clareza
 
-    if not nome_cama or status_confirmado != "TRUE":
-        raise HTTPException(status_code=400, detail="Payload inválido. 'cama' e 'status: TRUE' são necessários.")
+    if not nome_cama or not status_response:
+        raise HTTPException(status_code=400, detail="Payload inválido. 'cama' e 'status' são necessários.")
 
     asset = db.query(Asset).filter(Asset.nome_ativo == nome_cama).first()
     if not asset:
-        logger.warning(f"[HANDSHAKE-CALLBACK] Confirmação recebida para a cama '{nome_cama}', mas ela não foi encontrada no DB.")
+        logger.warning(f"[HANDSHAKE-CALLBACK] Resposta recebida para a cama '{nome_cama}', mas ela não foi encontrada no DB.")
         return PlainTextResponse("Asset not found")
 
-    logger.info(f"[HANDSHAKE-CALLBACK] Confirmação de presença recebida para {asset.mac_beacon} ({nome_cama}).")
-    aggregator.confirm_asset_by_handshake(asset.mac_beacon)
-    
+    # --- LÓGICA ATUALIZADA PARA TRATAR TRUE/FALSE ---
+    if status_response == "TRUE":
+        logger.info(f"[HANDSHAKE-CALLBACK] Confirmação de presença recebida para {asset.mac_beacon}. Repassando para o Aggregator.")
+        aggregator.confirm_asset_by_handshake(asset.mac_beacon)
+    elif status_response == "FALSE":
+        logger.warning(f"[HANDSHAKE-CALLBACK] Invalidação de presença recebida para {asset.mac_beacon}. Repassando para o Aggregator.")
+        aggregator.invalidate_asset_by_handshake(asset.mac_beacon)
+    else:
+        logger.warning(f"[HANDSHAKE-CALLBACK] Status desconhecido '{status_response}' recebido para {nome_cama}.")
+
     return PlainTextResponse("OK")
 
 @app.get("/", name="main")
@@ -1113,13 +1117,23 @@ def list_events(
                 data_local = data_utc.astimezone(sao_paulo_tz)
                 e.data_str = data_local.strftime("%d/%m/%Y")
                 e.hora_str = data_local.strftime("%H:%M:%S")
+            
+            # --- LÓGICA ADICIONADA AQUI ---
+            # Junta o status e o detalhe para criar o texto do tooltip
+            tooltip_parts = []
+            if e.status:
+                tooltip_parts.append(e.status)
+            if e.status_detail:
+                tooltip_parts.append(e.status_detail)
+            e.tooltip_text = " - ".join(tooltip_parts)
+            # --- FIM DA ADIÇÃO ---
 
     enrich_event_data(pending_events)
     enrich_event_data(events)
 
     # --- Coleta de dados para os menus de filtro ---
     all_assets = db.query(Asset.nome_ativo, Asset.mac_beacon).distinct().order_by(Asset.nome_ativo).all()
-    all_action_options = [("GET", "Conectar"), ("OUT", "Desconectar"), ("WARNING", "Alerta")]
+    all_action_options = [("GET", "Conectado"), ("OUT", "Desconectado"), ("ALERTA", "Alerta")]
     all_status_options = ["OK", "Resolvido", "Confirmado", "Enfileirado", "Ignorado", "Cancelado", "Vencido", "Erro"]
     all_quartos = sorted([q.nome for q in db.query(Quarto).order_by(Quarto.nome).all()])
     all_andares = sorted([a.nome for a in db.query(Andar).order_by(Andar.nome).all()]) 

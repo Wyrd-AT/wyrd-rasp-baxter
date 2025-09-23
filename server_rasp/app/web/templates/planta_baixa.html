@@ -77,6 +77,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     pontoContainer.style.top = coords.top;
                     pontoContainer.style.left = coords.left;
 
+                    // Lógica do Nome do Quarto (sem alteração)
                     const nomeQuartoSpan = document.createElement('span');
                     nomeQuartoSpan.className = 'ponto-nome-quarto';
                     nomeQuartoSpan.textContent = quarto.nome_quarto;
@@ -84,43 +85,42 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     const pontoStatusDiv = document.createElement('div');
                     pontoStatusDiv.className = 'ponto-quarto-status';
+                    
+                    // --- NOVA LÓGICA DE PRIORIDADE ---
+                    // 1. Procura se existe algum ativo pendente neste quarto.
+                    const ativoPendente = quarto.ativos.find(a => a.status === 'pendente');
+                    const ativoConfirmado = quarto.ativos.find(a => a.status === 'confirmado');
 
-                    // --- INÍCIO DA NOVA LÓGICA DE COR ---
-                    const temAtivoConfirmado = quarto.ativos.some(a => a.status === 'confirmado');
-                    const temAtivoPendente = quarto.ativos.some(a => a.status === 'pendente');
-
+                    // 2. Lógica de Cor com a prioridade correta
                     if (quarto.status_embarcado === 'Offline') {
-                        pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza
-                    } else if (temAtivoConfirmado) {
-                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde
-                    } else if (temAtivoPendente) {
-                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja
+                        pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza (Prioridade máxima)
+                    } else if (ativoPendente) {
+                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja (Segunda prioridade)
+                    } else if (ativoConfirmado) {
+                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde (Terceira prioridade)
                     } else {
-                        pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho
+                        pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho (Livre)
                     }
                     pontoContainer.appendChild(pontoStatusDiv);
-                    // --- FIM DA NOVA LÓGICA DE COR ---
                     
+                    // 3. Lógica do Texto com a prioridade correta
                     const nomeCamaSpan = document.createElement('span');
                     nomeCamaSpan.className = 'ponto-nome-cama';
 
-                    // --- INÍCIO DA NOVA LÓGICA DE TEXTO ---
                     if (quarto.status_embarcado === 'Offline') {
                         nomeCamaSpan.textContent = '(Offline)';
                         nomeCamaSpan.classList.add('cama-livre');
-                    } else if (quarto.numero_ativos > 0) {
-                        // Mostra o primeiro ativo da lista (seja confirmado ou pendente)
-                        nomeCamaSpan.textContent = quarto.ativos[0].nome;
-                        if(quarto.ativos[0].status === 'pendente') {
-                             nomeCamaSpan.textContent += ' (Pendente)';
-                        }
+                    } else if (ativoPendente) {
+                        nomeCamaSpan.textContent = ativoPendente.nome + ' (Pendente)';
+                    } else if (ativoConfirmado) {
+                        nomeCamaSpan.textContent = ativoConfirmado.nome;
                     } else {
                         nomeCamaSpan.textContent = 'Livre';
                         nomeCamaSpan.classList.add('cama-livre');
                     }
                     pontoContainer.appendChild(nomeCamaSpan);
-                    // --- FIM DA NOVA LÓGICA DE TEXTO ---
 
+                    // Lógica do Tooltip (sem alteração)
                     let tooltipText = `${quarto.nome_quarto}`;
                     if (quarto.status_embarcado === 'Offline') {
                         tooltipText += `\n(Embarcado Offline)`;
@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         tooltipText += `\nLivre`;
                     }
                     pontoContainer.title = tooltipText;
-                    
+
                     pontosContainer.appendChild(pontoContainer);
                 });
             });
