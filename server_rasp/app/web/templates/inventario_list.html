@@ -191,8 +191,11 @@ document.addEventListener('DOMContentLoaded', function () {
     const codigo = (rfidInput.value || '').trim().toUpperCase();
     if(!codigo){ rfidInput.focus(); return; }
     if (buffer.some(item => item.codigo === codigo)) {
-        alert('Este código RFID já foi adicionado.');
-        rfidInput.value = ''; rfidInput.focus(); return;
+        // Silencioso: só limpa e segue o baile
+        rfidInput.value = '';
+        // opcional: manter foco para leitura contínua
+        rfidInput.focus();
+        return;
     }
     const tipoId = tipoSelect.value;
     const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text;

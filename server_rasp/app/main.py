@@ -1153,12 +1153,24 @@ def inventory_save(
     db.flush()
 
     # 2. Cria e salva o novo snapshot
+    vistos = set()
+    produtos_unicos = []
+    for p in produtos_atuais_processados:
+        if p.id in vistos:
+            continue
+        vistos.add(p.id)
+        produtos_unicos.append(p)
+
+    # 2. Cria e salva o novo snapshot
     novo_snapshot = InventorySnapshot()
     db.add(novo_snapshot)
     db.flush()
+
     db.add_all([
-        InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id) for p in produtos_atuais_processados
+        InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id)
+        for p in produtos_unicos
     ])
+
     db.commit()
 
     # 3. Redireciona de volta para a página de inventário.

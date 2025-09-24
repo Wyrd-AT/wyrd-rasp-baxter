@@ -586,7 +586,8 @@ from starlette.exceptions import WebSocketException
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
-    ReceivedEvent, GlobalSetting, Andar, init_db
+    ReceivedEvent, GlobalSetting, Andar, 
+    ProductType, Product, InventorySnapshot, InventoryItem, init_db
 )
 from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
 from . import mqtt_client
@@ -654,6 +655,27 @@ def seed_database():
 
 seed_database()
 
+def seed_product_types():
+    db = SessionLocal()
+    try:
+        tipos_desejados = ["Servidor", "Roteador", "Cabo"]
+        existentes = {nome for (nome,) in db.query(ProductType.nome).all()}
+        novos = [t for t in tipos_desejados if t not in existentes]
+
+        if novos:
+            logger.info(f"INFO: Inserindo tipos: {novos}")
+            db.add_all([ProductType(nome=t) for t in novos])
+            db.commit()
+        else:
+            logger.info("INFO: Tipos já existentes. Nenhuma inserção necessária.")
+    except Exception as e:
+        logger.error(f"ERRO ao semear tipos de produto: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+seed_product_types()
+
 app = FastAPI(title="Wyrd-Baxter Connect")
 
 admin = Admin(app, engine, authentication_backend=authentication_backend)
@@ -692,6 +714,21 @@ class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
     name_plural = "Eventos Recebidos"
     icon = "fa-solid fa-list-ul"
 
+class ProductTypeAdmin(ModelView, model=ProductType):
+    column_list = [ProductType.id, ProductType.nome]
+    name = "Tipo de Produto"
+    name_plural = "Tipos de Produto"
+    icon = "fa-solid fa-layer-group"
+
+class ProductAdmin(ModelView, model=Product):
+    column_list = [Product.id, Product.codigo_rfid, Product.product_type_id]
+    column_searchable_list = [Product.codigo_rfid]
+    name = "Produto (RFID)"
+    name_plural = "Produtos (RFID)"
+    icon = "fa-solid fa-box"
+
+admin.add_view(ProductTypeAdmin)
+admin.add_view(ProductAdmin)
 # Adiciona as views ao painel de admin
 admin.add_view(AssetAdmin)
 admin.add_view(EmbarcadoAdmin)
@@ -948,6 +985,9 @@ async def check_esp_liveness():
                     await release_assets_for_offline_esp(db, emb.id_esp)
                     
                     emb.status_rede = 'offline'
+                    emb.wifi_signal = None  
+                    emb.mac_address = None 
+                    emb.ip_address = None
                 
                 # 3. Commit final para salvar todas as alterações de status na base de dados.
                 db.commit()
@@ -1571,6 +1611,149 @@ def download_embarcados_csv(db: Session = Depends(get_db)):
         iter_csv(), media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=embarcados_export.csv"}
     )
+
+# ===================================================================
+# SEÇÃO 5.1: INVENTÁRIO DE PRODUTOS
+# ===================================================================
+
+@app.get("/inventario", name="list_inventario")
+def inventory_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    # O novo parâmetro 'view' controla qual tabela mostrar. O padrão é 'comparison'.
+    view: str = Query("comparison")
+):
+    tipos = db.query(ProductType).order_by(ProductType.nome).all()
+    tipos_map = {t.id: t.nome for t in tipos}
+
+    # Busca os dois últimos snapshots
+    snapshots = db.query(InventorySnapshot).order_by(InventorySnapshot.created_on.desc()).limit(2).all()
+    snapshot_atual = snapshots[0] if len(snapshots) > 0 else None
+    snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
+    
+    tabela_unificada = []
+    inventario_atual_formatado = []
+
+    # Lógica para preparar os dados da visão de COMPARAÇÃO
+    if view == "comparison" and snapshot_atual:
+        map_codigo_para_tipo_atual = {p.codigo_rfid: tipos_map.get(p.product_type_id, "-") for p in db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_atual.id).all()}
+        map_codigo_para_tipo_anterior = {}
+        if snapshot_anterior:
+            map_codigo_para_tipo_anterior = {p.codigo_rfid: tipos_map.get(p.product_type_id, "-") for p in db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_anterior.id).all()}
+
+        codigos_atuais_set = set(map_codigo_para_tipo_atual.keys())
+        codigos_anteriores_set = set(map_codigo_para_tipo_anterior.keys())
+        todos_os_codigos = sorted(list(codigos_atuais_set | codigos_anteriores_set))
+        
+        for codigo in todos_os_codigos:
+            status = "Mantido"
+            if codigo in codigos_atuais_set and codigo not in codigos_anteriores_set: status = "Adicionado"
+            elif codigo not in codigos_atuais_set and codigo in codigos_anteriores_set: status = "Deletado"
+            
+            tabela_unificada.append({
+                "codigo_rfid": codigo,
+                "tipo_atual": map_codigo_para_tipo_atual.get(codigo, "---"),
+                "tipo_anterior": map_codigo_para_tipo_anterior.get(codigo, "---"),
+                "status": status
+            })
+    # Lógica para preparar os dados da visão ATUAL (simples)
+    elif view == "current" and snapshot_atual:
+        itens_atuais = db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_atual.id).order_by(Product.codigo_rfid).all()
+        inventario_atual_formatado = [{
+            "codigo_rfid": p.codigo_rfid,
+            "tipo": tipos_map.get(p.product_type_id, "-"),
+            "created_on": p.created_on
+        } for p in itens_atuais]
+
+    return templates.TemplateResponse("inventario_list.html", {
+        "request": request,
+        "tipos": tipos,
+        "tabela_unificada": tabela_unificada,
+        "inventario_atual": inventario_atual_formatado,
+        "snapshot_atual": snapshot_atual,
+        "snapshot_anterior": snapshot_anterior,
+        "current_view": view # Envia a visão atual para o template
+    })
+
+@app.post("/inventario/salvar", name="save_inventory_snapshot")
+def inventory_save(
+    request: Request,
+    db: Session = Depends(get_db),
+    codigos: List[str] = Form(...),
+    tipos: List[int] = Form(...),
+):
+    # A função agora tem uma única responsabilidade: salvar os dados.
+    # 1. Processa e salva os produtos enviados
+    produtos_atuais_processados = []
+    for codigo_rfid, tipo_id_str in zip(codigos, tipos):
+        codigo_rfid = codigo_rfid.strip()
+        if not codigo_rfid: continue
+        
+        tipo_id = int(tipo_id_str)
+        produto = db.query(Product).filter(Product.codigo_rfid == codigo_rfid).first()
+        if not produto:
+            produto = Product(codigo_rfid=codigo_rfid, product_type_id=tipo_id)
+            db.add(produto)
+        elif produto.product_type_id != tipo_id:
+            produto.product_type_id = tipo_id
+        produtos_atuais_processados.append(produto)
+    
+    db.flush()
+
+    # 2. Cria e salva o novo snapshot
+    vistos = set()
+    produtos_unicos = []
+    for p in produtos_atuais_processados:
+        if p.id in vistos:
+            continue
+        vistos.add(p.id)
+        produtos_unicos.append(p)
+
+    # 2. Cria e salva o novo snapshot
+    novo_snapshot = InventorySnapshot()
+    db.add(novo_snapshot)
+    db.flush()
+
+    db.add_all([
+        InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id)
+        for p in produtos_unicos
+    ])
+
+    db.commit()
+
+    # 3. Redireciona de volta para a página de inventário.
+    # A página irá recarregar e a função inventory_page fará a nova comparação.
+    return RedirectResponse(url=request.url_for("list_inventario"), status_code=status.HTTP_303_SEE_OTHER)
+
+@app.get("/inventario/download", name="download_inventory_csv")
+def download_inventory_csv(db: Session = Depends(get_db)):
+    ultimo = db.query(InventorySnapshot).order_by(InventorySnapshot.created_on.desc()).first()
+    
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["codigo_rfid", "tipo", "criado_em"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+        if ultimo:
+            # Query otimizada para buscar todos os dados de uma vez
+            itens = db.query(Product.codigo_rfid, ProductType.nome, Product.created_on)\
+                      .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                      .join(ProductType, ProductType.id == Product.product_type_id)\
+                      .filter(InventoryItem.snapshot_id == ultimo.id)\
+                      .order_by(Product.codigo_rfid)\
+                      .all()
+            
+            for codigo, tipo, criado_em in itens:
+                writer.writerow([codigo, tipo, criado_em.strftime("%Y-%m-%d %H:%M:%S")])
+                yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="inventario.csv"'},
+    )
+
 # ===================================================================
 # SEÇÃO 6: STARTUP, SHUTDOWN E TAREFAS EM BACKGROUND
 # ===================================================================
@@ -1647,13 +1830,15 @@ if __name__ == "__main__":
 ARQUIVO: app/models.py
 ========================================
 # models.py
-from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine, ForeignKey
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy import (Column, DateTime, ForeignKey, Integer, JSON, String,
+                        UniqueConstraint, create_engine)
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import backref, relationship, sessionmaker
+from datetime import datetime, timezone
 import logging
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite:///./base_rtls_hsa.db"
+DATABASE_URL = "sqlite:///./base_rtls_rfid.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -1726,6 +1911,41 @@ class ReceivedEvent(Base):
     wifi          = Column(Integer, nullable=True)
     data_on       = Column(DateTime(timezone=True), nullable=False, index=True)
     raw           = Column(JSON, nullable=False)
+
+
+#====================================================
+class ProductType(Base):
+    __tablename__ = "product_types"
+    id   = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+
+class Product(Base):
+    __tablename__ = "products"
+    id           = Column(Integer, primary_key=True, index=True)
+    codigo_rfid  = Column(String, unique=True, nullable=False, index=True)
+    product_type_id = Column(Integer, ForeignKey("product_types.id"), nullable=False)
+    created_on   = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # --- CORREÇÃO APLICADA AQUI ---
+    # Simplifica a relação, o back_populates não é estritamente necessário se o outro lado não o define
+    tipo = relationship("ProductType", backref=backref("produtos", lazy=True))
+
+class InventorySnapshot(Base):
+    __tablename__ = "inventory_snapshots"
+    id         = Column(Integer, primary_key=True, index=True)
+    created_on = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    itens = relationship("InventoryItem", back_populates="snapshot", cascade="all, delete-orphan")
+
+class InventoryItem(Base):
+    __tablename__ = "inventory_items"
+    id          = Column(Integer, primary_key=True, index=True)
+    snapshot_id = Column(Integer, ForeignKey("inventory_snapshots.id"), nullable=False)
+    product_id  = Column(Integer, ForeignKey("products.id"), nullable=False)
+
+    snapshot = relationship("InventorySnapshot", back_populates="itens")
+    product  = relationship("Product")
+    __table_args__ = (UniqueConstraint("snapshot_id", "product_id", name="uq_snapshot_product"),)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
