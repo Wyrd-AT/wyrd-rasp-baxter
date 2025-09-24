@@ -1194,9 +1194,9 @@ body.login-page {
 
 /* Nova classe para deixar o ícone do botão azul */
 .icon-btn-primary {
-    color: var(--cor-primaria);
+    color: var(--primary-color);
 }
 
 .icon-btn-primary:hover {
-    color: var(--cor-primaria-hover);
+    color: var(--primary-dark);
 }

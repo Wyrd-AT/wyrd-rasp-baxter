@@ -37,41 +37,40 @@
             overlay.addEventListener('click', toggleSidebar);
         }
         
-        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
+        const toggleFormsBtn = document.getElementById('forms-toggle-btn');
         const formsContainer = document.getElementById('forms-container');
 
         // Só executa se o botão e o container existirem nesta página
         if (toggleFormsBtn && formsContainer) {
             
-            // Função para atualizar o texto do tooltip (title) do botão
-            const updateButtonTitle = () => {
+            // Função para atualizar o texto do botão
+            const updateButtonText = () => {
                 if (formsContainer.classList.contains('collapsed')) {
-                    toggleFormsBtn.title = 'Mostrar Formulários';
+                    toggleFormsBtn.textContent = 'Mostrar Formulários';
                 } else {
-                    toggleFormsBtn.title = 'Recolher Formulários';
+                    toggleFormsBtn.textContent = 'Recolher Formulários';
                 }
             };
-
+            
             // Ao carregar a página, verifica se o estado "recolhido" estava salvo
             if (localStorage.getItem('formsCollapsed') === 'true') {
                 formsContainer.classList.add('collapsed');
-                toggleFormsBtn.classList.add('collapsed');
             }
-            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+            updateButtonText(); // Garante que o texto esteja correto no carregamento
 
             // Adiciona o evento de clique ao botão
             toggleFormsBtn.addEventListener('click', () => {
-                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
+                // Alterna a classe 'collapsed' no container
                 formsContainer.classList.toggle('collapsed');
-                toggleFormsBtn.classList.toggle('collapsed');
-
-                // Atualiza o texto do title para o novo estado
-                updateButtonTitle();
+                
+                // Atualiza o texto do botão para o novo estado
+                updateButtonText();
 
                 // Salva o estado atual no armazenamento local
                 localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
             });
         }
+
         
         function conectarWebSocket() {
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
