@@ -1,14 +1,18 @@
-{# embarcado_form.html #}
 <form action="{{ form_action }}" method="post">
-    <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
     
-    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr auto;">
+    <div class="form-header">
+        <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
+        <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if embarcado else 'Salvar' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        </button>
+    </div>
+    
+    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
         <div class="form-group">
             <label for="id_esp">ID da ESP</label>
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         
-        {# NOVO CAMPO ANDAR #}
         <div class="form-group">
             <label for="andar_nome">Andar</label>
             <input type="text" id="andar_nome" name="andar_nome" 
@@ -23,16 +27,11 @@
                    placeholder="Ex: 101, UTI-02" required>
         </div>
         
-        {# O campo RSSI foi movido para uma nova linha para melhor organização #}
-        <div class="form-group" style="grid-column: 1 / 4;"> {# Ocupa 3 colunas #}
+        <div class="form-group" style="grid-column: 1 / 4;">
             <label for="rssi_threshold">RSSI Mínimo Individual (dBm)</label>
             <input type="number" id="rssi_threshold" name="rssi_threshold"
                    value="{{ embarcado.rssi_threshold if embarcado and embarcado.rssi_threshold is not none else '' }}"
                    placeholder="Deixe em branco para usar o global">
         </div>
-
-        <button type="submit" class="icon-btn" title="{{ 'Atualizar' if embarcado else 'Salvar' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-        </button>
     </div>
 </form>

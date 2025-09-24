@@ -1175,3 +1175,28 @@ body.login-page {
     color: #dc3545; /* Vermelho */
     font-weight: bold;
 }
+
+/* --- Estilos para o Cabeçalho dos Formulários --- */
+.form-header {
+    display: flex;
+    justify-content: space-between; /* Joga o título para a esquerda e o botão para a direita */
+    align-items: center;
+    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--cor-borda);
+}
+
+.form-header h3 {
+    margin: 0;
+    padding: 0;
+    border: none;
+}
+
+/* Nova classe para deixar o ícone do botão azul */
+.icon-btn-primary {
+    color: var(--cor-primaria);
+}
+
+.icon-btn-primary:hover {
+    color: var(--cor-primaria-hover);
+}
