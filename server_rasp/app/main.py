@@ -716,6 +716,7 @@ def create_embarcado(
     id_esp: str = Form(...), 
     andar_nome: str = Form(...), # Novo campo
     quarto_nome: str = Form(...),
+    connecta_id: str = Form(...),
     rssi_threshold: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
@@ -724,7 +725,7 @@ def create_embarcado(
     
     rssi_value = int(rssi_threshold) if rssi_threshold else None
     
-    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, rssi_threshold=rssi_value)
+    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, connecta_id=connecta_id, rssi_threshold=rssi_value)
         
     try:
         db.add(novo_embarcado)
@@ -778,6 +779,7 @@ def update_embarcado(
     andar_nome: str = Form(...), # Novo campo
     quarto_nome: str = Form(...),
     rssi_threshold: Optional[str] = Form(None),
+    connecta_id: str = Form(...),
     db: Session = Depends(get_db)
 ):
     emb = db.query(Embarcado).get(embarcado_id)
@@ -789,6 +791,7 @@ def update_embarcado(
         
         emb.quarto_id = quarto_obj.id
         emb.rssi_threshold = rssi_value
+        emb.connecta_id = connecta_id
         db.commit()
         aggregator.flag_for_reload()
         logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. Disparando reset automático.")

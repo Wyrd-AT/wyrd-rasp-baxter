@@ -8,6 +8,13 @@
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         
+        <div class="form-group">
+            <label for="connecta_id">ID Connecta</label>
+            <input type="text" id="connecta_id" name="connecta_id" 
+                   value="{{ embarcado.connecta_id if embarcado else '' }}" 
+                   placeholder="ID usado no sistema final">
+        </div>
+
         {# NOVO CAMPO ANDAR #}
         <div class="form-group">
             <label for="andar_nome">Andar</label>

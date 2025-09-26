@@ -64,6 +64,7 @@ class Embarcado(Base):
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
     rssi_threshold = Column(Integer, nullable=True)
     quarto = relationship("Quarto", back_populates="embarcados")
+    connecta_id = Column(String, nullable=False)
 
 
 class ReceivedEvent(Base):
