@@ -419,6 +419,8 @@ async def wifi_guardian_task_unificada(db: Session):
     com os detalhes completos (incluindo modelo e quarto).
     """
     try:
+        embarcados = db.query(Embarcado).all()
+        quarto_to_connecta_id_map = {e.quarto_id: e.connecta_id for e in embarcados if e.connecta_id}
         # 1. Pega a lista de ativos PENDENTES da memória do agregador
         pending_assets_list = aggregator.get_pending_states_for_ui()
         
@@ -435,7 +437,8 @@ async def wifi_guardian_task_unificada(db: Session):
                 "mac": asset_info.get("ativo_mac"),
                 "nome_ativo": asset_info.get("nome_ativo"),
                 "modelo": aggregator._asset_map.get(asset_info.get("ativo_mac"), {}).get("modelo"),
-                "quarto_alvo": quarto_obj.nome if quarto_obj else "N/A"
+                "quarto_alvo": quarto_obj.nome if quarto_obj else "N/A",
+                "quarto_id": asset_info.get("pending_quarto_id")
             })
             
         # Processa os confirmados para adicionar à lista de checagem
@@ -446,7 +449,8 @@ async def wifi_guardian_task_unificada(db: Session):
                     "mac": asset.mac_beacon,
                     "nome_ativo": asset.nome_ativo,
                     "modelo": asset.modelo,
-                    "quarto_alvo": asset.quarto.nome if asset.quarto else "N/A"
+                    "quarto_alvo": asset.quarto.nome if asset.quarto else "N/A",
+                    "quarto_id": asset.quarto_id
                 })
 
         if not assets_to_check:
@@ -454,12 +458,14 @@ async def wifi_guardian_task_unificada(db: Session):
 
         # 4. Para cada ativo na lista, monta o payload completo e envia
         for asset_data in assets_to_check:
+            quarto_id = asset_data.get("quarto_id") # Precisamos do ID do quarto
+            id_para_enviar = quarto_to_connecta_id_map.get(quarto_id) or asset_data.get("quarto_alvo")
             logger.debug(f"[GUARDIAN-CALLBACK] Enviando desafio para {asset_data['mac']}...")
             
             challenge_payload = {
                 "cama": asset_data.get("nome_ativo"),
                 "modelo": asset_data.get("modelo"),
-                "quarto": asset_data.get("quarto_alvo"),
+                "quarto": id_para_enviar,
                 "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
             }
             

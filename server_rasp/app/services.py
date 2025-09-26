@@ -20,17 +20,28 @@ logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list, asset_map: dict):
     """
-    (VERSÃO COMPLETA E CORRIGIDA) Processa mudanças, garantindo que eventos de SAÍDA
-    sejam despachados corretamente e com o contexto do quarto anterior.
+    (VERSÃO CORRIGIDA) Processa mudanças, garantindo que o ID Connecta seja usado
+    no payload despachado para o sistema final.
     """
     if not changes:
         return
 
+    # --- INÍCIO DA MUDANÇA ---
+    # 1. Cria um mapa de consulta {nome_do_quarto: connecta_id} para ser usado depois.
+    #    Isso é feito uma vez para evitar múltiplas consultas ao DB.
+    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).all()
+    quarto_nome_to_connecta_id_map = {
+        e.quarto.nome: e.connecta_id 
+        for e in embarcados if e.quarto and e.connecta_id
+    }
+    # --- FIM DA MUDANÇA ---
+
     events_to_dispatch = []
     
     try:
-        # --- ETAPA 1: Criar todos os eventos e preparar as mudanças no DB ---
+        # ETAPA 1 (sem alterações)
         for change in changes:
+            # ... (a lógica para criar o ReceivedEvent e salvar no SEU DB continua igual)
             asset_id = change.get("asset_id")
             if not asset_id: continue
 
@@ -40,15 +51,13 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
             action = change.get("action", "GET")
             status = change.get("status", "OK")
             
-            # Lógica para encontrar o quarto correto para o log do evento
             quarto_evento_obj = None
             quarto_context_id = change.get("quarto_context_id")
             
-            # Se for um evento de SAÍDA, o contexto do quarto é o quarto ATUAL do ativo, ANTES de ser removido.
             if action == "OUT":
                 if asset.quarto:
                     quarto_evento_obj = asset.quarto
-            elif quarto_context_id: # Para eventos de ENTRADA (Pendente/Confirmado)
+            elif quarto_context_id:
                 quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_context_id).first()
 
             event = ReceivedEvent(
@@ -56,18 +65,14 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
                 ativo=asset.mac_beacon,
                 quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else "N/A",
                 andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
-                action=action,
-                status=status,
-                status_detail=change.get("details"),
-                rssi=change.get("rssi"),
-                wifi=change.get("wifi_signal"),
+                action=action, status=status, status_detail=change.get("details"),
+                rssi=change.get("rssi"), wifi=change.get("wifi_signal"),
                 data_on=datetime.now(timezone.utc),
                 raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
             )
             db.add(event)
             events_to_dispatch.append(event)
             
-            # Só atualiza a alocação da cama no DB se for um evento de estado final
             if status == "Confirmado" or action == "OUT":
                 asset.quarto_id = change.get("new_quarto_id")
 
@@ -78,27 +83,33 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
         loop = asyncio.get_running_loop()
 
         for event in events_to_dispatch:
-            if event.action in ["GET", "OUT", "ALERTA"]: # Garante que todos os tipos relevantes sejam despachados
+            if event.action in ["GET", "OUT", "ALERTA"]:
                 db.refresh(event)
                 
-                data_utc_aware = event.data_on.replace(tzinfo=timezone.utc)
-                data_zulu = data_utc_aware.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+                data_zulu = event.data_on.replace(tzinfo=timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
-                # Garante que o status enviado ao sistema final reflita a ação real.
                 status_to_dispatch = event.action
                 if event.status in ["Pendente", "Confirmado"]:
                     status_to_dispatch = "GET"
 
+                # --- INÍCIO DA MUDANÇA ---
+                # 2. Usa o mapa para encontrar o ID Connecta.
+                #    Se não encontrar, usa o nome do quarto como fallback para não quebrar.
+                quarto_nome_original = event.quarto_nome
+                id_para_enviar = quarto_nome_to_connecta_id_map.get(quarto_nome_original, quarto_nome_original)
+                # --- FIM DA MUDANÇA ---
+
                 dispatch_payload = {
-                    "quarto": event.quarto_nome,
+                    "quarto": id_para_enviar, # <-- AQUI ESTÁ A MUDANÇA
                     "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
                     "modelo": asset_map.get(event.ativo, {}).get("modelo"),
-                    "status": status_to_dispatch, # Envia a ação correta (GET, OUT, ALERTA)
+                    "status": status_to_dispatch,
                     "dataOn": data_zulu,
                     "wifi":   event.wifi,
                     "etapa": event.status
                 }
                 
+                # ... (resto da função de dispatch, tratamento de erro, etc. continua igual)
                 dispatch_successful = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 
                 if not dispatch_successful:
@@ -113,7 +124,6 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
                      finally:
                          update_db.close()
         
-        # --- ETAPA 3: Atualizar caches e notificar a interface ---
         aggregator.flag_for_reload()
         await manager.broadcast("ATUALIZAR_ESTADO")
 
