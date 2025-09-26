@@ -1,111 +1,121 @@
 {% extends "base.html" %}
 
-{% block title %}Plantas Baixas{% endblock %}
+{% block title %}{{ painel.nome }}{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Plantas Baixas</h1>
+    <h1>{{ painel.nome }}</h1>
+    <a href="{{ url_for('list_paineis') }}" class="btn-primary">VOLTAR AOS PAINÉIS</a>
 </div>
 
-<div id="planta-grid" class="planta-grid-container">
+<div id="renderer-container" class="renderer-container">
     </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const gridContainer = document.getElementById('planta-grid');
+    const rendererContainer = document.getElementById('renderer-container');
+    const slugPainel = "{{ painel.slug }}";
 
-    const coordenadasDosPontos = {
-        'quarto-1': { top: '40%', left: '50%' },
-        'quarto-2': { top: '50%', left: '70%' },
-        'quarto-3': { top: '50%', left: '50%' },
-        'quarto-4': { top: '50%', left: '50%' },
-        'quarto-5': { top: '65%', left: '50%' },
-        'quarto-6': { top: '50%', left: '48%' }
-    };
+    // Função que desenha um único ponto (quarto) na tela
+    function renderizarPonto(quarto) {
+        const pontoContainer = document.createElement('div');
+        pontoContainer.className = 'ponto-quarto-container';
+        pontoContainer.style.position = 'absolute';
+        pontoContainer.style.left = `${quarto.pos_x}%`;
+        pontoContainer.style.top = `${quarto.pos_y}%`;
+        
+        let statusColor = '#6c757d'; // Cinza (Offline) por padrão
+        if (quarto.status_embarcado === 'Online') {
+            statusColor = quarto.numero_ativos > 0 ? '#28a745' : '#dc3545'; // Verde (Ocupado) ou Vermelho (Livre)
+        }
 
+        let ativosTooltip = quarto.ativos.map(a => `\n- ${a.nome}`).join('');
+        pontoContainer.title = `${quarto.nome_quarto}${ativosTooltip || '\nLivre'}`;
+
+        pontoContainer.innerHTML = `
+            <span class="ponto-nome-quarto">${quarto.nome_quarto}</span>
+            <div class="ponto-quarto-status" style="background-color: ${statusColor};"></div>
+            <span class="ponto-nome-cama">${quarto.numero_ativos > 0 ? quarto.ativos[0].nome : 'Livre'}</span>
+        `;
+        return pontoContainer;
+    }
+
+    // Função que desenha um andar inteiro (imagem de fundo + pontos)
+    function renderizarAndar(andar) {
+        const andarContainer = document.createElement('div');
+        andarContainer.className = 'planta-container-dinamica';
+        andarContainer.style.backgroundImage = `url(${andar.imagem_url})`;
+
+        const pontosContainer = document.createElement('div');
+        pontosContainer.className = 'planta-pontos-container';
+
+        andar.quartos.forEach(quarto => {
+            if (quarto.pos_x != null && quarto.pos_y != null) {
+                pontosContainer.appendChild(renderizarPonto(quarto));
+            }
+        });
+        
+        andarContainer.appendChild(pontosContainer);
+        return andarContainer;
+    }
+
+    // Função principal que busca os dados e decide o layout
     function atualizarPlanta() {
-        fetch("{{ url_for('get_planta_dados') }}")
+        fetch(`/api/plantas/${slugPainel}`)
             .then(response => response.json())
-            .then(dadosQuartos => {
-                gridContainer.innerHTML = '';
+            .then(data => {
+                rendererContainer.innerHTML = ''; // Limpa o conteúdo antigo
+                rendererContainer.className = 'renderer-container'; // Reseta as classes
 
-                dadosQuartos.forEach(quarto => {
-                    const quartoContainer = document.createElement('div');
-                    quartoContainer.className = 'quarto-container';
-                    quartoContainer.id = quarto.id_quarto;
-
-                    const tituloH3 = document.createElement('h3');
-                    tituloH3.className = 'quarto-titulo';
-                    tituloH3.textContent = quarto.nome_quarto;
-
-                    const imgSvg = document.createElement('img');
-                    const numeroDoQuarto = quarto.id_quarto.split('-')[1];
-                    imgSvg.src = `{{ url_for('static', path='maps/') }}${numeroDoQuarto}.svg`;
-
-                    const pontoDiv = document.createElement('div');
-                    pontoDiv.className = 'ponto-status-overlay';
-                    const coords = coordenadasDosPontos[quarto.id_quarto] || { top: '50%', left: '50%' };
-                    pontoDiv.style.top = coords.top;
-                    pontoDiv.style.left = coords.left;
-                    pontoDiv.style.transform = 'translate(-50%, -50%)';
-
-                    // --- NOVA LÓGICA DE CORES ---
-                    if (quarto.status_embarcado === 'Offline') {
-                        pontoDiv.style.backgroundColor = '#6c757d'; // Cinza para Offline
-                    } else if (quarto.numero_ativos > 0) {
-                        pontoDiv.style.backgroundColor = '#28a745'; // Verde para Ocupado
-                    } else {
-                        pontoDiv.style.backgroundColor = '#dc3545'; // Vermelho para Livre (mas Online)
-                    }
-
-                    const contagemP = document.createElement('p');
-                    contagemP.className = 'quarto-asset-count';
-                    const textoAtivos = quarto.numero_ativos === 1 ? '1 ativo' : `${quarto.numero_ativos} ativos`;
-                    
-                    if (quarto.status_embarcado === 'Offline') {
-                        contagemP.textContent = 'Embarcado Offline';
-                    } else {
-                        contagemP.textContent = quarto.numero_ativos > 0 ? textoAtivos : 'Livre';
-                    }
-                    
-                    // --- NOVA LÓGICA DE TOOLTIP ---
-                    let tooltipText = `${quarto.nome_quarto}`;
-                    if (quarto.status_embarcado === 'Offline') {
-                        tooltipText += `\n(Embarcado Offline)`;
-                    } else if (quarto.numero_ativos > 0) {
-                        // Itera sobre a nova lista de ativos detalhados
-                        quarto.ativos.forEach(ativo => {
-                            tooltipText += `\n- ${ativo.nome} (Entrada: ${ativo.horario_entrada})`;
+                switch (data.tipo_layout) {
+                    case 'lado_a_lado':
+                        rendererContainer.classList.add('layout-lado-a-lado');
+                        data.andares.forEach(andar => {
+                            rendererContainer.appendChild(renderizarAndar(andar));
                         });
-                    } else {
-                        tooltipText += `\nLivre`;
-                    }
-                    pontoDiv.title = tooltipText;
-
-                    quartoContainer.appendChild(tituloH3);
-                    quartoContainer.appendChild(imgSvg);
-                    quartoContainer.appendChild(pontoDiv);
-                    quartoContainer.appendChild(contagemP);
+                        break;
                     
-                    gridContainer.appendChild(quartoContainer);
-                });
+                    case 'empilhado':
+                        rendererContainer.classList.add('layout-empilhado');
+                        data.andares.forEach(andar => {
+                            rendererContainer.appendChild(renderizarAndar(andar));
+                        });
+                        break;
+                    
+                    case 'grid_hsa':
+                         rendererContainer.classList.add('planta-grid-container'); // Reutiliza sua classe antiga
+                         // A lógica aqui seria um pouco diferente, talvez renderizando cards em vez de plantas
+                         // Por enquanto, vamos renderizar as plantas no grid
+                         data.andares.forEach(andar => {
+                            rendererContainer.appendChild(renderizarAndar(andar));
+                        });
+                        break;
+                    
+                    // Outros layouts como 'abas' podem ser adicionados aqui
+
+                    case 'unico':
+                    default:
+                        rendererContainer.classList.add('layout-unico');
+                        if (data.andares.length > 0) {
+                            rendererContainer.appendChild(renderizarAndar(data.andares[0]));
+                        }
+                        break;
+                }
             });
     }
 
-    window.addEventListener('websocket_open', function() {
-        console.log("Planta Baixa: WebSocket conectado. Carregando dados iniciais.");
-        atualizarPlanta();
-    });
-
-    // Ouve pelo evento 'atualizar_estado' disparado pelo base.html
-    window.addEventListener('websocket_message', function (event) {
+    // Gatilhos para atualização
+    window.addEventListener('websocket_open', atualizarPlanta);
+    window.addEventListener('websocket_message', (event) => {
         if (event.detail === "ATUALIZAR_ESTADO") {
-            console.log("Planta Baixa: Sinal de atualização recebido.");
             atualizarPlanta();
         }
     });
+
+    // Carga inicial
+    atualizarPlanta();
 });
 </script>
 {% endblock %}

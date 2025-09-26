@@ -38,7 +38,7 @@ from starlette.exceptions import WebSocketException
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
-    ReceivedEvent, GlobalSetting, Andar, init_db
+    ReceivedEvent, GlobalSetting, Andar, PainelVisualizacao, init_db
 )
 from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
 from . import mqtt_client
@@ -126,10 +126,24 @@ class EmbarcadoAdmin(ModelView, model=Embarcado):
     icon = "fa-solid fa-microchip"
 
 class QuartoAdmin(ModelView, model=Quarto):
-    column_list = [Quarto.id, Quarto.nome]
+    column_list = [Quarto.id, Quarto.nome, Quarto.andar, Quarto.pos_x, Quarto.pos_y]
     name = "Quarto"
     name_plural = "Quartos"
     icon = "fa-solid fa-door-closed"
+
+class AndarAdmin(ModelView, model=Andar):
+    column_list = [Andar.id, Andar.nome, Andar.planta_imagem_url]
+    name = "Andar"
+    name_plural = "Andares"
+    icon = "fa-solid fa-layer-group"
+
+class PainelAdmin(ModelView, model=PainelVisualizacao):
+    name = "Painel"
+    name_plural = "Painéis"
+    icon = "fa-solid fa-display"
+    column_list = [PainelVisualizacao.id, PainelVisualizacao.nome, PainelVisualizacao.slug, PainelVisualizacao.tipo_layout, PainelVisualizacao.andares]
+    form_columns = [PainelVisualizacao.nome, PainelVisualizacao.slug, PainelVisualizacao.tipo_layout, PainelVisualizacao.andares]
+
 
 class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
     can_create = False
@@ -147,7 +161,9 @@ class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
 # Adiciona as views ao painel de admin
 admin.add_view(AssetAdmin)
 admin.add_view(EmbarcadoAdmin)
-admin.add_view(QuartoAdmin)
+admin.add_view(QuartoAdmin) 
+admin.add_view(AndarAdmin) 
+admin.add_view(PainelAdmin)
 admin.add_view(ReceivedEventAdmin)
 
 # --- Dependência do Banco de Dados ---
@@ -486,6 +502,83 @@ def view_planta(request: Request, db: Session = Depends(get_db)):
     Renderiza a página da planta baixa interativa.
     """
     return templates.TemplateResponse("planta_baixa.html", {"request": request})
+
+@app.get("/api/plantas/{slug_painel}", name="get_planta_dados_painel")
+def get_planta_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
+    """
+    API que busca todos os dados de um painel específico (andares, quartos, coordenadas e status)
+    para serem renderizados dinamicamente pelo frontend.
+    """
+    painel = db.query(PainelVisualizacao).options(
+        joinedload(PainelVisualizacao.andares)
+        .joinedload(Andar.quartos)
+        .joinedload(Quarto.assets),
+        joinedload(PainelVisualizacao.andares)
+        .joinedload(Andar.quartos)
+        .joinedload(Quarto.embarcados)
+    ).filter(PainelVisualizacao.slug == slug_painel).first()
+
+    if not painel:
+        raise HTTPException(status_code=404, detail="Painel não encontrado")
+
+    now_utc = datetime.now(timezone.utc)
+    fuso_local = timezone(timedelta(hours=-3))
+    
+    andares_data = []
+    for andar in painel.andares:
+        quartos_data = []
+        for quarto in andar.quartos:
+            status_embarcado = "Offline"
+            if quarto.embarcados and quarto.embarcados[0].last_seen:
+                last_seen_utc = quarto.embarcados[0].last_seen.replace(tzinfo=timezone.utc)
+                if (now_utc - last_seen_utc).total_seconds() < 150: # ESP_TIMEOUT_SEC
+                    status_embarcado = "Online"
+            
+            ativos_detalhados = [{"nome": asset.nome_ativo} for asset in quarto.assets]
+
+            quartos_data.append({
+                "id_quarto": f"quarto-{quarto.id}",
+                "nome_quarto": quarto.nome,
+                "pos_x": quarto.pos_x,
+                "pos_y": quarto.pos_y,
+                "status_embarcado": status_embarcado,
+                "numero_ativos": len(ativos_detalhados),
+                "ativos": ativos_detalhados
+            })
+        
+        andares_data.append({
+            "id_andar": andar.id,
+            "nome_andar": andar.nome,
+            "imagem_url": f"/static/plantas/{andar.planta_imagem_url}" if andar.planta_imagem_url else None,
+            "quartos": quartos_data
+        })
+
+    return {
+        "nome_painel": painel.nome,
+        "tipo_layout": painel.tipo_layout,
+        "andares": andares_data
+    }
+
+@app.get("/plantas", name="list_paineis")
+def list_paineis(request: Request, db: Session = Depends(get_db)):
+    """Página que lista todos os painéis de visualização disponíveis."""
+    paineis = db.query(PainelVisualizacao).order_by(PainelVisualizacao.nome).all()
+    return templates.TemplateResponse("plantas_index.html", {
+        "request": request,
+        "paineis": paineis
+    })
+
+@app.get("/plantas/{slug_painel}", name="view_painel")
+def view_painel(request: Request, slug_painel: str, db: Session = Depends(get_db)):
+    """Renderiza a página de planta baixa para um painel específico."""
+    painel = db.query(PainelVisualizacao).filter(PainelVisualizacao.slug == slug_painel).first()
+    if not painel:
+        raise HTTPException(status_code=404, detail="Painel não encontrado")
+    
+    return templates.TemplateResponse("planta_baixa.html", {
+        "request": request,
+        "painel": painel  # Passa o objeto do painel para o template
+    })
 
 @app.get("/api/planta/dados", name="get_planta_dados")
 def get_planta_dados(db: Session = Depends(get_db)):

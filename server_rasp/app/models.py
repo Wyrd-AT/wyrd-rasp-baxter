@@ -1,11 +1,13 @@
-# models.py
-from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine, ForeignKey
+# app/models.py
+from sqlalchemy import (Column, Integer, String, DateTime, JSON, 
+                        create_engine, ForeignKey, Table, Float)
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import logging
+
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite:///./base_rtls_hsa.db"
+DATABASE_URL = "sqlite:///./base_rtls_geral.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -13,26 +15,51 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
+
+# --- Tabela de Associação ---
+
+painel_andar_association = Table('painel_andar_association', Base.metadata,
+    Column('painel_id', Integer, ForeignKey('paineis_visualizacao.id'), primary_key=True),
+    Column('andar_id', Integer, ForeignKey('andares.id'), primary_key=True)
+)
+
+# --- Modelo de Painéis de Visualização ---
+
+class PainelVisualizacao(Base):
+    __tablename__ = "paineis_visualizacao"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    slug = Column(String, unique=True, nullable=False, index=True)
+    tipo_layout = Column(String, nullable=False)
+    
+    andares = relationship("Andar", secondary=painel_andar_association, back_populates="paineis")
+
+
+# --- Modelos de Localização ---
+
 class Andar(Base):
     __tablename__ = "andares"
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String, unique=True, nullable=False)
+    planta_imagem_url = Column(String, nullable=True)
     
-    # Relação para acessar os quartos de um andar
     quartos = relationship("Quarto", back_populates="andar")
+    paineis = relationship("PainelVisualizacao", secondary=painel_andar_association, back_populates="andares")
 
-# 1. Adicionamos a nova tabela para centralizar a informação dos quartos.
 class Quarto(Base):
     __tablename__ = "quartos"
-    id   = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True)
     nome = Column(String, unique=True, nullable=False)
-    
     andar_id = Column(Integer, ForeignKey("andares.id"), nullable=False)
+    pos_x = Column(Float, nullable=True)
+    pos_y = Column(Float, nullable=True)
+    
     andar = relationship("Andar", back_populates="quartos")
-
-    # Relações inversas (sem alteração aqui)
     embarcados = relationship("Embarcado", back_populates="quarto")
-    assets     = relationship("Asset", back_populates="quarto")
+    assets = relationship("Asset", back_populates="quarto")
+
+
+# --- Modelos Principais ---
 
 class GlobalSetting(Base):
     __tablename__ = "global_settings"
@@ -41,19 +68,18 @@ class GlobalSetting(Base):
 
 class Asset(Base):
     __tablename__ = "assets"
-    id          = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True)
     nome_ativo = Column(String, nullable=False, unique=True)
-    mac_beacon  = Column(String, unique=True, nullable=False, index=True)
+    mac_beacon = Column(String, unique=True, nullable=False, index=True)
     tipo_ativo = Column(String, nullable=True)
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
     quarto = relationship("Quarto", back_populates="assets")
     status = Column(String, default='Online', nullable=False)
 
-
 class Embarcado(Base):
     __tablename__ = "embarcados"
-    id        = Column(Integer, primary_key=True, index=True)
-    id_esp    = Column(String, unique=True, nullable=False, index=True)
+    id = Column(Integer, primary_key=True, index=True)
+    id_esp = Column(String, unique=True, nullable=False, index=True)
     last_seen = Column(DateTime(timezone=True), nullable=True)
     mac_address = Column(String, nullable=True)
     ip_address = Column(String, nullable=True)
@@ -64,20 +90,25 @@ class Embarcado(Base):
     quarto = relationship("Quarto", back_populates="embarcados")
 
 
+# --- Modelo de Histórico ---
+
 class ReceivedEvent(Base):
     __tablename__ = "received_events"
-    id            = Column(Integer, primary_key=True, index=True)
-    esp_id        = Column(String, nullable=False, index=True)
-    ativo        = Column(String, nullable=False, index=True)
-    quarto_nome   = Column(String, nullable=True) 
+    id = Column(Integer, primary_key=True, index=True)
+    esp_id = Column(String, nullable=False, index=True)
+    ativo = Column(String, nullable=False, index=True)
+    quarto_nome = Column(String, nullable=True)
     andar_nome = Column(String, nullable=True)
-    action        = Column(String, nullable=False, index=True)    
-    status        = Column(String, nullable=True, index=True)
-    status_detail = Column(String, nullable=True)   
-    rssi          = Column(Integer, nullable=True)
-    wifi          = Column(Integer, nullable=True)
-    data_on       = Column(DateTime(timezone=True), nullable=False, index=True)
-    raw           = Column(JSON, nullable=False)
+    action = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=True, index=True)
+    status_detail = Column(String, nullable=True)
+    rssi = Column(Integer, nullable=True)
+    wifi = Column(Integer, nullable=True)
+    data_on = Column(DateTime(timezone=True), nullable=False, index=True)
+    raw = Column(JSON, nullable=False)
+
+
+# --- Inicialização do Banco de Dados ---
 
 def init_db():
     Base.metadata.create_all(bind=engine)
