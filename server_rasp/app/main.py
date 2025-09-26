@@ -30,16 +30,20 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import event, or_, desc, asc
 
+from urllib.parse import urlencode
+
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request as StarletteRequest
 from starlette.exceptions import WebSocketException 
+from starlette.datastructures import URL
 
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
     ReceivedEvent, GlobalSetting, Andar, 
-    ProductType, Product, InventorySnapshot, InventoryItem, init_db
+    ProductType, Product, InventorySnapshot, InventoryItem, 
+    DataCenter, init_db
 )
 from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
 from . import mqtt_client
@@ -89,14 +93,23 @@ authentication_backend = AdminAuth(secret_key="W753y@r159d")
 def seed_database():
     db = SessionLocal()
     try:
+        # Garante que um andar padrão exista antes de criar os quartos
+        default_andar_nome = "Andar Principal"
+        andar_obj = db.query(Andar).filter(Andar.nome == default_andar_nome).first()
+        if not andar_obj:
+            andar_obj = Andar(nome=default_andar_nome)
+            db.add(andar_obj)
+            db.commit()
+            db.refresh(andar_obj)
+
         num_quartos = db.query(Quarto).count()
         if num_quartos < NUM_FIXED_ROOMS:
-            logger.info(f"INFO: Detectados {num_quartos}/{NUM_FIXED_ROOMS} quartos. Criando os quartos fixos restantes...")
+            logger.info(f"INFO: Detectados {num_quartos}/{NUM_FIXED_ROOMS} quartos. Criando os restantes...")
             for i in range(num_quartos + 1, NUM_FIXED_ROOMS + 1):
                 quarto_nome = f"Quarto {i}"
-                existing_quarto = db.query(Quarto).filter(Quarto.nome == quarto_nome).first()
-                if not existing_quarto:
-                    db.add(Quarto(nome=quarto_nome))
+                if not db.query(Quarto).filter(Quarto.nome == quarto_nome).first():
+                    # Associa o novo quarto ao andar padrão
+                    db.add(Quarto(nome=quarto_nome, andar_id=andar_obj.id))
             db.commit()
             logger.info("INFO: Quartos fixos criados com sucesso.")
     except Exception as e:
@@ -105,7 +118,26 @@ def seed_database():
     finally:
         db.close()
 
-seed_database()
+def seed_datacenters():
+    db = SessionLocal()
+    try:
+        datacenters = ["Datacenter Principal SP", "Datacenter Secundário RJ", "Datacenter Sul"]
+        for nome in datacenters:
+            if not db.query(DataCenter).filter(DataCenter.nome == nome).first():
+                # Gera um 'slug' simples a partir do nome
+                slug = nome.lower().replace(" ", "-").replace("á", "a").replace("ç", "c")
+                db_datacenter = DataCenter(nome=nome, slug=slug)
+                db.add(db_datacenter)
+        db.commit()
+    except Exception as e:
+        logger.error(f"ERRO ao 'semear' datacenters: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+#seed_database()
+seed_datacenters()
 
 def seed_product_types():
     db = SessionLocal()
@@ -197,6 +229,17 @@ def get_db():
 
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 templates = Jinja2Templates(directory=templates_path)
+
+# --- INÍCIO DA CORREÇÃO DE FUSO HORÁRIO ---
+def to_sao_paulo_time(utc_dt: datetime):
+    """Filtro Jinja2 para converter uma data UTC para o fuso de São Paulo (GMT-3)."""
+    if not isinstance(utc_dt, datetime):
+        return utc_dt # Retorna o valor original se não for uma data
+    sao_paulo_tz = timezone(timedelta(hours=-3))
+    return utc_dt.astimezone(sao_paulo_tz)
+
+# Adiciona o filtro customizado ao ambiente do Jinja2 para que possamos usá-lo nos templates
+templates.env.filters['to_spt'] = to_sao_paulo_time
 
 def get_or_create_andar(db: Session, nome: str) -> Andar:
     andar = db.query(Andar).filter(Andar.nome == nome).first()
@@ -1072,26 +1115,48 @@ def download_embarcados_csv(db: Session = Depends(get_db)):
 def inventory_page(
     request: Request,
     db: Session = Depends(get_db),
-    # O novo parâmetro 'view' controla qual tabela mostrar. O padrão é 'comparison'.
-    view: str = Query("comparison")
+    # --- CORREÇÃO: Visão padrão alterada para 'current' ---
+    view: str = Query("current"),
+    datacenter_id: Optional[int] = Query(None)
 ):
-    tipos = db.query(ProductType).order_by(ProductType.nome).all()
-    tipos_map = {t.id: t.nome for t in tipos}
+    all_datacenters = db.query(DataCenter).order_by(DataCenter.id).all()
 
-    # Busca os dois últimos snapshots
-    snapshots = db.query(InventorySnapshot).order_by(InventorySnapshot.created_on.desc()).limit(2).all()
+    if datacenter_id is None:
+        if all_datacenters:
+            primeiro_dc_id = all_datacenters[0].id
+            
+            # --- CORREÇÃO: Lógica de redirect melhorada para preservar outros parâmetros ---
+            params = dict(request.query_params)
+            params['datacenter_id'] = primeiro_dc_id
+            # A função urlencode transforma o dicionário em "datacenter_id=1&view=current" etc.
+            redirect_url = request.url.replace(query=urlencode(params))
+            return RedirectResponse(url=str(redirect_url))
+
+    # O resto da função permanece o mesmo...
+    tipos = db.query(ProductType).order_by(ProductType.nome).all()
+
+    snapshot_query = db.query(InventorySnapshot)
+    if datacenter_id:
+        snapshot_query = snapshot_query.filter(InventorySnapshot.datacenter_id == datacenter_id)
+    
+    snapshots = snapshot_query.order_by(InventorySnapshot.created_on.desc()).limit(2).all()
+    
     snapshot_atual = snapshots[0] if len(snapshots) > 0 else None
     snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
     
     tabela_unificada = []
     inventario_atual_formatado = []
 
-    # Lógica para preparar os dados da visão de COMPARAÇÃO
     if view == "comparison" and snapshot_atual:
-        map_codigo_para_tipo_atual = {p.codigo_rfid: tipos_map.get(p.product_type_id, "-") for p in db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_atual.id).all()}
-        map_codigo_para_tipo_anterior = {}
-        if snapshot_anterior:
-            map_codigo_para_tipo_anterior = {p.codigo_rfid: tipos_map.get(p.product_type_id, "-") for p in db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_anterior.id).all()}
+        def get_data_from_snapshot(snapshot_id):
+            items = db.query(Product.codigo_rfid, ProductType.nome)\
+                      .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                      .join(ProductType, ProductType.id == Product.product_type_id)\
+                      .filter(InventoryItem.snapshot_id == snapshot_id).all()
+            return {codigo: tipo for codigo, tipo in items}
+
+        map_codigo_para_tipo_atual = get_data_from_snapshot(snapshot_atual.id)
+        map_codigo_para_tipo_anterior = get_data_from_snapshot(snapshot_anterior.id) if snapshot_anterior else {}
 
         codigos_atuais_set = set(map_codigo_para_tipo_atual.keys())
         codigos_anteriores_set = set(map_codigo_para_tipo_anterior.keys())
@@ -1101,109 +1166,106 @@ def inventory_page(
             status = "Mantido"
             if codigo in codigos_atuais_set and codigo not in codigos_anteriores_set: status = "Adicionado"
             elif codigo not in codigos_atuais_set and codigo in codigos_anteriores_set: status = "Deletado"
-            
-            tabela_unificada.append({
-                "codigo_rfid": codigo,
-                "tipo_atual": map_codigo_para_tipo_atual.get(codigo, "---"),
-                "tipo_anterior": map_codigo_para_tipo_anterior.get(codigo, "---"),
-                "status": status
-            })
-    # Lógica para preparar os dados da visão ATUAL (simples)
+            tabela_unificada.append({ "codigo_rfid": codigo, "tipo_atual": map_codigo_para_tipo_atual.get(codigo, "---"), "tipo_anterior": map_codigo_para_tipo_anterior.get(codigo, "---"), "status": status })
+    
     elif view == "current" and snapshot_atual:
-        itens_atuais = db.query(Product).join(InventoryItem).filter(InventoryItem.snapshot_id == snapshot_atual.id).order_by(Product.codigo_rfid).all()
-        inventario_atual_formatado = [{
-            "codigo_rfid": p.codigo_rfid,
-            "tipo": tipos_map.get(p.product_type_id, "-"),
-            "created_on": p.created_on
-        } for p in itens_atuais]
+        itens = db.query(Product.codigo_rfid, ProductType.nome)\
+                  .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                  .join(ProductType, ProductType.id == Product.product_type_id)\
+                  .filter(InventoryItem.snapshot_id == snapshot_atual.id)\
+                  .order_by(Product.codigo_rfid).all()
+        inventario_atual_formatado = [{ "codigo_rfid": codigo, "tipo": tipo, "created_on": snapshot_atual.created_on } for codigo, tipo in itens]
 
     return templates.TemplateResponse("inventario_list.html", {
-        "request": request,
-        "tipos": tipos,
-        "tabela_unificada": tabela_unificada,
-        "inventario_atual": inventario_atual_formatado,
-        "snapshot_atual": snapshot_atual,
-        "snapshot_anterior": snapshot_anterior,
-        "current_view": view # Envia a visão atual para o template
+        "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
+        "tipos": tipos, "tabela_unificada": tabela_unificada, "inventario_atual": inventario_atual_formatado,
+        "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior, "current_view": view
     })
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")
 def inventory_save(
-    request: Request,
-    db: Session = Depends(get_db),
-    codigos: List[str] = Form(...),
-    tipos: List[int] = Form(...),
+    request: Request, db: Session = Depends(get_db),
+    codigos: List[str] = Form(...), tipos: List[int] = Form(...),
+    datacenter_id: int = Form(...)
 ):
-    # A função agora tem uma única responsabilidade: salvar os dados.
-    # 1. Processa e salva os produtos enviados
-    produtos_atuais_processados = []
-    for codigo_rfid, tipo_id_str in zip(codigos, tipos):
-        codigo_rfid = codigo_rfid.strip()
+    # #- LÓGICA CORRIGIDA para a estrutura de Catálogo (Product)
+    if not datacenter_id:
+        raise HTTPException(status_code=400, detail="Datacenter não especificado.")
+
+    # 1. Obter ou criar os produtos no "catálogo" mestre
+    produtos_processados = []
+    for codigo_rfid, tipo_id in zip(codigos, tipos):
+        codigo_rfid = codigo_rfid.strip().upper()
         if not codigo_rfid: continue
         
-        tipo_id = int(tipo_id_str)
         produto = db.query(Product).filter(Product.codigo_rfid == codigo_rfid).first()
         if not produto:
             produto = Product(codigo_rfid=codigo_rfid, product_type_id=tipo_id)
             db.add(produto)
-        elif produto.product_type_id != tipo_id:
+        elif produto.product_type_id != tipo_id: # Atualiza o tipo se mudou
             produto.product_type_id = tipo_id
-        produtos_atuais_processados.append(produto)
+        produtos_processados.append(produto)
     
-    db.flush()
+    db.flush() # Garante que os IDs dos novos produtos sejam gerados
 
-    # 2. Cria e salva o novo snapshot
-    vistos = set()
-    produtos_unicos = []
-    for p in produtos_atuais_processados:
-        if p.id in vistos:
-            continue
-        vistos.add(p.id)
-        produtos_unicos.append(p)
-
-    # 2. Cria e salva o novo snapshot
-    novo_snapshot = InventorySnapshot()
+    # 2. Criar o snapshot
+    novo_snapshot = InventorySnapshot(datacenter_id=datacenter_id)
     db.add(novo_snapshot)
     db.flush()
 
-    db.add_all([
-        InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id)
-        for p in produtos_unicos
-    ])
+    # 3. Criar os itens de inventário (a ligação)
+    itens_vistos = set()
+    itens_para_salvar = []
+    for p in produtos_processados:
+        if p.id in itens_vistos: continue
+        itens_para_salvar.append(InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id))
+        itens_vistos.add(p.id)
+    
+    if itens_para_salvar:
+        db.add_all(itens_para_salvar)
+        db.commit()
+    else:
+        db.rollback()
 
-    db.commit()
-
-    # 3. Redireciona de volta para a página de inventário.
-    # A página irá recarregar e a função inventory_page fará a nova comparação.
-    return RedirectResponse(url=request.url_for("list_inventario"), status_code=status.HTTP_303_SEE_OTHER)
+    redirect_url = request.url_for("list_inventario").include_query_params(datacenter_id=datacenter_id)
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
 
 @app.get("/inventario/download", name="download_inventory_csv")
-def download_inventory_csv(db: Session = Depends(get_db)):
-    ultimo = db.query(InventorySnapshot).order_by(InventorySnapshot.created_on.desc()).first()
+def download_inventory_csv(
+    db: Session = Depends(get_db),
+    # Esta linha é a que resolve o erro.
+    # Ela precisa estar na assinatura da sua função.
+    datacenter_id: Optional[int] = Query(None)
+):
+    # O resto do código da função...
+    snapshot_query = db.query(InventorySnapshot)
+    if datacenter_id:
+        snapshot_query = snapshot_query.filter(InventorySnapshot.datacenter_id == datacenter_id)
+    
+    ultimo_snapshot = snapshot_query.order_by(InventorySnapshot.created_on.desc()).first()
     
     def iter_csv():
         buf = StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["codigo_rfid", "tipo", "criado_em"])
+        writer.writerow(["codigo_rfid", "tipo_produto"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
-        if ultimo:
-            # Query otimizada para buscar todos os dados de uma vez
-            itens = db.query(Product.codigo_rfid, ProductType.nome, Product.created_on)\
+        if ultimo_snapshot:
+            itens = db.query(Product.codigo_rfid, ProductType.nome)\
                       .join(InventoryItem, InventoryItem.product_id == Product.id)\
                       .join(ProductType, ProductType.id == Product.product_type_id)\
-                      .filter(InventoryItem.snapshot_id == ultimo.id)\
-                      .order_by(Product.codigo_rfid)\
-                      .all()
+                      .filter(InventoryItem.snapshot_id == ultimo_snapshot.id)\
+                      .order_by(Product.codigo_rfid).all()
             
-            for codigo, tipo, criado_em in itens:
-                writer.writerow([codigo, tipo, criado_em.strftime("%Y-%m-%d %H:%M:%S")])
+            for codigo, tipo in itens:
+                writer.writerow([codigo, tipo])
                 yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
+    filename = f"inventario_dc_{datacenter_id}.csv" if datacenter_id else "inventario.csv"
     return StreamingResponse(
         iter_csv(),
         media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="inventario.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 # ===================================================================

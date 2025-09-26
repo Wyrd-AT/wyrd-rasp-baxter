@@ -1,15 +1,21 @@
-{# inventario_form.html #}
+{# inventario_form.html MODIFICADO #}
 <form action="{{ url_for('save_inventory_snapshot') }}" method="post" id="inventory-form">
+    
+    {# --- INÍCIO DA CORREÇÃO DO ERRO --- #}
+    {# Este campo oculto envia o ID do datacenter selecionado ao salvar. #}
+    <input type="hidden" name="datacenter_id" value="{{ current_dc_id or '' }}">
+    {# --- FIM DA CORREÇÃO DO ERRO --- #}
+
     <h3>Adicionar Itens ao Inventário</h3>
 
-    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr auto;">
-        <div class="form-group">
+    <div class="form-fields-grid" style="grid-template-columns: 2fr 1.5fr auto auto; gap: 12px; align-items: flex-end;">
+        <div class="form-group" style="margin: 0;">
             <label for="codigo_rfid">Código RFID</label>
             <input type="text" id="codigo_rfid" 
                    placeholder="ex: 300833B2DDD90140" autocomplete="off">
         </div>
 
-        <div class="form-group">
+        <div class="form-group" style="margin: 0;">
             <label for="product_type_id">Tipo de Produto</label>
             <select id="product_type_id">
                 {% for t in tipos %}
@@ -26,18 +32,7 @@
                 <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
         </button>
-    </div>
 
-    {# Área onde a lista de itens pendentes e os inputs escondidos serão renderizados via JS #}
-    <div class="form-group" style="margin-top: 1rem;">
-        <label>Itens a serem salvos:</label>
-        <div id="pendentes" class="pending-list dotted"></div>
-        <div id="hidden-inputs">
-            </div>
-    </div>
-
-    <div class="form-group" style="margin-top: 1rem; display: flex; gap: 8px; align-items: center;">
-        <button type="submit" class="btn-primary">Salvar Inventário Atual</button>
         <button type="button" class="icon-btn" id="clear-inventory-btn" title="Limpar lista de itens a salvar">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
                  viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -49,4 +44,17 @@
             </svg>
         </button>
     </div>
+
+    <div class="form-group" style="margin-top: 1.5rem;">
+        <label>Itens a serem salvos:</label>
+        <div id="pendentes" class="pending-list dotted"></div>
+        <div id="hidden-inputs"></div>
+    </div>
+
+    {# --- INÍCIO DO AJUSTE DE LAYOUT --- #}
+    {# Adicionado display:flex e justify-content:flex-end para alinhar o botão à direita #}
+    <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+        <button type="submit" class="btn-primary">Salvar Inventário Atual</button>
+    </div>
+    {# --- FIM DO AJUSTE DE LAYOUT --- #}
 </form>

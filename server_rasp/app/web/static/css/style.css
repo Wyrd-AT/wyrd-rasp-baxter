@@ -1175,3 +1175,33 @@ body.login-page {
     color: #dc3545; /* Vermelho */
     font-weight: bold;
 }
+
+/* Adicionar ao seu style.css */
+.view-toggle {
+    display: inline-flex;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 16px;
+    margin-bottom: 16px;
+}
+.btn-toggle {
+    padding: 8px 16px;
+    text-decoration: none;
+    color: #495057;
+    background-color: #fff;
+    border-right: 1px solid #dee2e6;
+    font-size: 0.9rem;
+    transition: background-color 0.2s ease;
+}
+.btn-toggle:last-child {
+    border-right: none;
+}
+.btn-toggle.active {
+    background-color: #007bff; /* Ou a cor primária do seu site */
+    color: #fff;
+    font-weight: 500;
+}
+.btn-toggle:not(.active):hover {
+    background-color: #f8f9fa;
+}
