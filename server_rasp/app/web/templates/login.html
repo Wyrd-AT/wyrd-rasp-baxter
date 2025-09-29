@@ -13,7 +13,11 @@
     <main class="login-card">
         
         <header class="login-header">
-            <img src="{{ url_for('static', path='icons/LOGOazulescuro.png') }}" class="logo-login" id="logo-icone" alt="Logo da Empresa">
+            <div class="login-logo-container">
+                <img src="{{ url_for('static', path='icons/LOGOazulescuro.png') }}" class="logo-login logo-principal" alt="Logo Principal">
+                <img src="{{ url_for('static', path='icons/novo_logo.png') }}" class="logo-login logo-secundario" alt="Logo Secundário">
+            </div>
+
             <p>Utilize suas credenciais para realizar o login</p>
         </header>
 
