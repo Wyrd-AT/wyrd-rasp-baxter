@@ -443,12 +443,12 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 /* Visibilidade do logo com a sidebar FECHADA */
 #logo-icone {
     opacity: 1;
-    height: 120px;
+    height: 70px;
 }
 
 #logo-completo {
     opacity: 0;
-    height: 70px;
+    height: 90px;
 }
 
 /* Visibilidade do logo com a sidebar ABERTA */
