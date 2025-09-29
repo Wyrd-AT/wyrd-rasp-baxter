@@ -1,422 +1,1207 @@
 /* ==========================================================================
-   HSA WYRD - FOLHA DE ESTILOS UNIFICADA (OTIMIZADA)
+   HSA WYRD - FOLHA DE ESTILOS UNIFICADA E FINAL
    ========================================================================== */
 
-/* ---------- Fontes ---------- */
-@font-face{font-family:'Inter';font-style:normal;font-weight:400;src:url('../fonts/inter-v19-latin-regular.woff2') format('woff2'),url('../fonts/inter-v19-latin-regular.woff') format('woff')}
-@font-face{font-family:'Inter';font-style:normal;font-weight:500;src:url('../fonts/inter-v19-latin-500.woff2') format('woff2'),url('../fonts/inter-v19-latin-500.woff') format('woff')}
-@font-face{font-family:'Inter';font-style:normal;font-weight:600;src:url('../fonts/inter-v19-latin-600.woff2') format('woff2'),url('../fonts/inter-v19-latin-600.woff') format('woff')}
-@font-face{font-family:'Inter';font-style:normal;font-weight:700;src:url('../fonts/inter-v19-latin-700.woff2') format('woff2'),url('../fonts/inter-v19-latin-700.woff') format('woff')}
-@font-face{font-family:'Lexend';font-style:normal;font-weight:400;src:url('../fonts/lexend-v25-latin-regular.woff2') format('woff2'),url('../fonts/lexend-v25-latin-regular.woff') format('woff')}
-@font-face{font-family:'Lexend Deca';font-style:normal;font-weight:500;src:url('../fonts/lexend-deca-v24-latin-500.woff2') format('woff2'),url('../fonts/lexend-deca-v24-latin-500.woff') format('woff')}
+/* --- Reset Básico, Fontes e Variáveis de Cor --- */
+/* --- Carregamento Local de Fontes --- */
 
-/* ---------- Variáveis ---------- */
-:root{
-  --primary-color:#0466C8;--primary-dark:#002855;--background-color:#FFFFFF;
-  --sidebar-bg:#F0F2F5;--text-primary:#000;--text-secondary:#5C677D;
-  --text-placeholder:#979DAC;--border-color:#dee2e6;--card-border:#7D8597;
-  --active-nav-bg:#0353A4;--button-primary-bg:#002966;
-  --status-red:#FF3B30;--status-green:#34C759;
+/* inter-regular - latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  src: url('../fonts/inter-v19-latin-regular.woff2') format('woff2'),
+       url('../fonts/inter-v19-latin-regular.woff') format('woff');
+}
+/* inter-500 - latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  src: url('../fonts/inter-v19-latin-500.woff2') format('woff2'),
+       url('../fonts/inter-v19-latin-500.woff') format('woff');
+}
+/* inter-600 - latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  src: url('../fonts/inter-v19-latin-600.woff2') format('woff2'),
+       url('../fonts/inter-v19-latin-600.woff') format('woff');
+}
+/* inter-700 - latin */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  src: url('../fonts/inter-v19-latin-700.woff2') format('woff2'),
+       url('../fonts/inter-v19-latin-700.woff') format('woff');
+}
+/* lexend-regular - latin */
+@font-face {
+  font-family: 'Lexend';
+  font-style: normal;
+  font-weight: 400;
+  src: url('../fonts/lexend-v25-latin-regular.woff2') format('woff2'),
+       url('../fonts/lexend-v25-latin-regular.woff') format('woff');
+}
+/* lexend-deca-500 - latin */
+@font-face {
+  font-family: 'Lexend Deca';
+  font-style: normal;
+  font-weight: 500;
+  src: url('../fonts/lexend-deca-v24-latin-500.woff2') format('woff2'),
+       url('../fonts/lexend-deca-v24-latin-500.woff') format('woff');
 }
 
-/* ---------- Reset/Globais ---------- */
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',sans-serif;background-color:var(--background-color);color:var(--text-primary);font-size:16px}
-h1,h2,h3{font-family:'Lexend Deca','Lexend',sans-serif}
-.container{display:block;position:relative;height:100vh;width:100vw}
-.main-content{height:100%;padding:2rem 3rem 2rem 105px;overflow-y:auto}
-
-/* ========================================================================== */
-/*                                SIDEBAR                                     */
-/* ========================================================================== */
-.sidebar{
-  position:fixed;top:0;left:0;height:100%;z-index:1000;width:83px;
-  background-color:var(--sidebar-bg);border-right:1px solid var(--border-color);
-  display:flex;flex-direction:column;align-items:center;transition:width .3s ease;
-  padding:8px 0 12px; /* compacto no topo */
-}
-.sidebar-header{
-  width:100%;display:flex;justify-content:flex-start;
-  padding:4px 0 6px; /* remove respiro extra */
-}
-#sidebar-logo-toggle{cursor:default;position:relative;width:100%;height:auto;padding:0}
-.sidebar-header .logo-group{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:6px}
-.logo-sidebar{position:static;transform:none;display:block;margin:0 auto}
-
-/* Logos (mantém 70px e não ocupa espaço quando oculto) */
-#logo-icone,#logo-completo{height:70px;width:auto}
-#logo-icone{display:block}
-#logo-completo{display:none}
-.sidebar.expanded #logo-icone{display:none}
-.sidebar.expanded #logo-completo{display:block}
-
-/* Navegação */
-.sidebar-nav{flex-grow:1;display:flex;flex-direction:column;align-items:center;gap:2rem;margin-top:8px}
-.nav-item{display:flex;justify-content:center;align-items:center;width:50px;height:50px;border-radius:8px;text-decoration:none;color:var(--text-primary)}
-.nav-item .feather,.nav-item svg{width:28px;height:28px}
-.nav-item.active{background-color:var(--active-nav-bg)}
-.nav-item.active .feather,.nav-item.active .emosidebar-navji-icon,.nav-item.active .svg-icon{color:#fff;stroke:#fff;fill:#fff}
-.nav-item.active .nav-text{color:#fff}
-.sidebar .nav-text{display:none;margin-left:1rem;font-weight:500;white-space:nowrap}
-.emoji-icon{font-size:28px;line-height:1}
-
-/* Expandida */
-.sidebar.expanded{width:256px;align-items:flex-start;padding:1.5rem}
-.sidebar.expanded .nav-item{width:100%;justify-content:flex-start;padding:0 1rem}
-.sidebar.expanded .nav-text{display:inline}
-
-/* Rodapé */
-.sidebar-footer{width:100%;padding-top:1.5rem;margin-top:auto}
-.footer-brand{position:relative;height:40px;text-align:center;margin-bottom:1rem}
-.brand-icon,.brand-full{
-  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  color:var(--text-secondary);font-size:14px;font-weight:500;white-space:nowrap;
-  transition:opacity .3s ease-in-out;
-}
-.brand-icon{opacity:1}.brand-full{opacity:0}
-.sidebar.expanded .brand-icon{opacity:0}.sidebar.expanded .brand-full{opacity:1}
-
-/* Botão de abrir/fechar (bolinha) */
-#sidebar-toggle-btn{
-  position:fixed;top:56px;left:83px;transform:translate(-50%,-50%);z-index:1001;
-  width:32px;height:32px;border-radius:50%;background:#fff;border:1px solid var(--border-color);
-  box-shadow:0 2px 5px rgba(0,0,0,.1);display:flex;align-items:center;justify-content:center;
-  cursor:pointer;transition:left .3s ease
-}
-#sidebar-toggle-btn svg{transition:transform .3s ease;color:var(--primary-color);transform:rotate(180deg)}
-.sidebar.expanded #sidebar-toggle-btn{left:256px}
-.sidebar.expanded #sidebar-toggle-btn svg{transform:rotate(0deg)}
-
-/* Ícones base (usa mask) */
-.svg-icon{width:34px;height:34px;display:inline-block;background-color:var(--text-primary);
-  mask-image:var(--icon-url);mask-size:contain;mask-repeat:no-repeat;mask-position:center;
-  -webkit-mask-image:var(--icon-url);-webkit-mask-size:contain;-webkit-mask-repeat:no-repeat;-webkit-mask-position:center
-}
-.nav-item.active .svg-icon{background-color:#fff}
-.icon-btn .svg-icon,.filter-reset-btn .svg-icon{width:20px;height:20px;background-color:currentColor}
-
-/* Overlay da página ao expandir no mobile etc. */
-.overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:999;opacity:0;visibility:hidden;transition:opacity .3s ease,visibility .3s ease}
-.overlay.active{opacity:1;visibility:visible}
-
-/* ========================================================================== */
-/*                          CABEÇALHO DO CONTEÚDO                              */
-/* ========================================================================== */
-.content-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2rem;border-bottom:1px solid var(--border-color);padding-bottom:1.5rem;flex-shrink:0}
-.content-header h1{font-size:28px;position:relative}
-.content-header h1::after{content:'';position:absolute;bottom:-1.5rem;left:0;width:100px;height:4px;background-color:var(--primary-color)}
-.header-actions{display:flex;align-items:center;gap:1.5rem}
-.header-actions .search-bar{width:350px;margin:0}
-
-/* Botões */
-.btn-primary{background-color:var(--button-primary-bg);color:#fff;border:none;padding:.8rem 1.5rem;border-radius:16px;font-weight:700;font-size:14px;cursor:pointer;text-decoration:none}
-
-/* ========================================================================== */
-/*                               LISTAS/TABELAS                                */
-/* ========================================================================== */
-.list-container-full-width{width:100%;margin-bottom:2rem}
-.table-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:2.5rem}
-.search-bar{display:flex;align-items:center;border-bottom:1px solid var(--text-secondary);padding-bottom:.5rem;width:432px}
-.search-bar input{border:none;background:transparent;outline:none;width:100%;font-family:'Lexend Deca';font-size:14px;color:var(--text-secondary);margin-left:.5rem}
-.toolbar-actions{display:flex;gap:1rem}
-.icon-btn{background:none;border:none;padding:.5rem;cursor:pointer;display:flex;color:var(--text-secondary)}
-.icon-btn:hover{color:var(--text-primary)}
-
-.data-table{width:100%;table-layout:fixed;border-collapse:collapse}
-.data-table th,.data-table td{padding:1.2rem 1rem;text-align:left;border-bottom:1px solid var(--border-color)}
-.data-table th{font-weight:600;font-size:14px;color:var(--text-secondary);text-transform:uppercase}
-.data-table th:first-child,.data-table td:first-child{padding-right:10rem}
-.data-table.history-table th:first-child,.data-table.history-table td:first-child{padding-right:1rem}
-
-/* Cabeçalhos ordenáveis */
-.data-table th a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:.5em}
-.data-table th a:hover{color:var(--text-primary)}
-
-/* ========================================================================== */
-/*                              FORMULÁRIOS                                    */
-/* ========================================================================== */
-.forms-container-horizontal{display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start;margin-bottom:2rem}
-.forms-container-vertical{display:grid;align-items:start;margin-bottom:2rem}
-
-.form-card{border:1px solid var(--card-border);border-radius:6px;padding:1.5rem}
-.form-card h3{font-family:'Lexend';font-size:18px;text-align:center;margin-bottom:1.5rem}
-
-.form-fields-grid{display:grid;grid-template-columns:repeat(3,1fr) auto;gap:1.5rem;align-items:end}
-.form-fields-grid .form-group{margin-bottom:0}
-.form-fields-grid .icon-btn{padding:.5rem;margin-bottom:-2px;border-radius:50%;transition:background-color .2s ease;color:var(--primary-color)}
-.form-fields-grid .icon-btn:hover{background-color:#e9ecef}
-.form-fields-grid .icon-btn svg{width:22px;height:22px;stroke:currentColor}
-
-.form-group{width:100%}
-.form-group label{display:block;font-weight:600;font-size:.8em;color:var(--text-secondary);margin-bottom:.25rem}
-.form-group input,.form-group select{width:100%;padding:.5em .2em;border:none;border-bottom:1px solid #001233;outline:none;background:transparent;font-size:14px}
-.form-group input::placeholder{color:var(--text-placeholder)}
-
-/* ========================================================================== */
-/*                           FILTROS/HISTÓRICO                                 */
-/* ========================================================================== */
-.filters-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:3rem}
-.filter-group-left,.filter-group-right{display:flex;align-items:center;gap:1rem}
-.filter-dropdown-main{border:none;border-bottom:1px solid var(--text-secondary);padding:.5rem 0;font-family:'Lexend Deca';font-weight:500;font-size:14px;color:var(--text-secondary);-webkit-appearance:none;appearance:none;background:transparent url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1.2em;padding-right:2rem}
-.filter-btn{padding:.5rem 1rem;border:1px solid var(--border-color);border-radius:23px;background:#fff;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:.5rem;color:var(--text-primary)}
-.filter-btn>input{border:none;outline:none;width:50px}
-.history-table th,.history-table td{text-align:center}
-.pagination{text-align:center;padding-top:2rem}
-.pagination a,.pagination span{margin:0 .5rem}
-
-/* ========================================================================== */
-/*                                STATUS                                       */
-/* ========================================================================== */
-.status-box{padding:4px 8px;border-radius:12px;font-weight:bold;font-size:.9em;color:#fff;text-transform:uppercase}
-.status-ok{background-color:#28a745}.status-pendente,.status-ignorado{background-color:#fd7e14}
-.status-erro{background-color:#dc3545}.status-cancelado{background-color:#495057}
-.status-confirmado{background-color:#17a2b8}.status-resolvido{background-color:#068523}
-.status-enfileirado{background-color:#6c757d}.status-vencido{background-color:#966a0b}
-.status-indicator{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:middle}
-.status-indicator.online{background-color:#28a745}
-.status-indicator.offline{background-color:#dc3545}
-
-/* ========================================================================== */
-/*                             PENDENTES / MODAL                               */
-/* ========================================================================== */
-.pending-events-section{margin-bottom:3rem;border:1px solid #fd7e14;border-radius:8px;padding:1.5rem;background-color:#fff9f3}
-.pending-events-section h2{font-family:'Lexend Deca',sans-serif;font-size:20px;margin-bottom:1.5rem;color:#d96d00}
-.btn-cancel{background-color:#6c757d;color:#fff;border:none;padding:5px 10px;border-radius:5px;font-size:12px;font-weight:bold;cursor:pointer;transition:background-color .2s}
-.btn-cancel:hover{background-color:#dc3545}
-
-.modal{display:none;position:fixed;z-index:2000;left:0;top:0;width:100%;height:100%;overflow:auto;background-color:rgba(0,0,0,.4)}
-.modal-content{background-color:#fefefe;margin:15% auto;padding:20px;border:1px solid #888;width:60%;max-width:600px;border-radius:8px}
-.modal-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding-bottom:1rem}
-.close-btn{color:#aaa;font-size:28px;font-weight:bold;background:none;border:none;cursor:pointer}
-.close-btn:hover,.close-btn:focus{color:#000}
-.modal-body{padding-top:1rem}
-.modal-body .data-table{width:100%;border-collapse:collapse}
-.modal-body .data-table th,.modal-body .data-table td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--border-color)}
-.modal-body .data-table th{background-color:#f8f9fa}
-.rssi-strong{color:#28a745;font-weight:bold}
-.rssi-weak{color:#dc3545;font-weight:bold}
-
-/* ========================================================================== */
-/*                             MENU DE AÇÕES                                   */
-/* ========================================================================== */
-.actions-menu-container{position:relative;display:inline-block}
-.actions-menu-trigger{background:none;border:none;cursor:pointer;padding:8px 12px;font-size:20px;line-height:1;border-radius:4px}
-.actions-menu-trigger:hover{background-color:#f0f2f5}
-.actions-dropdown{display:none;position:absolute;right:0;top:100%;background:#fff;min-width:160px;box-shadow:0 8px 16px rgba(0,0,0,.2);z-index:1;border:1px solid var(--border-color);border-radius:6px;overflow:hidden}
-.actions-dropdown.show{display:block}
-.actions-dropdown form{margin:0}
-.actions-dropdown .menu-item-btn,.actions-dropdown .menu-item-link{background:none;border:none;color:var(--text-primary);padding:12px 16px;text-decoration:none;display:block;width:100%;text-align:left;cursor:pointer;font-size:14px;font-family:'Inter',sans-serif}
-.actions-dropdown .menu-item-btn:hover,.actions-dropdown .menu-item-link:hover{background-color:#f0f2f5}
-.actions-dropdown .menu-item-link.delete:hover{background-color:#fff0f0;color:var(--status-red)}
-
-/* ========================================================================== */
-/*                              PLANTA / MAPA                                  */
-/* ========================================================================== */
-.planta-container-unica{position:relative;width:100%;height:0;padding-top:41.25%;background-image:url('../maps/planta_cec.svg');background-size:contain;background-repeat:no-repeat;background-position:center;border:1px solid #ccc;border-radius:8px;background-color:#f9f9f9}
-#planta-pontos-container{position:absolute;top:0;left:0;width:100%;height:100%}
-.ponto-quarto-container{position:absolute;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);cursor:pointer;min-width:150px;text-align:center}
-.ponto-quarto-status{width:30px;height:30px;border-radius:50%;color:#fff;font-weight:bold;font-size:1.2rem;display:flex;align-items:center;justify-content:center;border:3px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.3);transition:transform .2s ease}
-.ponto-quarto-container:hover .ponto-quarto-status{transform:scale(1.1)}
-.ponto-nome-quarto{font-size:16px;font-weight:600;color:var(--primary-dark);margin-bottom:28px;white-space:nowrap}
-.ponto-nome-cama{font-size:16px;color:var(--text-primary);margin-top:65px;white-space:nowrap}
-.ponto-nome-cama.cama-livre{font-style:italic;color:#6c757d}
-
-/* Sumário planta */
-.planta-sumario{display:flex;gap:1.5rem;margin-top:1rem}
-.sumario-card{display:flex;align-items:center;gap:1rem;background-color:#F8F9FA;padding:1.2rem;border-radius:12px;border:1px solid var(--border-color);flex-grow:1}
-.sumario-icon{flex-shrink:0;width:48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center}
-.sumario-icon .svg-icon{width:24px;height:24px;background-color:#fff}
-.sumario-texto{line-height:1.2}
-.sumario-numero{font-family:'Lexend Deca',sans-serif;font-size:24px;font-weight:600;color:var(--text-primary)}
-.sumario-label{font-size:14px;color:var(--text-secondary)}
-.sumario-card.card-quartos .sumario-icon{background-color:#E7F0FA}
-.sumario-card.card-quartos .sumario-numero{color:#0466C8}
-.sumario-card.card-ativos .sumario-icon{background-color:#EAF7ED}
-.sumario-card.card-ativos .sumario-numero{color:#28a745}
-
-/* ========================================================================== */
-/*                               LOGIN PAGE                                    */
-/* ========================================================================== */
-body.login-page{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background-color:#012966;overflow:hidden;display:flex;justify-content:center;align-items:center;height:100vh;width:100vw;position:fixed;top:0;left:0}
-.login-page .login-background-image{position:absolute;top:0;left:0;width:100%;height:100%;background:url('../images/fundo_login.jpg') no-repeat center center;background-size:cover;opacity:.49;z-index:1}
-.login-page .login-card{position:relative;z-index:2;width:654px;height:654px;padding:79px 77px;background:rgba(250,250,250,.98);box-shadow:0 8px 12px 6px rgba(0,0,0,.15),0 4px 4px rgba(0,0,0,.3);display:flex;flex-direction:column;align-items:center;gap:80px}
-.login-page .login-header{display:flex;flex-direction:column;align-items:center;gap:16px;width:100%}
-.login-page .login-header img{width:348px;height:59px;object-fit:contain}
-.login-page .login-header p{font-weight:600;font-size:16px;color:#000}
-.login-page .login-form{display:flex;flex-direction:column;align-items:center;width:100%}
-.login-page .form-fields{width:100%;display:flex;flex-direction:column;align-items:flex-end;gap:32px}
-.login-page .form-group{width:100%;position:relative}
-.login-page .form-group label{display:block;font-weight:700;font-size:16px;color:var(--text-secondary);margin-bottom:8px}
-.login-page .form-group input{width:100%;border:none;background:transparent;font-size:16px;color:#090909;outline:none;padding:8px 0}
-.login-page .form-group .input-line{box-sizing:border-box;width:100%;height:1px;border-bottom:1px solid #001233;box-shadow:0 2px 6px 2px rgba(0,0,0,.15),0 1px 2px rgba(0,0,0,.3);margin-top:4px}
-.login-page .password-wrapper{position:relative;width:100%}
-.login-page .password-wrapper .eye-icon{position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;width:24px;height:24px}
-.login-page .forgot-password{display:block;width:100%;text-align:right;font-weight:400;font-size:10px;color:var(--text-secondary);text-decoration:none;margin-top:8px}
-.login-page .forgot-password:hover{text-decoration:underline}
-.login-page .login-button{display:flex;justify-content:center;align-items:center;padding:10px;width:100%;height:39px;background:#002855;border-radius:16px;border:none;cursor:pointer;font-weight:700;font-size:16px;color:#fff;transition:background-color .3s ease;margin-top:32px}
-.login-page .login-button:hover{background:#013A7D}
-
-/* ========================================================================== */
-/*                       FORMULÁRIOS RECOLHÍVEIS (UI)                          */
-/* ========================================================================== */
-#toggle-forms-btn{margin-right:1rem;padding:8px;border:none;background-color:transparent;border-radius:5px;cursor:pointer}
-#toggle-forms-btn .svg-icon{opacity:.75;transition:opacity .2s ease}
-#toggle-forms-btn.collapsed .svg-icon{opacity:.4}
-#toggle-forms-btn:hover .svg-icon{opacity:1}
-#toggle-forms-btn:hover{background-color:#e9ecef}
-#toggle-forms-btn.collapsed{background-color:#fff;border-color:#dee2e6}
-#toggle-forms-btn.collapsed:hover{background-color:#f8f9fa}
-
-#forms-container{transition:max-height .4s ease-in-out,padding .4s ease-in-out,margin .4s ease-in-out,opacity .3s ease-in-out;overflow:hidden;max-height:1000px;opacity:1}
-#forms-container.collapsed{max-height:0;padding-top:0!important;padding-bottom:0!important;margin-top:0!important;margin-bottom:0!important;opacity:0}
-
-/* ========================================================================== */
-/*                       DASHBOARD - QUARTOS / CARDS                           */
-/* ========================================================================== */
-.room-cards-container-fullwidth{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:2rem;width:100%}
-.room-card{background-color:var(--background-color);border:1px solid var(--card-border);border-radius:6px;display:flex;flex-direction:column;transition:box-shadow .2s ease-in-out}
-.room-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.1)}
-.room-card-header{padding:1.5rem 2rem;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;gap:1rem}
-.room-card-header h3{font-family:'Lexend',sans-serif;font-size:18px;margin:0;flex-grow:1}
-.room-name-input{flex-grow:1;border:none;border-bottom:1px solid var(--primary-color);padding:.5rem 0;font-family:'Lexend',sans-serif;font-size:18px;background:transparent;outline:none}
-.room-block-body{padding:1.5rem 2rem;flex-grow:1}
-.no-assets-message{color:var(--text-secondary);text-align:center;font-size:14px;padding:1rem 0}
-.asset-list{list-style:none;padding:0;margin:0}
-.asset-list li{display:flex;align-items:center;padding:.4rem 0;font-size:15px}
-.asset-list .asset-icon{width:16px;height:16px;color:var(--primary-color);margin-right:.75rem;background-color:currentColor;mask-image:var(--icon-url);mask-size:contain;mask-repeat:no-repeat;mask-position:center}
-
-/* ========================================================================== */
-/*                            VIEW TOGGLE (LISTA/GRID)                         */
-/* ========================================================================== */
-.view-toggle{display:inline-flex;border:1px solid #dee2e6;border-radius:6px;overflow:hidden;margin-top:16px;margin-bottom:16px}
-.btn-toggle{padding:8px 16px;text-decoration:none;color:#495057;background-color:#fff;border-right:1px solid #dee2e6;font-size:.9rem;transition:background-color .2s ease}
-.btn-toggle:last-child{border-right:none}
-.btn-toggle.active{background-color:#007bff;color:#fff;font-weight:500}
-.btn-toggle:not(.active):hover{background-color:#f8f9fa}
-
-/* ========================================================================== */
-/* ESTILOS DOS LOGOS NA PÁGINA DE LOGIN (CORRIGIDO)          */
-/* ========================================================================== */
-
-.login-logo-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;    
-    gap: 8px; /* Aumentei um pouco o gap para respirar melhor */
+:root {
+  --primary-color: #0466C8;
+  --primary-dark: #002855;
+  --background-color: #FFFFFF;
+  --sidebar-bg: #F0F2F5;
+  --text-primary: #000000;
+  --text-secondary: #5C677D;
+  --text-placeholder: #979DAC;
+  --border-color: #dee2e6;
+  --card-border: #7D8597;
+  --active-nav-bg: #0353A4;
+  --button-primary-bg: #002966;
+  --status-red: #FF3B30;
+  --status-green: #34C759;
 }
 
-.login-logo-container .logo-principal {
-    width: 80%; /* Ocupará 80% da largura útil do card */
-    max-width: 400px; /* Limite máximo para telas muito grandes */
-    height: auto;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--text-primary); font-size: 16px; }
+h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 
-.login-logo-container .logo-secundario {
-    width: 50%; /* Ocupará 50% da largura útil do card */
-    max-width: 250px;
-    height: auto;
-}
+.container { display: block; position: relative; height: 100vh; width: 100vw; }
 
-/* ========================================================================== */
-/* SIDEBAR LOGOS E NAVEGAÇÃO - VERSÃO LIMPA E CORRIGIDA      */
-/* ========================================================================== */
+.main-content { height: 100%; padding: 2rem 3rem 2rem 105px; overflow-y: auto; }
 
-/* --- Estrutura Geral --- */
-
-.sidebar-header {
+/* --- Sidebar --- */
+.sidebar { position: fixed; top: 0; left: 0; height: 100%; z-index: 1000; width: 83px; background-color: var(--sidebar-bg); padding: 1.5rem 0; display: flex; flex-direction: column; align-items: center; transition: width 0.3s ease; border-right: 1px solid var(--border-color); }
+.sidebar-header { padding-bottom: 2rem; }
+.sidebar-nav { flex-grow: 1; display: flex; align-items: center;flex-direction: column; align-items: center; gap: 2rem; margin-top: 2rem; }
+.nav-item { display: flex; justify-content: center; align-items: center; width: 50px; height: 50px; border-radius: 8px; text-decoration: none; color: var(--text-primary); }
+.nav-item.active { background-color: var(--active-nav-bg); }
+.nav-item.active .feather, .nav-item.active .emosidebar-navji-icon, .nav-item.active .svg-icon { color: white; stroke: white; fill: white; }
+.nav-item .feather, .nav-item svg { width: 28px; height: 28px; }
+.nav-item.active .nav-text { color: white; }
+.emoji-icon { font-size: 28px; line-height: 1; }
+.sidebar-footer {
     width: 100%;
-    /* Posiciona os logos perto do topo com um respiro */
-    padding-top: 0.5rem; 
-    margin-bottom: 7rem; /* 📏 Cria o "bom espaçamento" para o menu */
+    padding-top: 1.5rem; /* Adiciona espaço acima do rodapé */
+    margin-top: auto; /* Garante que ele fique preso na parte de baixo */
 }
 
-.logo-group {
+/* Container da marca/nome do app */
+.footer-brand {
+    position: relative;
+    height: 40px; /* Altura da área do texto */
+    text-align: center;
+    margin-bottom: 1rem; /* Espaço entre o nome e o botão "Sair" */
+}
+
+/* Estilo base para os textos (versão ícone e completa) */
+.brand-icon, .brand-full {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    
+    /* Pega a cor secundária do seu tema */
+    color: var(--text-secondary); 
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap; /* Impede que o texto quebre linha */
+    
+    transition: opacity 0.3s ease-in-out; /* Animação de fade */
+}
+
+/* Por padrão (sidebar fechada), mostra só o ícone */
+.brand-icon {
+    opacity: 1;
+}
+.brand-full {
+    opacity: 0;
+}
+
+/* Quando a sidebar expande, inverte a visibilidade */
+.sidebar.expanded .brand-icon {
+    opacity: 0;
+}
+.sidebar.expanded .brand-full {
+    opacity: 1;
+}
+
+.sidebar .nav-text { display: none; margin-left: 1rem; font-weight: 500; white-space: nowrap; }
+.sidebar.expanded { width: 256px; align-items: flex-start; padding: 1.5rem; }
+.sidebar.expanded .nav-item { width: 100%; justify-content: flex-start; padding: 0 1rem; }
+.sidebar.expanded .nav-text { display: inline; }
+.sidebar.expanded .sidebar-header {
+    width: 100%; /* Faz o cabeçalho ocupar toda a largura da sidebar */
+    display: flex;
+    justify-content: center; /* Centraliza o container do logo horizontalmente */
+}
+
+/* --- Overlay --- */
+.overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 999; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
+.overlay.active { opacity: 1; visibility: visible; }
+
+/* --- Cabeçalho do Conteúdo --- */
+/* --- Cabeçalho do Conteúdo --- */
+.content-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    margin-bottom: 2rem; 
+    border-bottom: 1px solid var(--border-color); 
+    padding-bottom: 1.5rem; 
+    flex-shrink: 0; 
+}
+.content-header h1 { 
+    font-size: 28px; 
+    position: relative; 
+}
+.content-header h1::after { 
+    content: ''; 
+    position: absolute; 
+    bottom: -1.5rem; 
+    left: 0; 
+    width: 100px; 
+    height: 4px; 
+    background-color: var(--primary-color); 
+}
+
+/* NOVO: Estilo para o contêiner das ações no cabeçalho */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem; /* Espaço entre a busca e o botão de download */
+}
+
+/* Ajuste na barra de pesquisa para funcionar no cabeçalho */
+.header-actions .search-bar {
+    width: 350px; /* Largura um pouco menor */
+    margin: 0; /* Remove margens extras */
+}
+
+.btn-primary { 
+    background-color: var(--button-primary-bg); 
+    color: white; 
+    border: none; 
+    padding: 0.8rem 1.5rem; 
+    border-radius: 16px; 
+    font-weight: 700; 
+    font-size: 14px; 
+    cursor: pointer; 
+    text-decoration: none; 
+}
+
+/* --- Layout da Página de Listas --- */
+.list-container-full-width {
+    width: 100%;
+    margin-bottom: 2rem; /* Espaço entre a lista e os formulários abaixo */
+}
+
+/* --- Barra de Ferramentas e Filtros --- */
+.table-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; }
+.search-bar { display: flex; align-items: center; border-bottom: 1px solid var(--text-secondary); padding-bottom: 0.5rem; width: 432px; }
+.search-bar input { border: none; background: transparent; outline: none; width: 100%; font-family: 'Lexend Deca'; font-size: 14px; color: var(--text-secondary); margin-left: 0.5rem; }
+.toolbar-actions { display: flex; gap: 1rem; }
+.icon-btn { background: none; border: none; padding: 0.5rem; cursor: pointer; display: flex; color: var(--text-secondary); }
+.icon-btn:hover { color: var(--text-primary); }
+
+/* --- Estilos da Tabela --- */
+.data-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.data-table th, .data-table td { padding: 1.2rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
+.data-table th { font-weight: 600; font-size: 14px; color: var(--text-secondary); text-transform: uppercase; }
+
+/* NOVO: Estilo para a primeira coluna (Ações) para adicionar separação à direita */
+.data-table th:first-child,
+.data-table td:first-child {
+    padding-right: 10rem; /* Aumenta o espaçamento à direita */
+}
+
+/* --- Estilos dos Formulários (Layout Horizontal Lado a Lado) --- */
+.forms-container-horizontal {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+    margin-bottom: 2rem; /* NOVO: Adiciona a separação vertical entre os forms e a tabela */
+}
+
+/* --- Estilos dos Formulários (Layout Horizontal Lado a Lado) --- */
+.forms-container-vertical {
+    display: grid;
+    align-items: start;
+    margin-bottom: 2rem; /* NOVO: Adiciona a separação vertical entre os forms e a tabela */
+}
+
+.form-card {
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 1.5rem;
+}
+
+.form-card h3 {
+    font-family: 'Lexend';
+    font-size: 18px;
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.form-fields-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr) auto; /* 3 colunas para campos, 1 para o botão */
+    gap: 1.5rem;
+    align-items: end;
+}
+
+.form-fields-grid .form-group {
+    margin-bottom: 0;
+}
+
+.form-group {
+    width: 100%;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.form-group input, .form-group select {
+    width: 100%;
+    padding: 0.5em 0.2em;
+    border: none;
+    border-bottom: 1px solid #001233;
+    outline: none;
+    background: transparent;
+    font-size: 14px;
+}
+
+.form-group input::placeholder {
+    color: var(--text-placeholder);
+}
+
+.form-fields-grid .icon-btn {
+    padding: 0.5rem;
+    margin-bottom: -2px; /* Ajuste fino de alinhamento vertical */
+    border-radius: 50%;
+    transition: background-color 0.2s ease;
+    color: var(--primary-color); /* Define a cor do traço (stroke) do SVG */
+}
+
+.form-fields-grid .icon-btn:hover {
+    background-color: #e9ecef;
+}
+
+/* NOVA REGRA PARA ESTILIZAR O SVG DIRETAMENTE */
+.form-fields-grid .icon-btn svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentColor; /* Faz o SVG herdar a cor do botão (.icon-btn) */
+}
+
+/* --- Estilos Específicos da Página de Histórico --- */
+.filters-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3rem; }
+.filter-group-left, .filter-group-right { display: flex; align-items: center; gap: 1rem; }
+.filter-dropdown-main { border: none; border-bottom: 1px solid var(--text-secondary); padding: 0.5rem 0; font-family: 'Lexend Deca'; font-weight: 500; font-size: 14px; color: var(--text-secondary); -webkit-appearance: none; appearance: none; background: transparent url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1.2em; padding-right: 2rem; }
+.filter-btn { padding: 0.5rem 1rem; border: 1px solid var(--border-color); border-radius: 23px; background: white; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary); }
+.filter-btn > input { border:none; outline:none; width:50px; }
+.filters-toolbar .filter-btn { -webkit-appearance: none; appearance: none; background: white url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235C677D' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") no-repeat right .5rem center/1em; padding-right: 2rem; }
+.history-table th, .history-table td { text-align: center; }
+.pagination { text-align: center; padding-top: 2rem; }
+.pagination a, .pagination span { margin: 0 0.5rem; }
+
+/* --- Estilos de Status e Ações --- */
+.status-box { padding: 4px 8px; border-radius: 12px; font-weight: bold; font-size: 0.9em; color: #fff; text-transform: uppercase; }
+.status-ok { background-color: #28a745; }
+.status-pendente { background-color: #fd7e14; }
+.status-ignorado { background-color: #fd7e14; }
+.status-erro { background-color: #dc3545; }
+.status-cancelado { background-color: #495057; }
+.status-confirmado { background-color: #17a2b8; }
+.status-resolvido { background-color: #068523; }
+.status-enfileirado { background-color: #6c757d; }
+.status-vencido {background-color: #966a0b}
+.action-get { color: #28a745; font-weight: bold; }
+.action-out { color: #dc3545; font-weight: bold; }
+.action-warning { color: #fd7e14; font-weight: bold; }
+
+/* --- Seção de Eventos Pendentes --- */
+.pending-events-section { margin-bottom: 3rem; border: 1px solid #fd7e14; border-radius: 8px; padding: 1.5rem; background-color: #fff9f3; }
+.pending-events-section h2 { font-family: 'Lexend Deca', sans-serif; font-size: 20px; margin-bottom: 1.5rem; color: #d96d00; }
+.btn-cancel { background-color: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 5px; font-size: 12px; font-weight: bold; cursor: pointer; transition: background-color 0.2s; }
+.btn-cancel:hover { background-color: #dc3545; }
+
+/* --- Componentes Genéricos (Ícones, Modal) --- */
+.svg-icon { width: 34px; height: 34px; display: inline-block; background-color: var(--text-primary); mask-image: var(--icon-url); mask-size: contain; mask-repeat: no-repeat; mask-position: center; -webkit-mask-image: var(--icon-url); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
+.nav-item.active .svg-icon { background-color: white; }
+.icon-btn .svg-icon { width: 20px; height: 20px; background-color: currentColor; }
+.filter-reset-btn .svg-icon { width: 20px; height: 20px; background-color: currentColor; }
+
+.modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
+.modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 60%; max-width: 600px; border-radius: 8px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 1rem; }
+.close-btn { color: #aaa; font-size: 28px; font-weight: bold; background: none; border: none; cursor: pointer; }
+.close-btn:hover, .close-btn:focus { color: black; }
+.modal-body { padding-top: 1rem; }
+
+/* --- Menu de Ações (3 pontinhos) --- */
+.actions-menu-container { position: relative; display: inline-block; }
+.actions-menu-trigger { background: none; border: none; cursor: pointer; padding: 8px 12px; font-size: 20px; line-height: 1; border-radius: 4px; }
+.actions-menu-trigger:hover { background-color: #f0f2f5; }
+.actions-dropdown { display: none; position: absolute; left: 0; top: 100%; background-color: white; min-width: 160px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); z-index: 1; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }
+.actions-dropdown.show { display: block; }
+.actions-dropdown form { margin: 0; }
+.actions-dropdown .menu-item-btn,
+.actions-dropdown .menu-item-link {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Efeito hover para ambos */
+.actions-dropdown .menu-item-btn:hover,
+.actions-dropdown .menu-item-link:hover {
+    background-color: #f0f2f5;
+}
+
+/* NOVO: Estilo específico para a opção de excluir */
+.actions-dropdown .menu-item-link.delete:hover {
+    background-color: #fff0f0; /* Fundo avermelhado claro */
+    color: var(--status-red); /* Texto vermelho */
+}
+/* --- Indicadores e Relatórios --- */
+.status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+.status-indicator.online { background-color: #28a745; }
+.status-indicator.offline { background-color: #dc3545; }
+
+.modal-body .data-table { width: 100%; border-collapse: collapse; }
+.modal-body .data-table th, .modal-body .data-table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-color); }
+.modal-body .data-table th { background-color: #f8f9fa; }
+
+.rssi-strong { color: #28a745; font-weight: bold; }
+.rssi-weak { color: #dc3545; font-weight: bold; }
+
+/* 1. Remove a aparência de link e alinha a seta para TODOS os cabeçalhos ordenáveis */
+.data-table th a {
+    /* Estilo do texto */
+    color: inherit; /* Remove o azul, herdando a cor do cabeçalho */
+    text-decoration: none; /* Remove o sublinhado */
+
+    /* Alinhamento da seta */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+}
+
+/* 2. Adiciona um efeito hover para indicar que o cabeçalho é clicável */
+.data-table th a:hover {
+    color: var(--text-primary); /* Deixa o texto preto ao passar o mouse */
+}
+
+/* 3. Restaura o padding da primeira coluna APENAS na tabela de histórico */
+.data-table.history-table th:first-child,
+.data-table.history-table td:first-child {
+    padding-right: 1rem; /* Restaura o padding padrão */
+}
+
+/* Container do logo (agora não é mais clicável) */
+#sidebar-logo-toggle {
+    cursor: default;
+    position: relative;
+    width: 100%;
+    height: 50px;
+    padding: 8px; 
+}
+
+
+/* Estilo base para os logos (ícone e completo) */
+.logo-sidebar {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.3s ease-in-out;
+}
+
+/* Visibilidade do logo com a sidebar FECHADA */
+#logo-icone {
+    opacity: 1;
+    height: 120px;
+}
+
+#logo-completo {
+    opacity: 0;
+    height: 70px;
+}
+
+/* Visibilidade do logo com a sidebar ABERTA */
+.sidebar.expanded #logo-icone {
+    opacity: 0;
+}
+.sidebar.expanded #logo-completo {
+    opacity: 1;
+}
+
+
+/* --- Botão de Controle (Bolinha com Seta) --- */
+#sidebar-toggle-btn {
+    position: fixed;
+    top: 10%;
+    left: 83px; /* Posição inicial (sidebar fechada) */
+    transform: translate(-50%, -50%);
+    z-index: 1001;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: white;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: left 0.3s ease; /* Anima o movimento lateral */
+}
+
+#sidebar-toggle-btn svg {
+    transition: transform 0.3s ease;
+    color: var(--primary-color);
+    transform: rotate(180deg); /* Faz a seta apontar para a DIREITA por padrão */
+}
+
+/* Quando a sidebar estiver expandida, MOVE o botão */
+.sidebar.expanded #sidebar-toggle-btn {
+    left: 256px; /* Posição final (sidebar aberta) */
+}
+
+.sidebar.expanded #sidebar-toggle-btn svg {
+    transform: rotate(0deg); /* Faz a seta apontar para a ESQUERDA */
+}
+
+/* 1. Container Principal: Define a proporção e a imagem de fundo */
+.planta-container-unica {
+    position: relative;
+    width: 100%;
+    height: 0;
+    padding-top: 41.25%; /* Ajuste a proporção se necessário */
+    background-image: url('../maps/planta_cec.svg');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background-color: #f9f9f9;
+}
+
+/* 2. Container dos Pontos (sem alterações) */
+#planta-pontos-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* 3. NOVO: Container para CADA marcador completo (Nomes + Bolinha) */
+.ponto-quarto-container {
+    position: absolute;
+    display: flex;
+    flex-direction: column; /* Organiza os itens verticalmente */
+    align-items: center;    /* Centraliza os itens horizontalmente */
+    /* Centraliza o container inteiro no ponto exato das coordenadas */
+    transform: translate(-50%, -50%); 
+    cursor: pointer;
+    min-width: 150px; /* Largura mínima para evitar que os nomes quebrem linha */
+    text-align: center;
+}
+
+
+/* 5. A Bolinha de Status (ajustada) */
+.ponto-quarto-status {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    color: white;
+    font-weight: bold;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    transition: transform 0.2s ease;
+}
+.ponto-quarto-container:hover .ponto-quarto-status {
+    transform: scale(1.1);
+}
+
+
+.ponto-nome-quarto {
+    font-size: 16px; /* Aumentado de 14px para 16px */
+    font-weight: 600;
+    color: var(--primary-dark);
+    margin-bottom: 28px; /* Aumentado de 8px para 12px para mais espaço */
+    white-space: nowrap;
+}
+
+/* 6. Nome da Cama (embaixo) */
+.ponto-nome-cama {
+    font-size: 16px; /* Aumentado de 12px para 16px, para ficar igual ao nome do quarto */
+    color: var(--text-primary); /* Alterado para uma cor mais escura e legível */
+    margin-top: 65px; /* Aumentado de 8px para 12px para mais espaço */
+    white-space: nowrap;
+}
+
+/* Estilo especial para quando o quarto está livre */
+.ponto-nome-cama.cama-livre {
+    font-style: italic;
+    color: #6c757d;
+}
+
+/* --- Estilos para os Cards de Sumário da Planta Baixa --- */
+
+.planta-sumario {
+    display: flex; /* Alinha os cards lado a lado */
+    gap: 1.5rem;   /* Espaço entre os cards */
+    margin-top: 1rem; /* Espaço acima dos cards */
+}
+
+.sumario-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem; /* Espaço entre o ícone e o texto */
+    background-color: #F8F9FA; /* Cor de fundo do card */
+    padding: 1.2rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    flex-grow: 1; /* Faz os cards ocuparem o espaço disponível */
+}
+
+.sumario-icon {
+    flex-shrink: 0; /* Impede que o ícone encolha */
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sumario-icon .svg-icon {
+    width: 24px;
+    height: 24px;
+    background-color: white; /* Cor do ícone em si */
+}
+
+.sumario-texto {
+    line-height: 1.2;
+}
+
+.sumario-numero {
+    font-family: 'Lexend Deca', sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.sumario-label {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+/* Variação de cor para o card de "Quartos Online" */
+.sumario-card.card-quartos .sumario-icon {
+    background-color: #E7F0FA; /* Fundo do ícone azul claro */
+}
+.sumario-card.card-quartos .sumario-numero {
+    color: #0466C8; /* Número em azul */
+}
+
+/* Variação de cor para o card de "Ativos na Planta" */
+.sumario-card.card-ativos .sumario-icon {
+    background-color: #EAF7ED; /* Fundo do ícone verde claro */
+}
+.sumario-card.card-ativos .sumario-numero {
+    color: #28a745; /* Número em verde */
+}
+
+
+/* --- Estilos da Página de Login (VERSÃO CORRIGIDA FINAL) --- */
+
+body.login-page {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #012966;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+    position: fixed;
+    top: 0;
+    left: 0;
+}
+
+.login-page .login-background-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: url('../images/fundo_login.jpg') no-repeat center center;
+    background-size: cover;
+    opacity: 0.49;
+    z-index: 1;
+}
+
+/* 3. Card de Login Principal */
+.login-page .login-card {
+    position: relative;
+    z-index: 2;
+    width: 654px;
+    height: 654px;
+    padding: 79px 77px;
+    background: rgba(250, 250, 250, 0.98);
+    box-shadow: 0px 8px 12px 6px rgba(0, 0, 0, 0.15), 0px 4px 4px rgba(0, 0, 0, 0.3);
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: flex-start; /* Alinha as imagens no topo do grupo */
-    gap: 0; /* Espaço entre as duas imagens */
-    /* A altura será automática, evitando que a imagem seja cortada */
+    gap: 80px; /* Reduzido o gap principal para melhor ajuste */
 }
 
-.logo-sidebar {
-    width: auto;
+/* 4. Cabeçalho (Logo e Texto) */
+.login-page .login-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+}
+
+.login-page .login-header img {
+    width: 348px;
+    height: 59px;
+    object-fit: contain;
+}
+
+.login-page .login-header p {
+    font-weight: 600;
+    font-size: 16px;
+    color: #000000;
+}
+
+/* 5. Formulário e Campos */
+.login-page .login-form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+.login-page .form-fields {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end; /* Mantém o link "esqueceu a senha" à direita */
+    gap: 32px; /* Espaço entre Email e Senha */
+}
+
+/* Regra específica para os grupos de formulário DENTRO do card de login */
+.login-page .form-group {
+    width: 100%;
+    position: relative;
+    /* REMOVIDA a altura fixa para permitir que o conteúdo se ajuste */
+}
+
+.login-page .form-group label {
     display: block;
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 8px; /* Adicionado espaço entre o label e o input */
+}
+
+/* Input específico para o formulário de login */
+.login-page .form-group input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    font-size: 16px;
+    color: #090909;
+    outline: none;
+    padding: 8px 0; /* Adicionado padding para melhor toque */
+    /* REMOVIDO o posicionamento absoluto */
+}
+
+.login-page .form-group .input-line {
+    box-sizing: border-box;
+    width: 100%;
+    height: 1px;
+    border-bottom: 1px solid #001233;
+    box-shadow: 0px 2px 6px 2px rgba(0, 0, 0, 0.15), 0px 1px 2px rgba(0, 0, 0, 0.3);
+    margin-top: 4px; /* Espaço após o input */
+}
+
+.login-page .password-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.login-page .password-wrapper .eye-icon {
+    position: absolute;
+    right: 8px;
+    top: 50%; /* Alinha verticalmente com o input */
+    transform: translateY(-50%);
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+}
+
+.login-page .forgot-password {
+    display: block;
+    width: 100%;
+    text-align: right;
+    font-weight: 400;
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    margin-top: 8px;
+}
+
+.login-page .forgot-password:hover {
+    text-decoration: underline;
+}
+
+/* 6. Botão de Login */
+.login-page .login-button {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 10px;
+    width: 100%;
+    height: 39px;
+    background: #002855;
+    border-radius: 16px;
+    border: none;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 16px;
+    color: #FFFFFF;
+    transition: background-color 0.3s ease;
+    margin-top: 32px;
+}
+
+.login-page .login-button:hover {
+    background: #013A7D;
+}
+
+/* --- Estilos para Formulários Recolhíveis (Versão Ícone no Cabeçalho) --- */
+
+#toggle-forms-btn {
+    margin-right: 1rem;
+    padding: 8px;
+    border: none;               /* Remove a borda */
+    background-color: transparent;  /* Remove o fundo */
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+/* O ícone (estado ATIVO / Formulários VISÍVEIS) - Cinza Escuro */
+#toggle-forms-btn .svg-icon {
+    opacity: 0.75;
+    transition: opacity 0.2s ease;
+}
+
+/* O ícone quando RECOLHIDO (INATIVO / Formulários ESCONDIDOS) - Cinza Claro */
+#toggle-forms-btn.collapsed .svg-icon {
+    opacity: 0.4;
+}
+
+/* Efeito hover: o ícone fica totalmente opaco para dar feedback */
+#toggle-forms-btn:hover .svg-icon {
+    opacity: 1;
 }
 
 
-/* --- ESTADO PADRÃO (ÍCONE) --- */
-
-#logo-icone { 
-    display: flex; /* Garante que ele seja visível por padrão */
-}
-#logo-completo { 
-    display: none; 
+/* Efeito hover para o estado ativo */
+#toggle-forms-btn:hover {
+    background-color: #e9ecef;
 }
 
-/* 🎨 Tamanhos parecidos para os ícones, como pedido */
-#logo-icone .logo-principal {
-    max-height: 90px; 
-}
-#logo-icone .logo-secundario {
-    max-height: 60px;
+/* Estilo do botão quando está RECOLHIDO (INATIVO / Cinza Claro) */
+#toggle-forms-btn.collapsed {
+    background-color: #fff; /* Fundo branco */
+    border-color: #dee2e6; /* Borda bem clara */
 }
 
-
-/* --- ESTADO EXPANDIDO (COMPLETO) --- */
-
-.sidebar.expanded #logo-icone { 
-    display: none; 
-}
-.sidebar.expanded #logo-completo { 
-    display: flex; 
+/* Ícone fica mais transparente quando está recolhido */
+#toggle-forms-btn.collapsed .svg-icon {
+    opacity: 0.5;
 }
 
-/* 🎨 Tamanhos parecidos para os logos completos */
-.sidebar.expanded .logo-principal {
-    max-height: 60px;
-}
-.sidebar.expanded .logo-secundario {
-    max-height: 80px;
+/* Efeito hover para o estado inativo */
+#toggle-forms-btn.collapsed:hover {
+    background-color: #f8f9fa;
 }
 
-    /* ==== Plantas: grid e imagens dos mapas ==== */
+/* O container dos formulários */
+#forms-container {
+    transition: max-height 0.4s ease-in-out, padding 0.4s ease-in-out, margin 0.4s ease-in-out, opacity 0.3s ease-in-out;
+    overflow: hidden;
+    max-height: 1000px;
+    opacity: 1;
+}
 
-    /* grid fluido (se adapta ao espaço) */
-    .planta-grid-container{
+/* O estado recolhido do container */
+#forms-container.collapsed {
+    max-height: 0;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    opacity: 0;
+}
+
+/* ================================================== */
+/* == Estilos para o Dashboard de Status dos Quartos == */
+/* ================================================== */
+
+/* Container para os cards em tela cheia */
+.room-cards-container-fullwidth {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-    grid-auto-rows: auto;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 2rem;
+    width: 100%;
+}
+
+.room-card {
+    background-color: var(--background-color);
+    /* Usando a mesma borda e raio do form-card */
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    /* Adicionando uma transição suave */
+    transition: box-shadow 0.2s ease-in-out;
+}
+
+.room-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.room-card-header {
+    /* Usando o mesmo padding horizontal do form-card */
+    padding: 1.5rem 2rem; 
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.room-card-header h3 {
+    font-family: 'Lexend', sans-serif;
+    font-size: 18px;
+    margin: 0;
+    flex-grow: 1;
+}
+
+/* Estilo para o campo de input da edição inline */
+.room-name-input {
+    flex-grow: 1;
+    border: none;
+    border-bottom: 1px solid var(--primary-color);
+    padding: 0.5rem 0;
+    font-family: 'Lexend', sans-serif;
+    font-size: 18px;
+    background: transparent;
+    outline: none;
+}
+
+.room-block-body {
+    /* Usando o mesmo padding horizontal do form-card */
+    padding: 1.5rem 2rem; 
+    flex-grow: 1;
+}
+
+.no-assets-message {
+    color: var(--text-secondary);
+    text-align: center;
+    font-size: 14px;
+    padding: 1rem 0;
+}
+
+.asset-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.asset-list li {
+    display: flex;
+    align-items: center;
+    padding: 0.4rem 0;
+    font-size: 15px;
+}
+
+.asset-list .asset-icon {
+    /* Suas propriedades existentes (mantidas) */
+    width: 16px;
+    height: 16px;
+    color: var(--primary-color);
+    margin-right: 0.75rem;
+
+    /* --- Adições para renderizar o ícone --- */
+    background-color: currentColor;  /* Pinta o ícone com a cor definida acima */
+    mask-image: var(--icon-url);      /* Pega o SVG do seu HTML */
+    mask-size: contain;
+    mask-repeat: no-repeat;
+    mask-position: center;
+}
+
+/* style.css */
+
+/* --- Estilos para o Indicador de Status Online/Offline --- */
+.status-indicator {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.status-indicator.online {
+    background-color: #28a745; /* Verde */
+}
+
+.status-indicator.offline {
+    background-color: #dc3545; /* Vermelho */
+}
+
+.icon-btn .svg-icon {
+    /* 1. Define o tamanho pequeno que você queria */
+    width: 20px;
+    height: 20px;
+
+    /* 2. Define a cor para cinza (herdando do botão) */
+    background-color: currentColor;
+}
+
+.filter-reset-btn .svg-icon {
+    /* 1. Define o tamanho pequeno que você queria */
+    width: 20px;
+    height: 20px;
+
+    /* 2. Define a cor para cinza (herdando do botão) */
+    background-color: currentColor;
+}
+
+.planta-grid-container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: minmax(200px, auto);
     gap: 1.5rem;
     width: 100%;
-    }
+}
 
-    /* card do quarto continua relativo para o ponto ficar absoluto,
-    mas evita qualquer “vazamento” do conteúdo */
-    .quarto-container{
-    position: relative;
+/* Ajustamos o contentor do quarto para organizar o título e a contagem */
+.quarto-container {
+    position: relative; 
     border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1rem;
     display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+    /* Organiza os itens (título, svg, contagem) em uma coluna */
+    flex-direction: column; 
+    /* Espaça os itens verticalmente */
+    justify-content: space-between; 
     align-items: center;
-    overflow: hidden;                 /* evita scroll/bleed do SVG */
-    }
+}
 
-    /* SVG/IMG da planta ocupa a largura do card sem distorcer */
-    .quarto-container img{
-    width: 100%;
-    height: auto;
-    display: block;
+/* Novo estilo para o título do quarto */
+.quarto-titulo {
+    font-family: 'Lexend', sans-serif;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem; /* Pequeno espaço abaixo do título */
+    /* Garante que o título não interfira com o ponto sobreposto */
+    z-index: 10;
+    position: relative;
+}
+
+/* Novo estilo para a contagem de ativos */
+.quarto-asset-count {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-top: 0.5rem; /* Pequeno espaço acima da contagem */
+    background-color: rgba(255, 255, 255, 0.7); /* Fundo semi-transparente para legibilidade */
+    padding: 2px 8px;
+    border-radius: 10px;
+    /* Garante que a contagem não interfira com o ponto sobreposto */
+    z-index: 10;
+    position: relative;
+}
+
+/* O estilo da imagem SVG permanece o mesmo */
+.quarto-container img {
+    max-width: 90%;
+    height: 90%; /* Altura fixa para consistência */
     object-fit: contain;
-    }
+}
 
-    /* mantém o ponto clicável dentro do card e com transição suave */
-    .ponto-status-overlay{
-    width: 25px; height: 25px; border-radius: 50%;
-    border: 2px solid #fff; box-shadow: 0 0 5px rgba(0,0,0,.5);
-    position: absolute; cursor: help; transition: transform .2s ease;
-    z-index: 5;
-    }
+/* O estilo do ponto sobreposto permanece o mesmo */
+.ponto-status-overlay {
+    width: 25px;
+    height: 25px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+    position: absolute;
+    cursor: help;
+    transition: all 0.3s ease;
+    /* O z-index aqui garante que o ponto fique por cima da imagem, mas abaixo do texto */
+    z-index: 5; 
+}
+
+/* O contentor que irá posicionar o menu */
+.actions-menu-container {
+    position: relative;
+    display: inline-block;
+}
+
+/* O botão de três pontos */
+.actions-menu-trigger {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    font-size: 20px;
+    line-height: 1;
+    border-radius: 4px;
+}
+
+.actions-menu-trigger:hover {
+    background-color: #f0f2f5;
+}
+
+/* O menu suspenso (escondido por defeito) */
+.actions-dropdown {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background-color: white;
+    min-width: 160px;
+    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+    z-index: 1;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden; /* Garante que os cantos arredondados funcionam */
+}
+
+/* Classe para mostrar o menu via JavaScript */
+.actions-dropdown.show {
+    display: block;
+}
+
+/* Estilo para cada item do menu */
+.actions-dropdown form {
+    margin: 0;
+}
+
+.actions-dropdown .menu-item-btn {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Efeito hover que você pediu */
+.actions-dropdown .menu-item-btn:hover {
+    background-color: #f0f2f5;
+}
+
+/* Ajustes para a tabela dentro do modal de RSSI */
+.modal-body .data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.modal-body .data-table th,
+.modal-body .data-table td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-body .data-table th {
+    background-color: #f8f9fa;
+}
+
+/* Cores para o relatório de RSSI */
+.rssi-strong {
+    color: #28a745; /* Verde */
+    font-weight: bold;
+}
+
+.rssi-weak {
+    color: #dc3545; /* Vermelho */
+    font-weight: bold;
+}
+
+/* Adicionar ao seu style.css */
+.view-toggle {
+    display: inline-flex;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: 16px;
+    margin-bottom: 16px;
+}
+.btn-toggle {
+    padding: 8px 16px;
+    text-decoration: none;
+    color: #495057;
+    background-color: #fff;
+    border-right: 1px solid #dee2e6;
+    font-size: 0.9rem;
+    transition: background-color 0.2s ease;
+}
+.btn-toggle:last-child {
+    border-right: none;
+}
+.btn-toggle.active {
+    background-color: #007bff; /* Ou a cor primária do seu site */
+    color: #fff;
+    font-weight: 500;
+}
+.btn-toggle:not(.active):hover {
+    background-color: #f8f9fa;
+}
