@@ -776,18 +776,24 @@ ARQUIVO: app/web/templates/events_list.html
 ========================================
 ARQUIVO: app/web/templates/inventario_form.html
 ========================================
-{# inventario_form.html #}
+{# inventario_form.html MODIFICADO #}
 <form action="{{ url_for('save_inventory_snapshot') }}" method="post" id="inventory-form">
+    
+    {# --- INÍCIO DA CORREÇÃO DO ERRO --- #}
+    {# Este campo oculto envia o ID do datacenter selecionado ao salvar. #}
+    <input type="hidden" name="datacenter_id" value="{{ current_dc_id or '' }}">
+    {# --- FIM DA CORREÇÃO DO ERRO --- #}
+
     <h3>Adicionar Itens ao Inventário</h3>
 
-    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr auto;">
-        <div class="form-group">
+    <div class="form-fields-grid" style="grid-template-columns: 2fr 1.5fr auto auto; gap: 12px; align-items: flex-end;">
+        <div class="form-group" style="margin: 0;">
             <label for="codigo_rfid">Código RFID</label>
             <input type="text" id="codigo_rfid" 
                    placeholder="ex: 300833B2DDD90140" autocomplete="off">
         </div>
 
-        <div class="form-group">
+        <div class="form-group" style="margin: 0;">
             <label for="product_type_id">Tipo de Produto</label>
             <select id="product_type_id">
                 {% for t in tipos %}
@@ -804,18 +810,7 @@ ARQUIVO: app/web/templates/inventario_form.html
                 <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
         </button>
-    </div>
 
-    {# Área onde a lista de itens pendentes e os inputs escondidos serão renderizados via JS #}
-    <div class="form-group" style="margin-top: 1rem;">
-        <label>Itens a serem salvos:</label>
-        <div id="pendentes" class="pending-list dotted"></div>
-        <div id="hidden-inputs">
-            </div>
-    </div>
-
-    <div class="form-group" style="margin-top: 1rem; display: flex; gap: 8px; align-items: center;">
-        <button type="submit" class="btn-primary">Salvar Inventário Atual</button>
         <button type="button" class="icon-btn" id="clear-inventory-btn" title="Limpar lista de itens a salvar">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
                  viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -827,6 +822,19 @@ ARQUIVO: app/web/templates/inventario_form.html
             </svg>
         </button>
     </div>
+
+    <div class="form-group" style="margin-top: 1.5rem;">
+        <label>Itens a serem salvos:</label>
+        <div id="pendentes" class="pending-list dotted"></div>
+        <div id="hidden-inputs"></div>
+    </div>
+
+    {# --- INÍCIO DO AJUSTE DE LAYOUT --- #}
+    {# Adicionado display:flex e justify-content:flex-end para alinhar o botão à direita #}
+    <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+        <button type="submit" class="btn-primary">Salvar Inventário Atual</button>
+    </div>
+    {# --- FIM DO AJUSTE DE LAYOUT --- #}
 </form>
 
 
@@ -844,105 +852,114 @@ ARQUIVO: app/web/templates/inventario_list.html
         <button id="toggle-forms-btn" class="icon-btn" title="Mostrar/Esconder Formulário">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
         </button>
-        <a href="{{ url_for('download_inventory_csv') }}" class="btn-primary">BAIXAR DADOS</a>
+        <a href="{{ url_for('download_inventory_csv') }}?datacenter_id={{ current_dc_id }}" class="btn-primary">BAIXAR DADOS</a>
     </div>
 </div>
 
-{# FORMULÁRIO PARA ADICIONAR ITENS #}
-<div class="forms-container-vertical" id="forms-container">
-    <div class="form-card">
-        {% include 'inventario_form.html' with context %}
+<div class="top-controls-container">
+    <form class="filters-toolbar" method="get" action="{{ url_for('list_inventario') }}" style="margin-bottom: 0;">
+        <div class="filter-group-left">
+            <select name="datacenter_id" id="datacenter-select" class="filter-dropdown-main" onchange="this.form.submit()">
+                {% for dc in all_datacenters %}
+                <option value="{{ dc.id }}" {% if current_dc_id and dc.id == current_dc_id|int %}selected{% endif %}>
+                    {{ dc.nome }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+    </form>
+
+    <div class="view-toggle">
+        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=comparison"
+           class="btn-toggle {% if current_view == 'comparison' %}active{% endif %}">
+           Comparativo
+        </a>
+        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=current"
+           class="btn-toggle {% if current_view == 'current' %}active{% endif %}">
+           Inventário Atual
+        </a>
+    </div>
+    </div>
+
+<div class="forms-container-vertical" id="forms-container"> 
+    <div class="form-card"> 
+        {% include 'inventario_form.html' with context %} 
     </div>
 </div>
 
-{# NOVO BOTÃO DE ALTERNÂNCIA DE VISÃO #}
-<div style="margin-top: 16px; margin-bottom: 16px;">
-    {% if current_view == 'comparison' %}
-        <a href="{{ request.url.replace_query_params(view='current') }}" class="btn-secondary">Ver Apenas Inventário Atual</a>
-    {% else %}
-        <a href="{{ request.url.replace_query_params(view='comparison') }}" class="btn-secondary">Comparar com Inventário Anterior</a>
-    {% endif %}
-</div>
-
-
-{# --- RENDERIZAÇÃO CONDICIONAL DAS TABELAS --- #}
-
-{# SE A VISÃO FOR 'comparison', MOSTRA A TABELA COMPARATIVA #}
 {% if current_view == 'comparison' %}
 <div class="list-container-full-width">
     <div class="list-header">
         <h3>Comparativo de Inventário</h3>
         <div class="muted">
-            {% if snapshot_atual and snapshot_anterior %}
-                Comparando de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
-            {% elif snapshot_atual %}
-                Exibindo o primeiro inventário salvo em <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
-            {% else %}
-                Nenhum inventário foi salvo ainda.
-            {% endif %}
+            {% if snapshot_atual and snapshot_anterior %} 
+                Comparando de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>. 
+            {% elif snapshot_atual %} 
+                Exibindo o primeiro inventário salvo em <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>. 
+            {% else %} 
+                Nenhum inventário foi salvo ainda para este datacenter. 
+            {% endif %} 
         </div>
     </div>
     <table class="data-table">
         <thead>
             <tr>
-                <th style="width: 40%;">INVENTÁRIO ATUAL</th>
-                <th style="width: 40%;">INVENTÁRIO ANTERIOR</th>
-                <th>MUDANÇA</th>
+                <th style="width: 40%;">INVENTÁRIO ATUAL</th> 
+                <th style="width: 40%;">INVENTÁRIO ANTERIOR</th> 
+                <th>MUDANÇA</th> 
             </tr>
         </thead>
         <tbody>
-            {% for row in tabela_unificada %}
+            {% for row in tabela_unificada %} 
             <tr>
                 <td>
-                    {% if row.tipo_atual != '---' %}
-                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_atual }})
-                    {% else %}<span class="muted">---</span>{% endif %}
+                    {% if row.tipo_atual != '---' %} 
+                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_atual }}) 
+                    {% else %}<span class="muted">---</span>{% endif %} 
                 </td>
                 <td>
-                    {% if row.tipo_anterior != '---' %}
-                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_anterior }})
-                    {% else %}<span class="muted">---</span>{% endif %}
+                    {% if row.tipo_anterior != '---' %} 
+                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_anterior }}) 
+                    {% else %}<span class="muted">---</span>{% endif %} 
                 </td>
                 <td style="font-weight: 500;">
-                    {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span>
-                    {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span>
-                    {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %}
+                    {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span> 
+                    {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span> 
+                    {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %} 
                 </td>
             </tr>
-            {% else %}
-            <tr><td colspan="3" class="muted">Nenhum item de inventário encontrado para comparar.</td></tr>
+            {% else %} 
+            <tr><td colspan="3" class="muted">Nenhum item de inventário encontrado para comparar.</td></tr> 
             {% endfor %}
         </tbody>
     </table>
 </div>
-{% endif %}
+{% endif %} 
 
-
-{# SE A VISÃO FOR 'current', MOSTRA A TABELA SIMPLES #}
 {% if current_view == 'current' %}
 <div class="list-container-full-width">
     <div class="list-header">
         <h3>Inventário Atual</h3>
         <div class="muted">
-            {% if not snapshot_atual %}
-                Nenhum inventário foi salvo ainda.
-            {% endif %}
+            {% if not snapshot_atual %} 
+                Nenhum inventário foi salvo ainda para este datacenter. 
+            {% endif %} 
         </div>
     </div>
     <table class="data-table">
         <thead>
             <tr>
-                <th>CÓDIGO RFID</th>
-                <th>TIPO DE PRODUTO</th>
-                <th>DATA DE CRIAÇÃO</th>
+                <th>CÓDIGO RFID</th> 
+                <th>TIPO DE PRODUTO</th> 
+                <th>DATA DE CRIAÇÃO</th> 
             </tr>
         </thead>
         <tbody>
             {% for row in inventario_atual %}
             <tr>
-                <td><code>{{ row.codigo_rfid }}</code></td>
-                <td>{{ row.tipo }}</td>
-                <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td>
+                <td><code>{{ row.codigo_rfid }}</code></td> 
+                <td>{{ row.tipo }}</td> 
+                <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td> 
             </tr>
             {% else %}
             <tr><td colspan="3" class="muted">Nenhum item no inventário atual.</td></tr>
@@ -952,95 +969,76 @@ ARQUIVO: app/web/templates/inventario_list.html
 </div>
 {% endif %}
 
-
 {% endblock %}
 
 {% block scripts %}
+<style>
+.top-controls-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.view-toggle { display: inline-flex; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; margin: 0; }
+.btn-toggle { padding: 8px 16px; text-decoration: none; color: #495057; background-color: #fff; border-right: 1px solid #dee2e6; font-size: 0.9rem; transition: background-color 0.2s ease; }
+.btn-toggle:last-child { border-right: none; }
+.btn-toggle.active { background-color: #0466C8; color: #fff; font-weight: 500; }
+.btn-toggle:not(.active):hover { background-color: #f8f9fa; }
+.pending-items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px 16px; padding-left: 0; list-style-type: none; }
+</style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  // --- INÍCIO DA SEÇÃO NOVA ---
-  // 1. Pega o elemento do formulário pelo ID que adicionamos
-  const inventoryForm = document.getElementById('inventory-form');
-  // --- FIM DA SEÇÃO NOVA ---
-
-  const toggleBtn = document.getElementById('toggle-forms-btn');
-  const formsContainer = document.getElementById('forms-container');
-  toggleBtn.addEventListener('click', () => {
-    if (formsContainer.style.display === 'none') {
-        formsContainer.style.display = 'block';
-        toggleBtn.title = "Recolher Formulário";
-    } else {
-        formsContainer.style.display = 'none';
-        toggleBtn.title = "Mostrar Formulário";
-    }
-  });
-
-  const rfidInput = document.getElementById('codigo_rfid');
-  const tipoSelect = document.getElementById('product_type_id');
-  const addBtn = document.getElementById('add-inventory-btn');
-  const pendentesDiv = document.getElementById('pendentes');
-  const hiddenInputsDiv = document.getElementById('hidden-inputs');
-  const clearBtn = document.getElementById('clear-inventory-btn');
+  const inventoryForm = document.getElementById('inventory-form'); 
+  const rfidInput = document.getElementById('codigo_rfid'); 
+  const tipoSelect = document.getElementById('product_type_id'); 
+  const addBtn = document.getElementById('add-inventory-btn'); 
+  const pendentesDiv = document.getElementById('pendentes'); 
+  const hiddenInputsDiv = document.getElementById('hidden-inputs'); 
+  const clearBtn = document.getElementById('clear-inventory-btn'); 
   let buffer = [];
-
-  // --- INÍCIO DA SEÇÃO NOVA ---
-  // 2. Adiciona um "ouvinte" para o evento de SUBMIT do formulário
   inventoryForm.addEventListener('submit', function(event) {
-    // Se o buffer (nossa lista de itens) estiver vazio...
     if (buffer.length === 0) {
-      // Impede o envio do formulário
-      event.preventDefault();
-      // Mostra um alerta para o usuário
-      alert("Por favor, adicione pelo menos um item ao inventário antes de salvar.");
+      event.preventDefault(); 
+      alert("Por favor, adicione pelo menos um item ao inventário antes de salvar."); 
     }
-    // Se o buffer não estiver vazio, o formulário é enviado normalmente.
-  });
-  // --- FIM DA SEÇÃO NOVA ---
-  
+  }); 
   function renderPendingItems(){
     if(buffer.length === 0){
-      pendentesDiv.innerHTML = '<div class="muted">Nenhum item adicionado para salvar.</div>';
-      hiddenInputsDiv.innerHTML = '';
+      pendentesDiv.innerHTML = '<div class="muted">Nenhum item adicionado para salvar.</div>'; 
+      hiddenInputsDiv.innerHTML = ''; 
       return;
     }
-    pendentesDiv.innerHTML = '<ul>' + buffer.map((item, index) => (
+    pendentesDiv.innerHTML = '<ul class="pending-items-grid">' + buffer.map((item, index) => (
       `<li style="display:flex; align-items:center; gap:6px; margin-bottom: 4px;">
         <code>${item.codigo}</code> — ${item.tipoNome}
         <button type="button" class="icon-btn" title="Remover" onclick="removePendingItem(${index})"
                 style="display:inline-flex; align-items:center; justify-content:center;
                        width:20px; height:20px; padding:0; margin:0; border-radius: 50%;">
-          <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/close.svg') }}); width:14px; height:14px;"></span>
+          <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/close.svg') }}); width:14px; height:14px;"></span> 
         </button>
       </li>`
     )).join('') + '</ul>';
     hiddenInputsDiv.innerHTML = buffer.map(item =>
       `<input type="hidden" name="codigos" value="${item.codigo}"/>
        <input type="hidden" name="tipos" value="${item.tipoId}"/>`
-    ).join('');
+    ).join(''); 
   }
   window.removePendingItem = (index) => {
-    buffer.splice(index, 1);
-    renderPendingItems();
+    buffer.splice(index, 1); 
+    renderPendingItems(); 
   }
   addBtn?.addEventListener('click', () => {
     const codigo = (rfidInput.value || '').trim().toUpperCase();
     if(!codigo){ rfidInput.focus(); return; }
     if (buffer.some(item => item.codigo === codigo)) {
-        // Silencioso: só limpa e segue o baile
         rfidInput.value = '';
-        // opcional: manter foco para leitura contínua
         rfidInput.focus();
         return;
     }
     const tipoId = tipoSelect.value;
-    const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text;
+    const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text; 
     buffer.push({codigo: codigo, tipoId: tipoId, tipoNome: tipoNome});
     rfidInput.value = ''; rfidInput.focus(); renderPendingItems();
   });
   rfidInput?.addEventListener('keydown', e => {
-    if(e.key === 'Enter'){ e.preventDefault(); addBtn.click(); }
+    if(e.key === 'Enter'){ e.preventDefault(); addBtn.click(); } 
   });
-  clearBtn?.addEventListener('click', () => { buffer = []; renderPendingItems(); });
+  clearBtn?.addEventListener('click', () => { buffer = []; renderPendingItems(); }); 
   renderPendingItems();
 });
 </script>
@@ -1065,7 +1063,7 @@ ARQUIVO: app/web/templates/login.html
     <main class="login-card">
         
         <header class="login-header">
-            <img src="{{ url_for('static', path='icons/LOGOazulescuro.png') }}" class="logo-login" id="logo-icone" alt="Logo da Empresa">
+            <img src="{{ url_for('static', path='icons/novo_logo.png') }}" class="logo-login" id="logo-icone" alt="Logo da Empresa">
             <p>Utilize suas credenciais para realizar o login</p>
         </header>
 
@@ -1361,8 +1359,8 @@ ARQUIVO: app/web/templates/sidebar.html
     <div class="sidebar-header">
         {# O botão foi substituído por este container clicável com os logos #}
         <div id="sidebar-logo-toggle" title="Menu">
-            <img src="{{ url_for('static', path='icons/SUBLOGOazulescuro.png') }}" alt="Ícone do Logo" class="logo-sidebar" id="logo-icone">
-            <img src="{{ url_for('static', path='icons/LOGOazulescuro.png') }}" alt="Logo Completo" class="logo-sidebar" id="logo-completo">
+            <img src="{{ url_for('static', path='icons/novo_logo_icone.png') }}" alt="Ícone do Logo" class="logo-sidebar" id="logo-icone">
+            <img src="{{ url_for('static', path='icons/novo_logo.png') }}" alt="Logo Completo" class="logo-sidebar" id="logo-completo">
         </div>
     </div>
     <nav class="sidebar-nav">
@@ -1406,7 +1404,7 @@ ARQUIVO: app/web/templates/sidebar.html
     <div class="sidebar-footer">
     {# --- INÍCIO DA MUDANÇA --- #}
     <div class="footer-brand">
-        <span class="brand-icon">V.0.4.0</span> <span class="brand-full">WH Connect v0.4.0</span> </div>    
+        <span class="brand-icon">V.0.4.0</span> <span class="brand-full">WH RTLS v0.4.0</span> </div>    
 </div>
 </aside>
 
