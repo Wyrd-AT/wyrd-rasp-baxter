@@ -32,20 +32,15 @@ def exponential_backoff(attempt):
 # A função 'dispatch_event' é o coração deste módulo.
 # Ela recebe um evento, monta o payload JSON no formato esperado pelo
 # sistema de destino, e tenta enviá-lo via socket TCP.
-def dispatch_event(evt) -> bool: # Adicionamos a anotação de retorno -> bool
+def dispatch_event(evt: dict) -> bool: # O parâmetro 'evt' é o dicionário completo
     """
-    Envia um evento para o sistema final e retorna True em caso de sucesso
-    ou False em caso de falha final após todas as tentativas.
+    Envia um evento pré-formatado para o sistema final.
     """
-    # ... (a montagem do payload continua igual)
-    payload = {
-        "quarto": evt.get("quarto"),
-        "cama":   evt.get("cama"),
-        "modelo": evt.get("modelo"),
-        "status": evt.get("status"),
-        "dataOn": evt.get("dataOn"),
-        "wifi":   evt.get("wifi")
-    }
+    # --- INÍCIO DA CORREÇÃO ---
+    # Remove a recriação do payload. Agora, 'evt' já é o payload final.
+    payload = evt
+    # --- FIM DA CORREÇÃO ---
+
     msg = json.dumps(payload) + "\n"
     logger.info(f"[dispatch_event] Payload montado: {payload}")
 
@@ -57,11 +52,11 @@ def dispatch_event(evt) -> bool: # Adicionamos a anotação de retorno -> bool
             with socket.create_connection((settings.get("final_ip"), int(settings.get("final_port"))), timeout=5) as sock:
                 sock.sendall(msg.encode())
                 logger.info(f"[dispatch_event] Payload enviado com sucesso.")
-                return True # SUCESSO: Retorna True
+                return True
         except (socket.timeout, socket.error) as e:
             wait = exponential_backoff(attempt)
             logger.info(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s.")
             time.sleep(wait)
     else:
         logger.info(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
-        return False # FALHA FINAL: Retorna False
+        return False

@@ -96,11 +96,13 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
                 # 2. Usa o mapa para encontrar o ID Connecta.
                 #    Se não encontrar, usa o nome do quarto como fallback para não quebrar.
                 quarto_nome_original = event.quarto_nome
-                id_para_enviar = quarto_nome_to_connecta_id_map.get(quarto_nome_original, quarto_nome_original)
-                # --- FIM DA MUDANÇA ---
+                
+                # Usa o mapa para encontrar o ID Connecta correspondente
+                connecta_id_para_enviar = quarto_nome_to_connecta_id_map.get(quarto_nome_original) # Retornará None se não encontrar
 
                 dispatch_payload = {
-                    "quarto": id_para_enviar, # <-- AQUI ESTÁ A MUDANÇA
+                    "quarto": quarto_nome_original, # <-- Volta a enviar o nome do quarto
+                    "id_connecta": connecta_id_para_enviar, # <-- NOVO CAMPO com o ID
                     "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
                     "modelo": asset_map.get(event.ativo, {}).get("modelo"),
                     "status": status_to_dispatch,

@@ -415,22 +415,22 @@ GUARDIAN_LOG_INTERVAL_SEC = 120 # Logar a cada 120 segundos (2 minutos)
 
 async def wifi_guardian_task_unificada(db: Session):
     """
-    Esta tarefa verifica a presença de ativos, enviando um desafio
-    com os detalhes completos (incluindo modelo e quarto).
+    Esta tarefa envia o desafio de verificação com ambos os campos: 
+    'quarto' (nome) e 'id_connecta'.
     """
     try:
+        # 1. Cria um mapa de consulta para encontrar o ID Connecta a partir do ID do quarto
         embarcados = db.query(Embarcado).all()
-        quarto_to_connecta_id_map = {e.quarto_id: e.connecta_id for e in embarcados if e.connecta_id}
-        # 1. Pega a lista de ativos PENDENTES da memória do agregador
+        quarto_id_to_connecta_id_map = {e.quarto_id: e.connecta_id for e in embarcados if e.connecta_id}
+
+        # 2. Pega a lista de ativos PENDENTES
         pending_assets_list = aggregator.get_pending_states_for_ui()
         
-        # 2. Pega a lista de ativos CONFIRMADOS do banco de dados
+        # 3. Pega a lista de ativos CONFIRMADOS
         confirmed_assets_db = db.query(Asset).options(joinedload(Asset.quarto)).filter(Asset.quarto_id != None).all()
         
-        # 3. Junta tudo numa lista única para verificação
+        # 4. Junta tudo em uma lista única para verificação, agora com o quarto_id
         assets_to_check = []
-        
-        # Processa os pendentes para adicionar à lista de checagem
         for asset_info in pending_assets_list:
             quarto_obj = db.query(Quarto).filter(Quarto.id == asset_info.get("pending_quarto_id")).first()
             assets_to_check.append({
@@ -441,9 +441,7 @@ async def wifi_guardian_task_unificada(db: Session):
                 "quarto_id": asset_info.get("pending_quarto_id")
             })
             
-        # Processa os confirmados para adicionar à lista de checagem
         for asset in confirmed_assets_db:
-            # Evita checar duas vezes se um ativo já está na lista de pendentes
             if not any(a["mac"] == asset.mac_beacon for a in assets_to_check):
                  assets_to_check.append({
                     "mac": asset.mac_beacon,
@@ -456,20 +454,21 @@ async def wifi_guardian_task_unificada(db: Session):
         if not assets_to_check:
             return
 
-        # 4. Para cada ativo na lista, monta o payload completo e envia
+        # 5. Para cada ativo, monta o payload completo e envia
         for asset_data in assets_to_check:
-            quarto_id = asset_data.get("quarto_id") # Precisamos do ID do quarto
-            id_para_enviar = quarto_to_connecta_id_map.get(quarto_id) or asset_data.get("quarto_alvo")
-            logger.debug(f"[GUARDIAN-CALLBACK] Enviando desafio para {asset_data['mac']}...")
-            
+            quarto_id = asset_data.get("quarto_id")
+            nome_do_quarto = asset_data.get("quarto_alvo")
+            id_connecta = quarto_id_to_connecta_id_map.get(quarto_id) # Retorna None se não encontrar
+
             challenge_payload = {
                 "cama": asset_data.get("nome_ativo"),
                 "modelo": asset_data.get("modelo"),
-                "quarto": id_para_enviar,
+                "quarto": nome_do_quarto,           # <-- Nome do quarto
+                "id_connecta": id_connecta,         # <-- NOVO CAMPO com o ID
                 "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
             }
             
-            # Apenas chama a função de envio, não espera um retorno True/False
+            # Chama o cliente de handshake para enviar o desafio
             await handshake_client.send_challenge(challenge_payload)
 
     except Exception as e:
