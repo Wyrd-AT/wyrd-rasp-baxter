@@ -28,8 +28,7 @@
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
             <span class="nav-text">Planta</span>
         </a>
-        <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventory' in request.url.path %}active{% endif %}" title="Inventario">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }})"></span>
+            <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}" title="Inventario">            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }})"></span>
             <span class="nav-text">Inventário</span>
         </a>
     </nav>

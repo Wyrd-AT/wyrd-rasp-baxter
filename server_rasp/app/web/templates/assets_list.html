@@ -11,10 +11,8 @@
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
-        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">BAIXAR DADOS</a>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
+        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
 

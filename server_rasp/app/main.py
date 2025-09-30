@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import event, or_, desc, asc
 
 from urllib.parse import urlencode
+from pydantic import BaseModel
 
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
@@ -137,7 +138,7 @@ def seed_datacenters():
 
 
 #seed_database()
-seed_datacenters()
+#seed_datacenters()
 
 def seed_product_types():
     db = SessionLocal()
@@ -205,19 +206,60 @@ class ProductTypeAdmin(ModelView, model=ProductType):
     icon = "fa-solid fa-layer-group"
 
 class ProductAdmin(ModelView, model=Product):
-    column_list = [Product.id, Product.codigo_rfid, Product.product_type_id]
+    column_list = [Product.id, Product.codigo_rfid, Product.product_type]
     column_searchable_list = [Product.codigo_rfid]
     name = "Produto (RFID)"
     name_plural = "Produtos (RFID)"
     icon = "fa-solid fa-box"
 
+class DataCenterAdmin(ModelView, model=DataCenter):
+    name = "Datacenter"
+    name_plural = "Datacenters"
+    icon = "fa-solid fa-server"
+    # Colunas que aparecerão na lista
+    column_list = [DataCenter.id, DataCenter.nome, DataCenter.slug]
+    # Colunas que aparecerão no formulário de edição/criação
+    form_columns = [DataCenter.nome, DataCenter.slug]
+
+class ProductAdmin(ModelView, model=Product):
+    name = "Produto (Catálogo RFID)"
+    name_plural = "Produtos (Catálogo RFID)"
+    icon = "fa-solid fa-box"
+    column_list = [Product.id, Product.codigo_rfid, Product.product_type]
+    column_searchable_list = [Product.codigo_rfid]
+
+class ProductTypeAdmin(ModelView, model=ProductType):
+    name = "Tipo de Produto (RFID)"
+    name_plural = "Tipos de Produto (RFID)"
+    icon = "fa-solid fa-layer-group"
+    column_list = [ProductType.id, ProductType.nome]
+
+class InventorySnapshotAdmin(ModelView, model=InventorySnapshot):
+    name = "Snapshot de Inventário"
+    name_plural = "Snapshots de Inventário"
+    icon = "fa-solid fa-camera"
+    can_create = False # Geralmente criados pela aplicação
+    can_edit = False
+    column_list = [InventorySnapshot.id, InventorySnapshot.created_on, InventorySnapshot.datacenter]
+
+class InventoryItemAdmin(ModelView, model=InventoryItem):
+    name = "Item de Inventário"
+    name_plural = "Itens de Inventário"
+    icon = "fa-solid fa-tag"
+    can_create = False
+    can_edit = False
+    column_list = [InventoryItem.id, InventoryItem.product, InventoryItem.snapshot]
+
 admin.add_view(ProductTypeAdmin)
 admin.add_view(ProductAdmin)
-# Adiciona as views ao painel de admin
 admin.add_view(AssetAdmin)
 admin.add_view(EmbarcadoAdmin)
 admin.add_view(QuartoAdmin)
 admin.add_view(ReceivedEventAdmin)
+
+admin.add_view(DataCenterAdmin)
+admin.add_view(InventorySnapshotAdmin)
+admin.add_view(InventoryItemAdmin)
 
 # --- Dependência do Banco de Dados ---
 def get_db():
@@ -1108,7 +1150,91 @@ def download_embarcados_csv(db: Session = Depends(get_db)):
     )
 
 # ===================================================================
-# SEÇÃO 5.1: INVENTÁRIO DE PRODUTOS
+# SEÇÃO 5.1: DATACENTERS
+# ===================================================================7
+# Schema Pydantic para as respostas da API
+class DatacenterSchema(BaseModel):
+    id: int
+    nome: str
+    slug: str
+    snapshots_count: int
+
+    class Config:
+        from_attributes = True
+
+# Schema para validação na criação
+class DatacenterCreate(BaseModel):
+    nome: str
+
+# Schema para validação na atualização
+class DatacenterUpdate(BaseModel):
+    nome: str
+
+# ROTA PARA LISTAR TODOS OS DATACENTERS (para o modal de gerenciamento)
+@app.get("/api/datacenters", response_model=List[DatacenterSchema], name="list_datacenters_api")
+def list_datacenters_api(db: Session = Depends(get_db)):
+    """Retorna uma lista de todos os datacenters, incluindo a contagem de snapshots."""
+    datacenters = db.query(DataCenter).order_by(DataCenter.nome).all()
+    for dc in datacenters:
+        dc.snapshots_count = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == dc.id).count()
+    return datacenters
+
+# ROTA PARA CRIAR UM NOVO DATACENTER
+@app.post("/api/datacenters/new", response_model=DatacenterSchema, name="create_datacenter_api")
+def create_datacenter_api(
+    dc_in: DatacenterCreate,
+    db: Session = Depends(get_db)
+):
+    """Cria um novo datacenter."""
+    if db.query(DataCenter).filter(DataCenter.nome == dc_in.nome).first():
+        raise HTTPException(status_code=409, detail="Um datacenter com este nome já existe.")
+    slug = dc_in.nome.lower().replace(" ", "-").replace("á", "a").replace("ç", "c")
+    novo_dc = DataCenter(nome=dc_in.nome, slug=slug)
+    db.add(novo_dc)
+    db.commit()
+    db.refresh(novo_dc)
+    novo_dc.snapshots_count = 0 # Define a contagem inicial como 0
+    logger.info(f"Novo datacenter criado via API: {novo_dc.nome}")
+    return novo_dc
+
+# ROTA PARA ATUALIZAR (EDITAR) UM DATACENTER
+@app.put("/api/datacenters/{dc_id}", response_model=DatacenterSchema, name="update_datacenter_api")
+def update_datacenter_api(
+    dc_id: int,
+    dc_in: DatacenterUpdate,
+    db: Session = Depends(get_db)
+):
+    """Atualiza o nome de um datacenter existente."""
+    dc_to_update = db.query(DataCenter).get(dc_id)
+    if not dc_to_update:
+        raise HTTPException(status_code=404, detail="Datacenter não encontrado.")
+    
+    dc_to_update.nome = dc_in.nome
+    dc_to_update.slug = dc_in.nome.lower().replace(" ", "-").replace("á", "a").replace("ç", "c")
+    db.commit()
+    db.refresh(dc_to_update)
+    dc_to_update.snapshots_count = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == dc_to_update.id).count()
+    return dc_to_update
+
+# ROTA PARA DELETAR UM DATACENTER
+@app.delete("/api/datacenters/{dc_id}", name="delete_datacenter_api")
+def delete_datacenter_api(dc_id: int, db: Session = Depends(get_db)):
+    """Deleta um datacenter e TODOS os seus inventários associados."""
+    dc_to_delete = db.query(DataCenter).get(dc_id)
+    if not dc_to_delete:
+        raise HTTPException(status_code=404, detail="Datacenter não encontrado.")
+    
+    # Apaga todos os snapshots associados primeiro
+    db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == dc_id).delete(synchronize_session=False)
+
+    # Agora, apaga o datacenter
+    db.delete(dc_to_delete)
+    db.commit()
+    return {"ok": True, "detail": "Datacenter e seus inventários associados foram excluídos."}
+
+
+# ===================================================================
+# SEÇÃO 5.2: INVENTÁRIO DE PRODUTOS
 # ===================================================================
 
 @app.get("/inventario", name="list_inventario")
@@ -1233,11 +1359,12 @@ def inventory_save(
 @app.get("/inventario/download", name="download_inventory_csv")
 def download_inventory_csv(
     db: Session = Depends(get_db),
-    # Esta linha é a que resolve o erro.
-    # Ela precisa estar na assinatura da sua função.
     datacenter_id: Optional[int] = Query(None)
 ):
-    # O resto do código da função...
+    """
+    Gera e faz o download de um arquivo CSV para o inventário mais recente,
+    filtrado opcionalmente por datacenter.
+    """
     snapshot_query = db.query(InventorySnapshot)
     if datacenter_id:
         snapshot_query = snapshot_query.filter(InventorySnapshot.datacenter_id == datacenter_id)
@@ -1255,7 +1382,8 @@ def download_inventory_csv(
                       .join(InventoryItem, InventoryItem.product_id == Product.id)\
                       .join(ProductType, ProductType.id == Product.product_type_id)\
                       .filter(InventoryItem.snapshot_id == ultimo_snapshot.id)\
-                      .order_by(Product.codigo_rfid).all()
+                      .order_by(Product.codigo_rfid)\
+                      .all()
             
             for codigo, tipo in itens:
                 writer.writerow([codigo, tipo])
@@ -1267,6 +1395,7 @@ def download_inventory_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
 
 # ===================================================================
 # SEÇÃO 6: STARTUP, SHUTDOWN E TAREFAS EM BACKGROUND
