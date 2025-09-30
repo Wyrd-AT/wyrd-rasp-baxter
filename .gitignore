@@ -48,7 +48,7 @@ lib64/
 # A linha acima é uma exceção: se você tiver um .env.example, ele será incluído.
 
 # Logs
-*.log
+*.log*
 
 # Frontend dependencies
 frontend/node_modules/
