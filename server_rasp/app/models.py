@@ -1,4 +1,4 @@
-# app/models.py
+# app/models.py (Versão Unificada e Final)
 from sqlalchemy import (Column, Integer, String, DateTime, JSON, 
                         create_engine, ForeignKey, Table, Float)
 from sqlalchemy.orm import relationship, sessionmaker
@@ -7,7 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite:///./base_rtls_geral.db"
+DATABASE_URL = "sqlite:///./base_rtls_unificado.db"
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}
@@ -23,6 +23,7 @@ painel_andar_association = Table('painel_andar_association', Base.metadata,
     Column('andar_id', Integer, ForeignKey('andares.id'), primary_key=True)
 )
 
+
 # --- Modelo de Painéis de Visualização ---
 
 class PainelVisualizacao(Base):
@@ -31,8 +32,12 @@ class PainelVisualizacao(Base):
     nome = Column(String, unique=True, nullable=False)
     slug = Column(String, unique=True, nullable=False, index=True)
     tipo_layout = Column(String, nullable=False)
+    ordem_exibicao = Column(Integer, default=0)
     
     andares = relationship("Andar", secondary=painel_andar_association, back_populates="paineis")
+
+    def __str__(self):
+        return self.nome
 
 
 # --- Modelos de Localização ---
@@ -46,6 +51,9 @@ class Andar(Base):
     quartos = relationship("Quarto", back_populates="andar")
     paineis = relationship("PainelVisualizacao", secondary=painel_andar_association, back_populates="andares")
 
+    def __str__(self):
+        return self.nome
+
 class Quarto(Base):
     __tablename__ = "quartos"
     id = Column(Integer, primary_key=True, index=True)
@@ -53,10 +61,14 @@ class Quarto(Base):
     andar_id = Column(Integer, ForeignKey("andares.id"), nullable=False)
     pos_x = Column(Float, nullable=True)
     pos_y = Column(Float, nullable=True)
+    quarto_imagem_url = Column(String, nullable=True)
     
     andar = relationship("Andar", back_populates="quartos")
     embarcados = relationship("Embarcado", back_populates="quarto")
     assets = relationship("Asset", back_populates="quarto")
+
+    def __str__(self):
+        return self.nome
 
 
 # --- Modelos Principais ---

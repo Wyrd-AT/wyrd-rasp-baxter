@@ -85,32 +85,10 @@ class AdminAuth(AuthenticationBackend):
 
 authentication_backend = AdminAuth(secret_key="W753y@r159d")
 
-def seed_database():
-    db = SessionLocal()
-    try:
-        num_quartos = db.query(Quarto).count()
-        if num_quartos < NUM_FIXED_ROOMS:
-            logger.info(f"INFO: Detectados {num_quartos}/{NUM_FIXED_ROOMS} quartos. Criando os quartos fixos restantes...")
-            for i in range(num_quartos + 1, NUM_FIXED_ROOMS + 1):
-                quarto_nome = f"Quarto {i}"
-                existing_quarto = db.query(Quarto).filter(Quarto.nome == quarto_nome).first()
-                if not existing_quarto:
-                    db.add(Quarto(nome=quarto_nome))
-            db.commit()
-            logger.info("INFO: Quartos fixos criados com sucesso.")
-    except Exception as e:
-        logger.error(f"ERRO ao 'semear' o banco de dados com quartos fixos: {e}")
-        db.rollback()
-    finally:
-        db.close()
-
-seed_database()
-
 app = FastAPI(title="Wyrd-Baxter Connect")
 
 admin = Admin(app, engine, authentication_backend=authentication_backend)
 
-# Define como cada tabela será exibida no admin
 class AssetAdmin(ModelView, model=Asset):
     column_list = [Asset.id, Asset.nome_ativo, Asset.mac_beacon, Asset.quarto]
     column_searchable_list = [Asset.nome_ativo, Asset.mac_beacon]
@@ -125,33 +103,54 @@ class EmbarcadoAdmin(ModelView, model=Embarcado):
     name_plural = "Embarcados"
     icon = "fa-solid fa-microchip"
 
+# --- CLASSES ATUALIZADAS E NOVAS ABAIXO ---
+
 class QuartoAdmin(ModelView, model=Quarto):
-    column_list = [Quarto.id, Quarto.nome, Quarto.andar, Quarto.pos_x, Quarto.pos_y]
     name = "Quarto"
     name_plural = "Quartos"
     icon = "fa-solid fa-door-closed"
+    column_list = [Quarto.id, Quarto.nome, Quarto.andar, Quarto.pos_x, Quarto.pos_y, Quarto.quarto_imagem_url]
+    # Campos que aparecerão no formulário de edição/criação
+    form_columns = [Quarto.andar, Quarto.nome, Quarto.pos_x, Quarto.pos_y, Quarto.quarto_imagem_url]
+
 
 class AndarAdmin(ModelView, model=Andar):
-    column_list = [Andar.id, Andar.nome, Andar.planta_imagem_url]
     name = "Andar"
     name_plural = "Andares"
     icon = "fa-solid fa-layer-group"
+    column_list = [Andar.id, Andar.nome, Andar.planta_imagem_url]
+    form_columns = [Andar.nome, Andar.planta_imagem_url]
+
+
 
 class PainelAdmin(ModelView, model=PainelVisualizacao):
-    name = "Painel"
-    name_plural = "Painéis"
+    name = "Painel de Visualização"
+    name_plural = "Painéis de Visualização"
     icon = "fa-solid fa-display"
-    column_list = [PainelVisualizacao.id, PainelVisualizacao.nome, PainelVisualizacao.slug, PainelVisualizacao.tipo_layout, PainelVisualizacao.andares]
-    form_columns = [PainelVisualizacao.nome, PainelVisualizacao.slug, PainelVisualizacao.tipo_layout, PainelVisualizacao.andares]
-
+    
+    column_list = [PainelVisualizacao.nome, PainelVisualizacao.tipo_layout, PainelVisualizacao.andares]
+    
+    # ESTA É A FORMA CORRETA E MAIS SIMPLES DE CRIAR UM DROPDOWN
+    form_choices = {
+        'tipo_layout': [
+            ('planta_unica', 'Planta Única com Pontos (ex: FF)'),
+            ('grade_quartos', 'Grade de Quartos Individuais (ex: HSA)'),
+            ('empilhado', 'Múltiplas Plantas Empilhadas (ex: Bbraun)')
+            # Adicione outras opções como 'lado_a_lado' aqui se desejar no futuro
+        ]
+    }
+    
+    form_columns = [
+        PainelVisualizacao.nome,
+        PainelVisualizacao.slug,
+        PainelVisualizacao.tipo_layout, # Agora ele usará o 'form_choices' automaticamente
+        PainelVisualizacao.andares
+    ]
 
 class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
     can_create = False
     can_edit = False
-    column_list = [
-        ReceivedEvent.id, ReceivedEvent.data_on, ReceivedEvent.ativo,
-        ReceivedEvent.action, ReceivedEvent.status, ReceivedEvent.rssi
-    ]
+    column_list = [ReceivedEvent.id, ReceivedEvent.data_on, ReceivedEvent.ativo, ReceivedEvent.action, ReceivedEvent.status, ReceivedEvent.rssi]
     column_searchable_list = [ReceivedEvent.ativo, ReceivedEvent.esp_id]
     column_sortable_list = [ReceivedEvent.id, ReceivedEvent.data_on]
     name = "Evento Recebido"

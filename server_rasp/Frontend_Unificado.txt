@@ -4,8 +4,12 @@ ARQUIVO: app/web/templates/asset_form.html
 {# asset_form.html (HSA ATUALIZADO) #}
 <div class="form-card">
     <form action="{{ form_action }}" method="post">
-        <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativo{% endif %}</h3>
-
+        <div class="form-header">
+            <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativos{% endif %}</h3>
+            <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if asset else 'Salvar' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="2a else 'S4" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            </button>
+        </div>
         <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
             <div class="form-group">
                 <label for="nome_ativo">Nome do Ativo</label>
@@ -22,10 +26,6 @@ ARQUIVO: app/web/templates/asset_form.html
                 <label for="tipo_ativo">Tipo de Ativo</label>
                 <input type="text" id="tipo_ativo" name="tipo_ativo" value="{{ asset.tipo_ativo if asset else '' }}" placeholder="Ex: Cama Hospitalar">
             </div>
-
-            <button type="submit" class="icon-btn" title="{{ 'Atualizar' if asset else 'Salvar' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-            </button>
         </div>
     </form>
 </div>
@@ -47,9 +47,7 @@ ARQUIVO: app/web/templates/assets_list.html
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
         <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
@@ -191,41 +189,40 @@ ARQUIVO: app/web/templates/base.html
             overlay.addEventListener('click', toggleSidebar);
         }
         
-        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
+        const toggleFormsBtn = document.getElementById('forms-toggle-btn');
         const formsContainer = document.getElementById('forms-container');
 
         // Só executa se o botão e o container existirem nesta página
         if (toggleFormsBtn && formsContainer) {
             
-            // Função para atualizar o texto do tooltip (title) do botão
-            const updateButtonTitle = () => {
+            // Função para atualizar o texto do botão
+            const updateButtonText = () => {
                 if (formsContainer.classList.contains('collapsed')) {
-                    toggleFormsBtn.title = 'Mostrar Formulários';
+                    toggleFormsBtn.textContent = 'Mostrar Formulários';
                 } else {
-                    toggleFormsBtn.title = 'Recolher Formulários';
+                    toggleFormsBtn.textContent = 'Recolher Formulários';
                 }
             };
-
+            
             // Ao carregar a página, verifica se o estado "recolhido" estava salvo
             if (localStorage.getItem('formsCollapsed') === 'true') {
                 formsContainer.classList.add('collapsed');
-                toggleFormsBtn.classList.add('collapsed');
             }
-            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+            updateButtonText(); // Garante que o texto esteja correto no carregamento
 
             // Adiciona o evento de clique ao botão
             toggleFormsBtn.addEventListener('click', () => {
-                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
+                // Alterna a classe 'collapsed' no container
                 formsContainer.classList.toggle('collapsed');
-                toggleFormsBtn.classList.toggle('collapsed');
-
-                // Atualiza o texto do title para o novo estado
-                updateButtonTitle();
+                
+                // Atualiza o texto do botão para o novo estado
+                updateButtonText();
 
                 // Salva o estado atual no armazenamento local
                 localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
             });
         }
+
         
         function conectarWebSocket() {
             const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -290,17 +287,21 @@ ARQUIVO: app/web/templates/base.html
 ========================================
 ARQUIVO: app/web/templates/embarcado_form.html
 ========================================
-{# embarcado_form.html #}
 <form action="{{ form_action }}" method="post">
-    <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
     
-    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr auto;">
+    <div class="form-header">
+        <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
+        <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if embarcado else 'Salvar' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        </button>
+    </div>
+    
+    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
         <div class="form-group">
             <label for="id_esp">ID da ESP</label>
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         
-        {# NOVO CAMPO ANDAR #}
         <div class="form-group">
             <label for="andar_nome">Andar</label>
             <input type="text" id="andar_nome" name="andar_nome" 
@@ -315,17 +316,12 @@ ARQUIVO: app/web/templates/embarcado_form.html
                    placeholder="Ex: 101, UTI-02" required>
         </div>
         
-        {# O campo RSSI foi movido para uma nova linha para melhor organização #}
-        <div class="form-group" style="grid-column: 1 / 4;"> {# Ocupa 3 colunas #}
+        <div class="form-group" style="grid-column: 1 / 4;">
             <label for="rssi_threshold">RSSI Mínimo Individual (dBm)</label>
             <input type="number" id="rssi_threshold" name="rssi_threshold"
                    value="{{ embarcado.rssi_threshold if embarcado and embarcado.rssi_threshold is not none else '' }}"
                    placeholder="Deixe em branco para usar o global">
         </div>
-
-        <button type="submit" class="icon-btn" title="{{ 'Atualizar' if embarcado else 'Salvar' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-        </button>
     </div>
 </form>
 
@@ -345,9 +341,7 @@ ARQUIVO: app/web/templates/embarcados_list.html
             <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
         <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
@@ -359,27 +353,35 @@ ARQUIVO: app/web/templates/embarcados_list.html
     </div>
     
     <div class="form-card">
-        <form action="{{ url_for('update_settings') }}" method="post">
+    <form action="{{ url_for('update_settings') }}" method="post">
+        
+        <div class="form-header">
             <h3>Configurações Globais</h3>
-            <div class="form-fields-grid">
-                <div class="form-group">
-                    <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
-                    <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inercia_entrada">Inércia de Entrada (ms)</label>
-                    <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inercia_saida">Inércia de Saída (ms)</label>
-                    <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
-                </div>
-                <button type="submit" class="icon-btn" title="Salvar Configurações Globais">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                </button>
+            <button type="submit" class="icon-btn icon-btn-primary" title="Salvar Configurações Globais">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            </button>
+        </div>
+        
+        <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="form-group">
+                <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
+                <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
             </div>
-        </form>
-    </div>
+            <div class="form-group">
+                <label for="conflict_margin_db">Margem de Conflito (dB)</label>
+                <input type="number" name="conflict_margin_db" value="{{ global_settings.conflict_margin_db }}" required>
+            </div>
+            <div class="form-group">
+                <label for="inercia_entrada">Inércia de Entrada (ms)</label>
+                <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
+            </div>
+            <div class="form-group">
+                <label for="inercia_saida">Inércia de Saída (ms)</label>
+                <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
+            </div>
+        </div>
+    </form>
+</div>
 </div>
 
 {# 2. TABELA AGORA VEM DEPOIS DOS FORMULÁRIOS #}
@@ -770,6 +772,223 @@ ARQUIVO: app/web/templates/events_list.html
 
 
 ========================================
+ARQUIVO: app/web/templates/inventario_list.html
+========================================
+{% extends "base.html" %}
+
+{% block title %}Inventário{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Inventário</h1>
+    <div class="header-actions">
+        <button id="toggle-forms-btn" class="icon-btn" title="Mostrar/Esconder Formulário">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
+        </button>
+        <a href="{{ url_for('download_inventory_csv') }}" class="btn-primary">Baixar Dados</a>
+    </div>
+</div>
+
+{# FORMULÁRIO PARA ADICIONAR ITENS #}
+<div class="forms-container-vertical" id="forms-container">
+    <div class="form-card">
+        {% include 'inventario_form.html' with context %}
+    </div>
+</div>
+
+{# NOVO BOTÃO DE ALTERNÂNCIA DE VISÃO #}
+<div style="margin-top: 16px; margin-bottom: 16px;">
+    {% if current_view == 'comparison' %}
+        <a href="{{ request.url.replace_query_params(view='current') }}" class="btn-secondary">Ver Apenas Inventário Atual</a>
+    {% else %}
+        <a href="{{ request.url.replace_query_params(view='comparison') }}" class="btn-secondary">Comparar com Inventário Anterior</a>
+    {% endif %}
+</div>
+
+
+{# --- RENDERIZAÇÃO CONDICIONAL DAS TABELAS --- #}
+
+{# SE A VISÃO FOR 'comparison', MOSTRA A TABELA COMPARATIVA #}
+{% if current_view == 'comparison' %}
+<div class="list-container-full-width">
+    <div class="list-header">
+        <h3>Comparativo de Inventário</h3>
+        <div class="muted">
+            {% if snapshot_atual and snapshot_anterior %}
+                Comparando de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
+            {% elif snapshot_atual %}
+                Exibindo o primeiro inventário salvo em <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
+            {% else %}
+                Nenhum inventário foi salvo ainda.
+            {% endif %}
+        </div>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 40%;">INVENTÁRIO ATUAL</th>
+                <th style="width: 40%;">INVENTÁRIO ANTERIOR</th>
+                <th>MUDANÇA</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in tabela_unificada %}
+            <tr>
+                <td>
+                    {% if row.tipo_atual != '---' %}
+                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_atual }})
+                    {% else %}<span class="muted">---</span>{% endif %}
+                </td>
+                <td>
+                    {% if row.tipo_anterior != '---' %}
+                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_anterior }})
+                    {% else %}<span class="muted">---</span>{% endif %}
+                </td>
+                <td style="font-weight: 500;">
+                    {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span>
+                    {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span>
+                    {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Nenhum item de inventário encontrado para comparar.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+
+{# SE A VISÃO FOR 'current', MOSTRA A TABELA SIMPLES #}
+{% if current_view == 'current' %}
+<div class="list-container-full-width">
+    <div class="list-header">
+        <h3>Inventário Atual</h3>
+        <div class="muted">
+            {% if not snapshot_atual %}
+                Nenhum inventário foi salvo ainda.
+            {% endif %}
+        </div>
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>CÓDIGO RFID</th>
+                <th>TIPO DE PRODUTO</th>
+                <th>DATA DE CRIAÇÃO</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in inventario_atual %}
+            <tr>
+                <td><code>{{ row.codigo_rfid }}</code></td>
+                <td>{{ row.tipo }}</td>
+                <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">Nenhum item no inventário atual.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // --- INÍCIO DA SEÇÃO NOVA ---
+  // 1. Pega o elemento do formulário pelo ID que adicionamos
+  const inventoryForm = document.getElementById('inventory-form');
+  // --- FIM DA SEÇÃO NOVA ---
+
+  const toggleBtn = document.getElementById('toggle-forms-btn');
+  const formsContainer = document.getElementById('forms-container');
+  toggleBtn.addEventListener('click', () => {
+    if (formsContainer.style.display === 'none') {
+        formsContainer.style.display = 'block';
+        toggleBtn.title = "Recolher Formulário";
+    } else {
+        formsContainer.style.display = 'none';
+        toggleBtn.title = "Mostrar Formulário";
+    }
+  });
+
+  const rfidInput = document.getElementById('codigo_rfid');
+  const tipoSelect = document.getElementById('product_type_id');
+  const addBtn = document.getElementById('add-inventory-btn');
+  const pendentesDiv = document.getElementById('pendentes');
+  const hiddenInputsDiv = document.getElementById('hidden-inputs');
+  const clearBtn = document.getElementById('clear-inventory-btn');
+  let buffer = [];
+
+  // --- INÍCIO DA SEÇÃO NOVA ---
+  // 2. Adiciona um "ouvinte" para o evento de SUBMIT do formulário
+  inventoryForm.addEventListener('submit', function(event) {
+    // Se o buffer (nossa lista de itens) estiver vazio...
+    if (buffer.length === 0) {
+      // Impede o envio do formulário
+      event.preventDefault();
+      // Mostra um alerta para o usuário
+      alert("Por favor, adicione pelo menos um item ao inventário antes de salvar.");
+    }
+    // Se o buffer não estiver vazio, o formulário é enviado normalmente.
+  });
+  // --- FIM DA SEÇÃO NOVA ---
+  
+  function renderPendingItems(){
+    if(buffer.length === 0){
+      pendentesDiv.innerHTML = '<div class="muted">Nenhum item adicionado para salvar.</div>';
+      hiddenInputsDiv.innerHTML = '';
+      return;
+    }
+    pendentesDiv.innerHTML = '<ul>' + buffer.map((item, index) => (
+      `<li style="display:flex; align-items:center; gap:6px; margin-bottom: 4px;">
+        <code>${item.codigo}</code> — ${item.tipoNome}
+        <button type="button" class="icon-btn" title="Remover" onclick="removePendingItem(${index})"
+                style="display:inline-flex; align-items:center; justify-content:center;
+                       width:20px; height:20px; padding:0; margin:0; border-radius: 50%;">
+          <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/close.svg') }}); width:14px; height:14px;"></span>
+        </button>
+      </li>`
+    )).join('') + '</ul>';
+    hiddenInputsDiv.innerHTML = buffer.map(item =>
+      `<input type="hidden" name="codigos" value="${item.codigo}"/>
+       <input type="hidden" name="tipos" value="${item.tipoId}"/>`
+    ).join('');
+  }
+  window.removePendingItem = (index) => {
+    buffer.splice(index, 1);
+    renderPendingItems();
+  }
+  addBtn?.addEventListener('click', () => {
+    const codigo = (rfidInput.value || '').trim().toUpperCase();
+    if(!codigo){ rfidInput.focus(); return; }
+    if (buffer.some(item => item.codigo === codigo)) {
+        // Silencioso: só limpa e segue o baile
+        rfidInput.value = '';
+        // opcional: manter foco para leitura contínua
+        rfidInput.focus();
+        return;
+    }
+    const tipoId = tipoSelect.value;
+    const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text;
+    buffer.push({codigo: codigo, tipoId: tipoId, tipoNome: tipoNome});
+    rfidInput.value = ''; rfidInput.focus(); renderPendingItems();
+  });
+  rfidInput?.addEventListener('keydown', e => {
+    if(e.key === 'Enter'){ e.preventDefault(); addBtn.click(); }
+  });
+  clearBtn?.addEventListener('click', () => { buffer = []; renderPendingItems(); });
+  renderPendingItems();
+});
+</script>
+{% endblock %}
+
+
+========================================
 ARQUIVO: app/web/templates/login.html
 ========================================
 <!DOCTYPE html>
@@ -866,114 +1085,158 @@ ARQUIVO: app/web/templates/planta_baixa.html
 ========================================
 {% extends "base.html" %}
 
-{% block title %}Plantas Baixas{% endblock %}
+{% block title %}{{ painel.nome }}{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Plantas Baixas</h1>
+    <h1>{{ painel.nome }}</h1>
+    <a href="{{ url_for('list_paineis') }}" class="btn-primary">VOLTAR AOS PAINÉIS</a>
 </div>
 
-<div id="planta-grid" class="planta-grid-container">
+<div id="renderer-container" class="renderer-container">
     </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const gridContainer = document.getElementById('planta-grid');
+    const rendererContainer = document.getElementById('renderer-container');
+    const slugPainel = "{{ painel.slug }}";
 
-    const coordenadasDosPontos = {
-        'quarto-1': { top: '40%', left: '50%' },
-        'quarto-2': { top: '50%', left: '70%' },
-        'quarto-3': { top: '50%', left: '50%' },
-        'quarto-4': { top: '50%', left: '50%' },
-        'quarto-5': { top: '65%', left: '50%' },
-        'quarto-6': { top: '50%', left: '48%' }
-    };
+    // Função que desenha um único ponto (quarto) na tela
+    function renderizarPonto(quarto) {
+        const pontoContainer = document.createElement('div');
+        pontoContainer.className = 'ponto-quarto-container';
+        pontoContainer.style.position = 'absolute';
+        pontoContainer.style.left = `${quarto.pos_x}%`;
+        pontoContainer.style.top = `${quarto.pos_y}%`;
+        
+        let statusColor = '#6c757d'; // Cinza (Offline) por padrão
+        if (quarto.status_embarcado === 'Online') {
+            statusColor = quarto.numero_ativos > 0 ? '#28a745' : '#dc3545'; // Verde (Ocupado) ou Vermelho (Livre)
+        }
 
+        let ativosTooltip = quarto.ativos.map(a => `\n- ${a.nome}`).join('');
+        pontoContainer.title = `${quarto.nome_quarto}${ativosTooltip || '\nLivre'}`;
+
+        pontoContainer.innerHTML = `
+            <span class="ponto-nome-quarto">${quarto.nome_quarto}</span>
+            <div class="ponto-quarto-status" style="background-color: ${statusColor};"></div>
+            <span class="ponto-nome-cama">${quarto.numero_ativos > 0 ? quarto.ativos[0].nome : 'Livre'}</span>
+        `;
+        return pontoContainer;
+    }
+
+    // Função que desenha um andar inteiro (imagem de fundo + pontos)
+    function renderizarAndar(andar) {
+        const andarContainer = document.createElement('div');
+        andarContainer.className = 'planta-container-dinamica';
+        andarContainer.style.backgroundImage = `url(${andar.imagem_url})`;
+
+        const pontosContainer = document.createElement('div');
+        pontosContainer.className = 'planta-pontos-container';
+
+        andar.quartos.forEach(quarto => {
+            if (quarto.pos_x != null && quarto.pos_y != null) {
+                pontosContainer.appendChild(renderizarPonto(quarto));
+            }
+        });
+        
+        andarContainer.appendChild(pontosContainer);
+        return andarContainer;
+    }
+
+    // Função principal que busca os dados e decide o layout
     function atualizarPlanta() {
-        fetch("{{ url_for('get_planta_dados') }}")
+        fetch(`/api/plantas/${slugPainel}`)
             .then(response => response.json())
-            .then(dadosQuartos => {
-                gridContainer.innerHTML = '';
+            .then(data => {
+                rendererContainer.innerHTML = ''; // Limpa o conteúdo antigo
+                rendererContainer.className = 'renderer-container'; // Reseta as classes
 
-                dadosQuartos.forEach(quarto => {
-                    const quartoContainer = document.createElement('div');
-                    quartoContainer.className = 'quarto-container';
-                    quartoContainer.id = quarto.id_quarto;
-
-                    const tituloH3 = document.createElement('h3');
-                    tituloH3.className = 'quarto-titulo';
-                    tituloH3.textContent = quarto.nome_quarto;
-
-                    const imgSvg = document.createElement('img');
-                    const numeroDoQuarto = quarto.id_quarto.split('-')[1];
-                    imgSvg.src = `{{ url_for('static', path='maps/') }}${numeroDoQuarto}.svg`;
-
-                    const pontoDiv = document.createElement('div');
-                    pontoDiv.className = 'ponto-status-overlay';
-                    const coords = coordenadasDosPontos[quarto.id_quarto] || { top: '50%', left: '50%' };
-                    pontoDiv.style.top = coords.top;
-                    pontoDiv.style.left = coords.left;
-                    pontoDiv.style.transform = 'translate(-50%, -50%)';
-
-                    // --- NOVA LÓGICA DE CORES ---
-                    if (quarto.status_embarcado === 'Offline') {
-                        pontoDiv.style.backgroundColor = '#6c757d'; // Cinza para Offline
-                    } else if (quarto.numero_ativos > 0) {
-                        pontoDiv.style.backgroundColor = '#28a745'; // Verde para Ocupado
-                    } else {
-                        pontoDiv.style.backgroundColor = '#dc3545'; // Vermelho para Livre (mas Online)
-                    }
-
-                    const contagemP = document.createElement('p');
-                    contagemP.className = 'quarto-asset-count';
-                    const textoAtivos = quarto.numero_ativos === 1 ? '1 ativo' : `${quarto.numero_ativos} ativos`;
-                    
-                    if (quarto.status_embarcado === 'Offline') {
-                        contagemP.textContent = 'Embarcado Offline';
-                    } else {
-                        contagemP.textContent = quarto.numero_ativos > 0 ? textoAtivos : 'Livre';
-                    }
-                    
-                    // --- NOVA LÓGICA DE TOOLTIP ---
-                    let tooltipText = `${quarto.nome_quarto}`;
-                    if (quarto.status_embarcado === 'Offline') {
-                        tooltipText += `\n(Embarcado Offline)`;
-                    } else if (quarto.numero_ativos > 0) {
-                        // Itera sobre a nova lista de ativos detalhados
-                        quarto.ativos.forEach(ativo => {
-                            tooltipText += `\n- ${ativo.nome} (Entrada: ${ativo.horario_entrada})`;
+                switch (data.tipo_layout) {
+                    case 'lado_a_lado':
+                        rendererContainer.classList.add('layout-lado-a-lado');
+                        data.andares.forEach(andar => {
+                            rendererContainer.appendChild(renderizarAndar(andar));
                         });
-                    } else {
-                        tooltipText += `\nLivre`;
-                    }
-                    pontoDiv.title = tooltipText;
-
-                    quartoContainer.appendChild(tituloH3);
-                    quartoContainer.appendChild(imgSvg);
-                    quartoContainer.appendChild(pontoDiv);
-                    quartoContainer.appendChild(contagemP);
+                        break;
                     
-                    gridContainer.appendChild(quartoContainer);
-                });
+                    case 'empilhado':
+                        rendererContainer.classList.add('layout-empilhado');
+                        data.andares.forEach(andar => {
+                            rendererContainer.appendChild(renderizarAndar(andar));
+                        });
+                        break;
+                    
+                    case 'grid_hsa':
+                         rendererContainer.classList.add('planta-grid-container'); // Reutiliza sua classe antiga
+                         // A lógica aqui seria um pouco diferente, talvez renderizando cards em vez de plantas
+                         // Por enquanto, vamos renderizar as plantas no grid
+                         data.andares.forEach(andar => {
+                            rendererContainer.appendChild(renderizarAndar(andar));
+                        });
+                        break;
+                    
+                    // Outros layouts como 'abas' podem ser adicionados aqui
+
+                    case 'unico':
+                    default:
+                        rendererContainer.classList.add('layout-unico');
+                        if (data.andares.length > 0) {
+                            rendererContainer.appendChild(renderizarAndar(data.andares[0]));
+                        }
+                        break;
+                }
             });
     }
 
-    window.addEventListener('websocket_open', function() {
-        console.log("Planta Baixa: WebSocket conectado. Carregando dados iniciais.");
-        atualizarPlanta();
-    });
-
-    // Ouve pelo evento 'atualizar_estado' disparado pelo base.html
-    window.addEventListener('websocket_message', function (event) {
+    // Gatilhos para atualização
+    window.addEventListener('websocket_open', atualizarPlanta);
+    window.addEventListener('websocket_message', (event) => {
         if (event.detail === "ATUALIZAR_ESTADO") {
-            console.log("Planta Baixa: Sinal de atualização recebido.");
             atualizarPlanta();
         }
     });
+
+    // Carga inicial
+    atualizarPlanta();
 });
 </script>
+{% endblock %}
+
+
+========================================
+ARQUIVO: app/web/templates/plantas_index.html
+========================================
+{% extends "base.html" %}
+
+{% block title %}Seleção de Planta Baixa{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Painéis de Visualização</h1>
+</div>
+
+<div class="room-cards-container-fullwidth">
+    {% for painel in paineis %}
+    <a href="{{ url_for('view_painel', slug_painel=painel.slug) }}" style="text-decoration: none;">
+        <div class="room-card">
+            <div class="room-card-header">
+                <h3>{{ painel.nome }}</h3>
+            </div>
+            <div class="room-block-body">
+                <p class="no-assets-message">Layout: <strong>{{ painel.tipo_layout }}</strong></p>
+            </div>
+        </div>
+    </a>
+    {% else %}
+    <div class="form-card">
+        <p>Nenhum painel de visualização foi configurado ainda.</p>
+        <p>Vá para a <a href="/admin">Interface de Administrador</a> para criar um.</p>
+    </div>
+    {% endfor %}
+</div>
 {% endblock %}
 
 
@@ -1105,7 +1368,7 @@ ARQUIVO: app/web/templates/sidebar.html
         <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
             <span class="nav-text">Quartos</span>
-        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
+        <a href="{{ url_for('list_paineis') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
             <span class="nav-text">Planta</span>
         </a>
