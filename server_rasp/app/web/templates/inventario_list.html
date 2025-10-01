@@ -54,26 +54,39 @@
     </div>
 </div>
 
-<div class="form-card">
+<div class="form-card" style="margin-top: 1.5rem;">
     <h3>Leitura por Pistola RFID</h3>
-    <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
-    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-        <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
-        <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
+
+    <div class="scan-controls-container">
         
-        <button id="cancel-scan-btn" class="btn-danger-outline" style="display: none;">Cancelar</button>
+        <div class="scan-control-group">
+            <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
+            <div style="display: flex; gap: 10px;">
+                <button id="start-scan-btn" class="btn-primary">Iniciar Leitura</button>
+                <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
+            </div>
+        </div>
+
+        <div class="scan-control-group">
+            <div class="form-group">
+                <label>Modo de Leitura:</label>
+                <div style="display: flex; flex-direction: column; gap: 2px; margin-top: 1px;">
+                    <label style="cursor:pointer; font-weight: normal;"><input type="radio" name="scan_mode" value="automatico" checked> Automático (Contínuo)</label>
+                    <label style="cursor:pointer; font-weight: normal;"><input type="radio" name="scan_mode" value="gatilho"> Por Gatilho</label>
+                </div>
+            </div>
+        </div>
+
+
     </div>
-    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 24px; border-top: 1px solid #eee; padding-top: 16px;">
-        <h4>Tags Lidas na Sessão: <span id="scan-total-count" class="muted" style="font-size: 0.9em;"></span></h4>
-        <button id="clear-scan-btn" class="btn-danger-outline btn-sm" style="display: none;">Limpar Lista</button>
-    </div>
-    <div id="scanned-tags-list" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
+
+    <h4 style="margin-top: 24px; border-top: 1px solid #eee; padding-top: 16px;">Tags Lidas na Sessão:</h4>
+    <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
         <div class="muted">Aguardando início da leitura...</div>
     </div>
 </div>
 
-
-{% if current_view == 'comparison' %} 
+{% if current_view == 'comparison' %}
 <div class="list-container-full-width">
     <div class="list-header">
         <h3>Comparativo de Inventário</h3>
@@ -90,8 +103,8 @@
     <table class="data-table">
         <thead>
             <tr>
-                <th style="width: 40%;">INVENTÁRIO ATUAL ({{ count_atual }})</th> 
-                <th style="width: 40%;">INVENTÁRIO ANTERIOR ({{ count_anterior }})</th> 
+                <th style="width: 40%;">INVENTÁRIO ATUAL</th> 
+                <th style="width: 40%;">INVENTÁRIO ANTERIOR</th> 
                 <th>MUDANÇA</th> 
             </tr>
         </thead>
@@ -125,7 +138,7 @@
 {% if current_view == 'current' %}
 <div class="list-container-full-width">
     <div class="list-header">
-        <h3>Inventário Atual (Total: {{ count_atual }})</h3>
+        <h3>Inventário Atual</h3>
         <div class="muted">
             {% if not snapshot_atual %} 
                 Nenhum inventário foi salvo ainda para este datacenter. 
@@ -408,110 +421,74 @@ document.addEventListener('DOMContentLoaded', function () {
 document.addEventListener('DOMContentLoaded', function () {
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
-    const cancelBtn = document.getElementById('cancel-scan-btn'); // NOVO: Captura o botão de cancelar
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
-    const totalCountSpan = document.getElementById('scan-total-count');
-    let scannedTags = [];
 
-    if (startBtn) {
-        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
-        
-        rfidSocket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
-        rfidSocket.onclose = () => { 
-            statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
-            startBtn.disabled = true; 
-            stopBtn.disabled = true; 
-            cancelBtn.disabled = true; // NOVO: Desabilita ao desconectar
-        };
-        
-        rfidSocket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'scan_status' || data.type === 'scan_error') {
-                statusDiv.textContent = `Status: ${data.message}`;
-                // ALTERADO: Gerencia o estado dos 3 botões ao finalizar
-                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelado")) {
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
-                    cancelBtn.style.display = 'none'; // Esconde o botão de cancelar
-                }
-            }
-            if (data.type === 'tag_scanned') {
-                if (!scannedTags.includes(data.tag_id)) {
-                    
-                    // 1. Adiciona à nossa lista de controle e atualiza a contagem
-                    scannedTags.push(data.tag_id);
-                    if(totalCountSpan) totalCountSpan.textContent = `(Total: ${scannedTags.length})`;
+    // A lógica de conexão WebSocket permanece a mesma
+    const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
+    
+    socket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
+    socket.onclose = () => { statusDiv.textContent = "Status: Desconectado. Recarregue a página."; startBtn.disabled = true; stopBtn.disabled = true; };
+    
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
 
-                    // 2. Limpa a mensagem "Aguardando..." se for a primeira tag
-                    if (tagsListDiv.querySelector('.muted')) {
-                        tagsListDiv.innerHTML = '';
-                    }
+        // Atualiza a mensagem de status
+        if (data.type === 'scan_status' || data.type === 'scan_error') {
+            statusDiv.textContent = `Status: ${data.message}`;
 
-                    // 3. Cria o elemento visual e o adiciona na tela
-                    const tagElement = document.createElement('code');
-                    tagElement.textContent = data.tag_id;
-                    tagElement.style.margin = '4px'; // Mantém o espaçamento
-                    tagsListDiv.appendChild(tagElement);
-                }
-            }
-        };
-
-        startBtn.addEventListener('click', () => {
-            const datacenterId = dcSelect.value;
-            if (!datacenterId) {
-                alert("Por favor, selecione um datacenter primeiro.");
-                return;
+            // --- MUDANÇA 1: Limpa a lista de tags SOMENTE se o scan iniciou com sucesso ---
+            if (data.message.includes("Scan iniciado")) {
+                tagsListDiv.innerHTML = '<div class="muted">Aguardando tags...</div>';
             }
 
-            if (rfidSocket.readyState === WebSocket.OPEN) {
-                rfidSocket.send(JSON.stringify({
-                    action: "start_scan",
-                    datacenter_id: parseInt(datacenterId)
-                }));
-
-                statusDiv.textContent = "Status: Iniciando...";
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
-                cancelBtn.style.display = 'inline-block'; // NOVO: Mostra o botão de cancelar
-                cancelBtn.disabled = false;             // NOVO: Habilita o botão de cancelar
-                
-                // Reseta o estado da interface para a nova sessão
-                scannedTags = []; 
-                if(totalCountSpan) totalCountSpan.textContent = `(Total: 0)`;
-                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
-            } else {
-                alert("Erro: Conexão com o servidor de scan não está aberta.");
-            }
-        });
-
-        stopBtn.addEventListener('click', () => {
-            const datacenterId = dcSelect.value;
-            if (rfidSocket.readyState === WebSocket.OPEN) {
-                rfidSocket.send(JSON.stringify({
-                    action: "stop_scan_and_save", // Ação correta para parar e salvar
-                    datacenter_id: parseInt(datacenterId)
-                }));
-            }
-        });
-
-        // --- NOVO: LÓGICA PARA O BOTÃO DE CANCELAR ---
-        cancelBtn.addEventListener('click', () => {
-            if (confirm('Tem certeza que deseja cancelar o scan? As tags lidas serão descartadas.')) {
-                if (rfidSocket.readyState === WebSocket.OPEN) {
-                    rfidSocket.send(JSON.stringify({
-                        action: "cancel_scan"
-                    }));
-                }
-                // Reseta a interface imediatamente para dar feedback rápido
-                statusDiv.textContent = "Status: Cancelando...";
+            // Reseta os botões em caso de erro ou finalização
+            if (data.message.includes("finalizado") || data.message.includes("cancelado") || data.message.includes("Erro")) {
+                startBtn.disabled = false;
                 stopBtn.disabled = true;
-                cancelBtn.disabled = true;
             }
-        });
-    }
+        }
+
+        // Adiciona uma tag lida
+        if (data.type === 'tag_scanned') {
+            if (tagsListDiv.querySelector('.muted')) {
+                tagsListDiv.innerHTML = ''; // Limpa a mensagem "Aguardando..."
+            }
+            const tagElement = document.createElement('code');
+            tagElement.textContent = data.tag_id;
+            tagsListDiv.appendChild(tagElement);
+        }
+    };
+
+    startBtn.addEventListener('click', () => {
+        const datacenterId = dcSelect.value;
+        if (!datacenterId) {
+            alert("Por favor, selecione um datacenter primeiro.");
+            return;
+        }
+
+        socket.send(JSON.stringify({
+            action: "start_scan",
+            datacenter_id: parseInt(datacenterId)
+        }));
+
+        // --- MUDANÇA 2: O botão apenas atualiza o status e os botões, NÃO limpa a lista ---
+        statusDiv.textContent = "Status: Iniciando scan...";
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+    });
+
+    stopBtn.addEventListener('click', () => {
+        const datacenterId = dcSelect.value;
+        socket.send(JSON.stringify({
+            action: "stop_scan",
+            datacenter_id: parseInt(datacenterId)
+        }));
+        // O status e os botões serão atualizados quando a mensagem "Scan finalizado" chegar do backend
+    });
 });
 </script>
+
 {% endblock %}
