@@ -13,8 +13,10 @@ from .models import InventorySnapshot, InventoryItem, Product, ProductType
 logger = logging.getLogger(__name__)
 
 async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
-    """Tarefa de fundo com timeouts para maior robustez."""
-    PORTA_SERIAL = 'COM22' # Ou 'COM3' no Windows
+    """
+    Tarefa de fundo que coloca a pistola em modo de gatilho e ouve as tags lidas.
+    """
+    PORTA_SERIAL = '/dev/rfcomm0' # Ou 'COM3' no Windows
     tags_lidas = set()
     reader, writer = None, None
 
@@ -24,34 +26,30 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
             timeout=5.0
         )
 
-        writer.write(b'.iv\r\n')
-        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Scan iniciado, aguardando resposta da pistola..."}))
+        # --- MUDANÇA PRINCIPAL AQUI ---
+        # 1. Configura a pistola para usar o gatilho para inventário.
+        writer.write(b'.sa -s inv\r\n')
+        await writer.drain() # Espera o comando ser enviado
         
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione o gatilho para ler."}))
+        
+        # 2. O loop agora só escuta. Ele não envia mais o comando .iv.
         while True:
-            try:
-                # Espera por uma resposta por no máximo 10 segundos
-                linha_bytes = await asyncio.wait_for(reader.readline(), timeout=10.0)
-                linha = linha_bytes.decode('ascii').strip()
+            # O timeout aqui serve para fechar a sessão se o usuário ficar inativo por muito tempo
+            linha_bytes = await asyncio.wait_for(reader.readline(), timeout=300.0) # Timeout de 5 minutos
+            linha = linha_bytes.decode('ascii').strip()
 
-                if linha.startswith('EP:'):
-                    tag_id = linha[4:]
-                    if tag_id not in tags_lidas:
-                        tags_lidas.add(tag_id)
-                        await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
-                
-                # --- CORREÇÃO PRINCIPAL ---
-                # A condição que quebrava o loop com "OK:" foi REMOVIDA daqui.
-                # O loop agora só para por cancelamento ou timeout.
-
-            except asyncio.TimeoutError:
-                # Se o leitor ficar 10s sem enviar NADA (nem mesmo linhas em branco), consideramos que a conexão pode ter problemas.
-                await websocket.send_text(json.dumps({"type": "scan_error", "message": "A pistola parou de responder."}))
-                break # Sai do loop principal
-
+            if linha.startswith('EP:'):
+                tag_id = linha[4:]
+                if tag_id not in tags_lidas:
+                    tags_lidas.add(tag_id)
+                    # Envia a nova tag para o frontend em tempo real
+                    await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
+    
+    except asyncio.TimeoutError:
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão finalizada por inatividade."}))
     except (serial.SerialException, FileNotFoundError):
         await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro: Porta serial '{PORTA_SERIAL}' indisponível ou desconectada."}))
-    except asyncio.TimeoutError:
-        await websocket.send_text(json.dumps({"type": "scan_error", "message": "Erro: Não foi possível conectar ao leitor a tempo."}))
     except asyncio.CancelledError:
         logger.info("Tarefa de scan foi cancelada pelo usuário.")
         raise
@@ -60,14 +58,15 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     finally:
         logger.info("Finalizando tarefa de scan e limpando recursos.")
         if writer and not writer.is_closing():
-            writer.write(b'.ab\r\n')
+            # --- MUDANÇA PRINCIPAL AQUI ---
+            # 3. Desativa o modo de gatilho ao finalizar, uma boa prática.
+            writer.write(b'.sa -s off\r\n') 
             await writer.drain()
             writer.close()
             logger.info(f"Porta serial {PORTA_SERIAL} fechada.")
         
-        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Scan finalizado."}))
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão de leitura finalizada."}))
         return list(tags_lidas)
-
 
 def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):
     """Pega uma lista de tags e salva como um novo snapshot de inventário."""
