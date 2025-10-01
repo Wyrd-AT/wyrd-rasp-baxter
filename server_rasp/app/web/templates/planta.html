@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ painel_atual.nome }}{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>
+        <select id="painel-selector" class="filter-dropdown-main" style="font-size: 1.5rem; border: none; font-family: 'Lexend', sans-serif;">
+            {% for painel in todos_paineis %}
+                <option value="{{ painel.slug }}" {% if painel.slug == painel_atual.slug %}selected{% endif %}>{{ painel.nome }}</option>
+            {% endfor %}
+        </select>
+    </h1>
+</div>
+
+<div id="renderer-container" class="renderer-container">
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const selector = document.getElementById('painel-selector');
+    const rendererContainer = document.getElementById('renderer-container');
+
+    // Função para renderizar a GRADE DE QUARTOS (lógica da HSA original)
+    function renderizarGradeDeQuartos(data) {
+        rendererContainer.innerHTML = '';
+        rendererContainer.className = 'renderer-container room-cards-container-fullwidth'; // Reutiliza a classe de grid de cards
+        
+        data.quartos.forEach(quarto => {
+            const textoStatus = quarto.status_embarcado === 'Online' 
+                ? (quarto.numero_ativos > 0 ? `${quarto.numero_ativos} ativo(s)` : 'Livre') 
+                : 'Offline';
+
+            const card = document.createElement('div');
+            card.className = 'room-card';
+            card.innerHTML = `
+                <div class="room-card-header"><h3>${quarto.nome_quarto}</h3></div>
+                <div class="room-block-body" style="text-align: center; padding-top: 1rem;">
+                    ${quarto.imagem_url ? `<img src="${quarto.imagem_url}" style="max-height: 150px; object-fit: contain; margin-bottom: 1rem;">` : ''}
+                    <p>${textoStatus}</p>
+                </div>
+            `;
+            rendererContainer.appendChild(card);
+        });
+    }
+
+    // Função para renderizar PLANTAS BAIXAS (lógica nova para FF e Bbraun)
+    function renderizarPlanta(data) {
+        rendererContainer.innerHTML = '';
+        rendererContainer.className = `renderer-container layout-${data.tipo_layout}`;
+
+        data.andares.forEach(andar => {
+            if (!andar.imagem_url) return;
+
+            const andarContainer = document.createElement('div');
+            andarContainer.className = 'planta-container-dinamica';
+            andarContainer.style.backgroundImage = `url(${andar.imagem_url})`;
+            
+            const pontosContainer = document.createElement('div');
+            pontosContainer.className = 'planta-pontos-container';
+            
+            andar.quartos.forEach(quarto => {
+                if (quarto.pos_x != null && quarto.pos_y != null) {
+                    const statusColor = quarto.status_embarcado === 'Online' ? (quarto.numero_ativos > 0 ? '#28a745' : '#dc3545') : '#6c757d';
+                    const ponto = document.createElement('div');
+                    ponto.className = 'ponto-quarto-status';
+                    ponto.style.position = 'absolute';
+                    ponto.style.left = `${quarto.pos_x}%`;
+                    ponto.style.top = `${quarto.pos_y}%`;
+                    ponto.style.backgroundColor = statusColor;
+                    
+                    let tooltip = `${quarto.nome_quarto}`;
+                    quarto.ativos.forEach(a => { tooltip += `\n- ${a.nome}`; });
+                    ponto.title = tooltip || `${quarto.nome_quarto}\nLivre`;
+
+                    pontosContainer.appendChild(ponto);
+                }
+            });
+            andarContainer.appendChild(pontosContainer);
+            rendererContainer.appendChild(andarContainer);
+        });
+    }
+
+    // Função principal que carrega o painel selecionado
+    function carregarPainel(slug) {
+        if (!slug) {
+            rendererContainer.innerHTML = "<p>Por favor, selecione um painel de visualização.</p>";
+            return;
+        }
+
+        // Atualiza a URL no navegador sem recarregar a página
+        window.history.pushState({slug: slug}, '', `/plantas/${slug}`);
+
+        fetch(`/api/painel/${slug}`)
+            .then(response => {
+                if (!response.ok) { throw new Error('Painel não encontrado'); }
+                return response.json();
+            })
+            .then(data => {
+                if (data.tipo_layout === 'grade_quartos') {
+                    renderizarGradeDeQuartos(data);
+                } else {
+                    renderizarPlanta(data);
+                }
+            })
+            .catch(error => {
+                rendererContainer.innerHTML = `<p style="color: red;">Erro ao carregar o painel: ${error.message}</p>`;
+            });
+    }
+
+    // Evento para quando o usuário troca a opção no dropdown
+    selector.addEventListener('change', () => carregarPainel(selector.value));
+    
+    // Evento para atualizar a visualização quando o WebSocket avisar
+    window.addEventListener('websocket_message', (event) => {
+        if (event.detail === "ATUALIZAR_ESTADO") {
+            carregarPainel(selector.value);
+        }
+    });
+
+    // Carga inicial da página
+    carregarPainel(selector.value);
+});
+</script>
+{% endblock %}
