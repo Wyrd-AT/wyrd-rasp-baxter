@@ -3,7 +3,6 @@ import json
 import asyncio
 import serial_asyncio
 from typing import List
-from .connection_manager import manager # <-- Importa o gerenciador de conexões
 
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
@@ -13,10 +12,9 @@ from .models import InventorySnapshot, InventoryItem, Product, ProductType
 
 logger = logging.getLogger(__name__)
 
-
-async def rfid_scan_task(client_id: str, datacenter_id: int) -> List[str]:
+async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     """
-    Tarefa de fundo que se conecta à pistola e usa o 'manager' para enviar os dados.
+    Tarefa de fundo que coloca a pistola em modo de gatilho e ouve as tags lidas.
     """
     PORTA_SERIAL = 'COM22' # Ou 'COM3', 'COM22' etc. no Windows
     tags_lidas = set()
@@ -27,36 +25,42 @@ async def rfid_scan_task(client_id: str, datacenter_id: int) -> List[str]:
             serial_asyncio.open_serial_connection(url=PORTA_SERIAL, baudrate=115200),
             timeout=5.0
         )
+
+        # A lógica agora é fixa: sempre ativa o modo de gatilho
         writer.write(b'.sa -s inv\r\n')
         await writer.drain()
-        # Usa o manager para enviar a mensagem de status
-        await manager.send_to_client(client_id, json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione o gatilho para ler."}))
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione o gatilho para ler."}))
         
+        # O loop de escuta continua o mesmo
         while True:
             linha_bytes = await asyncio.wait_for(reader.readline(), timeout=300.0)
             linha = linha_bytes.decode('ascii').strip()
+
             if linha.startswith('EP:'):
                 tag_id = linha[4:]
                 if tag_id not in tags_lidas:
                     tags_lidas.add(tag_id)
-                    # Usa o manager para enviar a tag lida
-                    await manager.send_to_client(client_id, json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
+                    await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
     
     except asyncio.TimeoutError:
-        await manager.send_to_client(client_id, json.dumps({"type": "scan_status", "message": "Sessão finalizada por inatividade."}))
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão finalizada por inatividade."}))
     except (serial.SerialException, FileNotFoundError):
-        await manager.send_to_client(client_id, json.dumps({"type": "scan_error", "message": f"Erro: Porta serial '{PORTA_SERIAL}' indisponível."}))
+        await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro: Porta serial '{PORTA_SERIAL}' indisponível."}))
     except asyncio.CancelledError:
-        logger.info("Tarefa de scan foi cancelada.")
+        logger.info("Tarefa de scan foi cancelada pelo usuário.")
         raise
+    except Exception as e:
+        await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro inesperado: {e}"}))
     finally:
         logger.info("Finalizando tarefa de scan e limpando recursos.")
         if writer and not writer.is_closing():
+            # A limpeza agora é fixa: sempre desativa o modo de gatilho
             writer.write(b'.sa -s off\r\n')
             await writer.drain()
             writer.close()
+            logger.info(f"Porta serial {PORTA_SERIAL} fechada.")
         
-        await manager.send_to_client(client_id, json.dumps({"type": "scan_status", "message": "Sessão de leitura finalizada."}))
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão de leitura finalizada."}))
         return list(tags_lidas)
 
 def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):

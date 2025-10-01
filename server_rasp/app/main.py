@@ -374,68 +374,79 @@ async def websocket_endpoint(websocket: WebSocket):
 
 scanning_sessions = {} # Dicionário para controlar as tarefas de scan de cada cliente
 
-scanning_tasks = {} # Dicionário para gerenciar as tarefas de scan ativas
-
-scanning_tasks = {} # Dicionário para gerenciar as tarefas de scan ativas
-
 @app.websocket("/ws/rfid")
 async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
-    # Usamos o manager.connect para registrar a conexão e obter um ID único
-    client_id = await manager.connect(websocket)
+    """
+    Endpoint WebSocket dedicado para controlar o scan de RFID.
+    Gerencia o estado da sessão (tags lidas) e as ações do usuário.
+    """
+    client_id = f"{websocket.client.host}:{websocket.client.port}"
+    await websocket.accept()
+    logger.info(f"Cliente RFID conectado: {client_id}")
+    
+    # Função de callback que será passada para a tarefa de scan
+    async def on_tag_read(tag_id):
+        if client_id in scanning_sessions:
+            session = scanning_sessions[client_id]
+            # Adiciona a tag ao 'set' da sessão (que automaticamente ignora duplicatas)
+            if tag_id not in session["tags"]:
+                session["tags"].add(tag_id)
+                # Envia a nova tag para o frontend para exibição em tempo real
+                await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
+
     try:
         while True:
             data = await websocket.receive_json()
             action = data.get("action")
 
             if action == "start_scan":
-                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
-                    await manager.send_to_client(client_id, json.dumps({"type": "scan_error", "message": "Um scan já está em progresso."}))
-                    continue
+                if client_id in scanning_sessions: continue
                 
-                datacenter_id = data.get("datacenter_id")
-                if not datacenter_id:
-                    await manager.send_to_client(client_id, json.dumps({"type": "scan_error", "message": "Por favor, selecione um datacenter."}))
-                    continue
+                # Cria a sessão para este cliente, guardando a tarefa, as tags e o dc_id
+                scanning_sessions[client_id] = {
+                    "task": asyncio.create_task(scan_rfid.rfid_scan_task(websocket, on_tag_read)),
+                    "tags": set(),
+                    "datacenter_id": data.get("datacenter_id")
+                }
 
-                # Passa o 'client_id' em vez do objeto 'websocket'
-                task = asyncio.create_task(scan_rfid.rfid_scan_task(client_id, datacenter_id))
-                scanning_tasks[client_id] = {"task": task, "datacenter_id": datacenter_id}
+            elif action == "remove_tag":
+                if client_id in scanning_sessions:
+                    tag_to_remove = data.get("tag_id")
+                    scanning_sessions[client_id]["tags"].discard(tag_to_remove)
+                    logger.info(f"Tag {tag_to_remove} removida da sessão do cliente {client_id}")
+
+            elif action == "clear_tags":
+                if client_id in scanning_sessions:
+                    scanning_sessions[client_id]["tags"].clear()
+                    logger.info(f"Lista de tags limpa para o cliente {client_id}")
 
             elif action == "stop_scan_and_save":
-                if client_id in scanning_tasks:
-                    session = scanning_tasks[client_id]
+                if client_id in scanning_sessions:
+                    session = scanning_sessions[client_id]
                     session["task"].cancel()
+                    try: await session["task"]
+                    except asyncio.CancelledError: pass
                     
-                    tags_para_salvar = []
-                    try:
-                        tags_para_salvar = await session["task"]
-                    except asyncio.CancelledError:
-                        pass
-
+                    tags_para_salvar = list(session["tags"])
                     if scan_rfid.save_tags_as_inventory(db, session["datacenter_id"], tags_para_salvar):
-                        await manager.broadcast("ATUALIZAR_ESTADO") # Notifica todas as janelas abertas
+                        await manager.broadcast("ATUALIZAR_ESTADO")
                     
-                    del scanning_tasks[client_id]
-
+                    del scanning_sessions[client_id]
+            
             elif action == "cancel_scan":
-                if client_id in scanning_tasks:
-                    session = scanning_tasks[client_id]
-                    session["task"].cancel()
-                    try:
-                        await session["task"] # Espera a tarefa limpar os recursos (fechar a porta serial)
-                    except asyncio.CancelledError:
-                        logger.info(f"Scan cancelado pelo cliente {client_id}. Nenhum dado será salvo.")
-                    
-                    del scanning_tasks[client_id]
+                if client_id in scanning_sessions:
+                    scanning_sessions[client_id]["task"].cancel()
+                    try: await scanning_sessions[client_id]["task"]
+                    except asyncio.CancelledError: pass
+                    del scanning_sessions[client_id]
+
 
     except WebSocketDisconnect:
-        if client_id in scanning_tasks:
-            scanning_tasks[client_id]["task"].cancel()
-            del scanning_tasks[client_id]
-        
-        manager.disconnect(client_id) # Desregistra a conexão
+        if client_id in scanning_sessions:
+            scanning_sessions[client_id]["task"].cancel()
+            del scanning_sessions[client_id]
         logger.info(f"Cliente RFID {client_id} desconectado.")
-        
+
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
