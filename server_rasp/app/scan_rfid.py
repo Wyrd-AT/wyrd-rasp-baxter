@@ -13,43 +13,55 @@ from .models import InventorySnapshot, InventoryItem, Product, ProductType
 logger = logging.getLogger(__name__)
 
 async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
-    """Tarefa de fundo que abre a porta serial, lê as tags e as envia via WebSocket."""
+    """Tarefa de fundo com timeouts para maior robustez."""
     PORTA_SERIAL = '/dev/rfcomm0' # Ou 'COM3' no Windows
     tags_lidas = set()
     reader, writer = None, None
 
     try:
-        reader, writer = await serial_asyncio.open_serial_connection(url=PORTA_SERIAL, baudrate=115200)
+        reader, writer = await asyncio.wait_for(
+            serial_asyncio.open_serial_connection(url=PORTA_SERIAL, baudrate=115200),
+            timeout=5.0
+        )
+
         writer.write(b'.iv\r\n')
-        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Scan iniciado..."}))
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Scan iniciado, aguardando resposta da pistola..."}))
         
         while True:
-            linha_bytes = await reader.readline()
-            linha = linha_bytes.decode('ascii').strip()
-            if not linha: continue
+            try:
+                # Espera por uma resposta por no máximo 10 segundos
+                linha_bytes = await asyncio.wait_for(reader.readline(), timeout=10.0)
+                linha = linha_bytes.decode('ascii').strip()
 
-            if linha.startswith('EP:'):
-                tag_id = linha[4:]
-                if tag_id not in tags_lidas:
-                    tags_lidas.add(tag_id)
-                    await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
-            
-            if 'OK:' in linha or 'ER:' in linha:
-                break
-    
-    except serial.SerialException as e:
+                if linha.startswith('EP:'):
+                    tag_id = linha[4:]
+                    if tag_id not in tags_lidas:
+                        tags_lidas.add(tag_id)
+                        await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
+                
+                # --- CORREÇÃO PRINCIPAL ---
+                # A condição que quebrava o loop com "OK:" foi REMOVIDA daqui.
+                # O loop agora só para por cancelamento ou timeout.
+
+            except asyncio.TimeoutError:
+                # Se o leitor ficar 10s sem enviar NADA (nem mesmo linhas em branco), consideramos que a conexão pode ter problemas.
+                await websocket.send_text(json.dumps({"type": "scan_error", "message": "A pistola parou de responder."}))
+                break # Sai do loop principal
+
+    except (serial.SerialException, FileNotFoundError):
         await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro: Porta serial '{PORTA_SERIAL}' indisponível ou desconectada."}))
+    except asyncio.TimeoutError:
+        await websocket.send_text(json.dumps({"type": "scan_error", "message": "Erro: Não foi possível conectar ao leitor a tempo."}))
     except asyncio.CancelledError:
         logger.info("Tarefa de scan foi cancelada pelo usuário.")
-        # A exceção é capturada, e o bloco 'finally' será executado para limpeza.
-        raise # É importante relançar a exceção para o 'maestro' saber que foi cancelado.
+        raise
     except Exception as e:
         await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro inesperado: {e}"}))
     finally:
         logger.info("Finalizando tarefa de scan e limpando recursos.")
         if writer and not writer.is_closing():
-            writer.write(b'.ab\r\n') # Envia comando de abortar
-            await writer.drain() # Espera o comando ser enviado
+            writer.write(b'.ab\r\n')
+            await writer.drain()
             writer.close()
             logger.info(f"Porta serial {PORTA_SERIAL} fechada.")
         
