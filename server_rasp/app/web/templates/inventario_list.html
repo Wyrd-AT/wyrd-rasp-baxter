@@ -406,6 +406,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
+    const totalCountSpan = document.getElementById('scan-total-count'); // 1. Captura o elemento do total
+    let scannedTags = [];
 
     if (startBtn) { // Garante que este código só rode na página de inventário
         
@@ -420,15 +422,17 @@ document.addEventListener('DOMContentLoaded', function () {
             statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
             startBtn.disabled = true; 
             stopBtn.disabled = true; 
+            cancelBtn.disabled = true;
         };
         
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
-                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro")) {
+                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelado")) {
                     startBtn.disabled = false;
                     stopBtn.disabled = true;
+                    cancelBtn.style.display = 'none';
                 }
             }
             if (data.type === 'tag_scanned') {
@@ -461,11 +465,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 }));
 
                 statusDiv.textContent = "Status: Iniciando...";
-                scannedTags = [];
-                totalCountSpan.textContent = '(Total: 0)';
-                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
+                cancelBtn.style.display = 'inline-block';
+                scannedTags = []; 
+                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
             } else {
                 // Este alerta agora faz sentido, se a conexão dedicada falhar
                 alert("Erro: Conexão com o servidor de scan não está aberta.");
