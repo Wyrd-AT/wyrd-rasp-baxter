@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     """Tarefa de fundo com timeouts para maior robustez."""
-    PORTA_SERIAL = '/dev/rfcomm0' # Ou 'COM3' no Windows
+    PORTA_SERIAL = 'COM22' # Ou 'COM3' no Windows
     tags_lidas = set()
     reader, writer = None, None
 
