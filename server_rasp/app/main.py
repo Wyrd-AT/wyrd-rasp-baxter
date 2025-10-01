@@ -376,6 +376,10 @@ scanning_tasks = {} # Dicionário para controlar as tarefas de scan de cada clie
 
 @app.websocket("/ws/rfid")
 async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
+    """
+    Endpoint WebSocket dedicado para controlar o scan de RFID.
+    Gerencia o início e o fim das sessões de leitura.
+    """
     client_id = f"{websocket.client.host}:{websocket.client.port}"
     await websocket.accept()
     logger.info(f"Cliente RFID conectado: {client_id}")
@@ -392,41 +396,44 @@ async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(ge
                     continue
                 
                 datacenter_id = data.get("datacenter_id")
-                # ... (código para iniciar a tarefa, sem alteração) ...
-                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id))
+                scan_mode = data.get("scan_mode", "automatico") # Recebe o modo do frontend
+
+                if not datacenter_id:
+                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Por favor, selecione um datacenter."}))
+                    continue
+
+                # Inicia a tarefa de scan, passando o modo escolhido
+                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id, scan_mode))
                 scanning_tasks[client_id] = task
 
             elif action == "stop_scan":
                 if client_id in scanning_tasks and not scanning_tasks[client_id].done():
                     task = scanning_tasks[client_id]
-                    task.cancel() # Envia o sinal de cancelamento
+                    task.cancel() # Envia o sinal para a tarefa parar
                     
                     tags_lidas = []
                     try:
-                        # Aguarda a tarefa ser cancelada e recolhe os resultados
+                        # Aguarda a tarefa ser cancelada e recolhe a lista de tags
                         tags_lidas = await task 
                     except asyncio.CancelledError:
-                        # A tarefa foi cancelada como esperado, mas pode não ter retornado as tags
-                        # O `finally` dentro da tarefa já fez a limpeza
-                        pass # Apenas continue
+                        logger.info(f"Scan para o cliente {client_id} foi cancelado via botão 'parar'.")
+                        # O bloco finally na tarefa fará a limpeza
+                        pass
 
-                    # --- INÍCIO DA CORREÇÃO ---
-                    # A lógica de salvar e deletar a tarefa agora acontece DEPOIS do try/except
+                    # Após a finalização da tarefa, salva os resultados e limpa o estado
                     if scan_rfid.save_tags_as_inventory(db, data.get("datacenter_id"), tags_lidas):
-                        await manager.broadcast("ATUALIZAR_ESTADO")
+                        await manager.broadcast("ATUALIZAR_ESTADO") # Notifica a todos para recarregar
                     
-                    # A linha mais importante: remove a tarefa finalizada do dicionário
+                    # Remove a tarefa finalizada do dicionário de controle
                     del scanning_tasks[client_id]
-                    # --- FIM DA CORREÇÃO ---
 
     except WebSocketDisconnect:
-        # A lógica de desconexão permanece a mesma
+        # Se o usuário fechar a página, cancela e limpa a tarefa de scan associada
         if client_id in scanning_tasks and scanning_tasks[client_id]:
             scanning_tasks[client_id].cancel()
             del scanning_tasks[client_id]
-        logger.info(f"Cliente RFID {client_id} desconectado.")
-
-
+        logger.info(f"Cliente RFID {client_id} desconectado. Scan (se houver) interrompido.")
+        
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================

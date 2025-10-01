@@ -1205,3 +1205,15 @@ body.login-page {
 .btn-toggle:not(.active):hover {
     background-color: #f8f9fa;
 }
+
+/* Em inventario_list.html, dentro da tag <style> no final do arquivo */
+
+.scan-controls-container {
+    display: flex; /* Ativa o layout lado a lado */
+    gap: 24px;     /* Cria um espaço entre as colunas */
+    align-items: flex-start; /* Alinha as colunas pelo topo */
+}
+
+.scan-control-group {
+    flex: 1; /* Faz com que cada coluna ocupe metade do espaço disponível */
+}
