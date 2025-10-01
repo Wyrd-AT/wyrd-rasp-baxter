@@ -98,4 +98,4 @@ def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):
     except Exception as e:
         logger.error(f"Erro ao salvar inventário do scan RFID: {e}")
         db.rollback()
-        return False
+        return False #a
