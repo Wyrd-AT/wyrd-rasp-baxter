@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import WebSocket, WebSocketDisconnect, BackgroundTasks
 from .connection_manager import manager
+from . import scan_rfid 
 from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -369,7 +370,58 @@ async def websocket_endpoint(websocket: WebSocket):
         
         manager.disconnect(client_id)
         logger.info("[WebSocket] Conexão com o cliente %s limpa e encerrada.", client_id)
+
+
+scanning_tasks = {} # Dicionário para controlar as tarefas de scan de cada cliente
+
+@app.websocket("/ws/rfid")
+async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
+    # Usamos o endereço do cliente como ID único para esta conexão específica
+    client_id = f"{websocket.client.host}:{websocket.client.port}"
+    await websocket.accept()
+    logger.info(f"Cliente RFID conectado: {client_id}")
     
+    try:
+        while True:
+            data_text = await websocket.receive_text()
+            data = json.loads(data_text)
+            action = data.get("action")
+
+            if action == "start_scan":
+                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
+                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Um scan já está em progresso."}))
+                    continue
+                
+                datacenter_id = data.get("datacenter_id")
+                if not datacenter_id:
+                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Por favor, selecione um datacenter."}))
+                    continue
+
+                # Chama a função do nosso arquivo especialista
+                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id))
+                scanning_tasks[client_id] = task
+
+            elif action == "stop_scan":
+                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
+                    task = scanning_tasks[client_id]
+                    task.cancel()
+                    
+                    try:
+                        tags_lidas = await task
+                        if scan_rfid.save_tags_as_inventory(db, data.get("datacenter_id"), tags_lidas):
+                            await manager.broadcast("ATUALIZAR_ESTADO") # Usa o manager global para notificar todos
+                    except asyncio.CancelledError:
+                        logger.info(f"Scan para o cliente {client_id} foi cancelado.")
+                else:
+                    await websocket.send_text(json.dumps({"type": "scan_status", "message": "Nenhum scan em progresso."}))
+
+    except WebSocketDisconnect:
+        if client_id in scanning_tasks and scanning_tasks[client_id]:
+            scanning_tasks[client_id].cancel()
+            del scanning_tasks[client_id]
+        logger.info(f"Cliente RFID {client_id} desconectado. Scan interrompido.")
+
+
 # ===================================================================
 # SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
 # ===================================================================
