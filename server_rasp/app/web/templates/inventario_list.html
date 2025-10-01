@@ -60,6 +60,8 @@
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
+        
+        <button id="cancel-scan-btn" class="btn-danger-outline" style="display: none;">Cancelar</button>
     </div>
     <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 24px; border-top: 1px solid #eee; padding-top: 16px;">
         <h4>Tags Lidas na Sessão: <span id="scan-total-count" class="muted" style="font-size: 0.9em;"></span></h4>
@@ -438,15 +440,22 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             if (data.type === 'tag_scanned') {
                 if (!scannedTags.includes(data.tag_id)) {
+                    
+                    // 1. Adiciona à nossa lista de controle e atualiza a contagem
                     scannedTags.push(data.tag_id);
                     if(totalCountSpan) totalCountSpan.textContent = `(Total: ${scannedTags.length})`;
+
+                    // 2. Limpa a mensagem "Aguardando..." se for a primeira tag
+                    if (tagsListDiv.querySelector('.muted')) {
+                        tagsListDiv.innerHTML = '';
+                    }
+
+                    // 3. Cria o elemento visual e o adiciona na tela
+                    const tagElement = document.createElement('code');
+                    tagElement.textContent = data.tag_id;
+                    tagElement.style.margin = '4px'; // Mantém o espaçamento
+                    tagsListDiv.appendChild(tagElement);
                 }
-                if (tagsListDiv.querySelector('.muted')) {
-                    tagsListDiv.innerHTML = '';
-                }
-                const tagElement = document.createElement('code');
-                tagElement.textContent = data.tag_id;
-                tagsListDiv.appendChild(tagElement);
             }
         };
 
