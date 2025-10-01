@@ -425,70 +425,78 @@ document.addEventListener('DOMContentLoaded', function () {
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
 
-    // A lógica de conexão WebSocket permanece a mesma
-    const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
-    
-    socket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
-    socket.onclose = () => { statusDiv.textContent = "Status: Desconectado. Recarregue a página."; startBtn.disabled = true; stopBtn.disabled = true; };
-    
-    socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+    if (startBtn) { // Garante que este código só rode na página de inventário
+        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
+        
+        socket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
+        socket.onclose = () => { 
+            statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
+            startBtn.disabled = true; 
+            stopBtn.disabled = true; 
+        };
+        
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
 
-        // Atualiza a mensagem de status
-        if (data.type === 'scan_status' || data.type === 'scan_error') {
-            statusDiv.textContent = `Status: ${data.message}`;
-
-            // --- MUDANÇA 1: Limpa a lista de tags SOMENTE se o scan iniciou com sucesso ---
-            if (data.message.includes("Scan iniciado")) {
-                tagsListDiv.innerHTML = '<div class="muted">Aguardando tags...</div>';
+            if (data.type === 'scan_status' || data.type === 'scan_error') {
+                statusDiv.textContent = `Status: ${data.message}`;
+                
+                // CORREÇÃO 2: Garante que os botões sejam resetados em QUALQUER estado final
+                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("cancelado") || data.message.toLowerCase().includes("erro")) {
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
             }
 
-            // Reseta os botões em caso de erro ou finalização
-            if (data.message.includes("finalizado") || data.message.includes("cancelado") || data.message.includes("Erro")) {
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
+            if (data.type === 'tag_scanned') {
+                if (tagsListDiv.querySelector('.muted')) {
+                    tagsListDiv.innerHTML = '';
+                }
+                const tagElement = document.createElement('code');
+                tagElement.textContent = data.tag_id;
+                tagsListDiv.appendChild(tagElement);
             }
-        }
+        };
 
-        // Adiciona uma tag lida
-        if (data.type === 'tag_scanned') {
-            if (tagsListDiv.querySelector('.muted')) {
-                tagsListDiv.innerHTML = ''; // Limpa a mensagem "Aguardando..."
+        startBtn.addEventListener('click', () => {
+            const datacenterId = dcSelect.value;
+            if (!datacenterId) {
+                alert("Por favor, selecione um datacenter primeiro.");
+                return;
             }
-            const tagElement = document.createElement('code');
-            tagElement.textContent = data.tag_id;
-            tagsListDiv.appendChild(tagElement);
-        }
-    };
 
-    startBtn.addEventListener('click', () => {
-        const datacenterId = dcSelect.value;
-        if (!datacenterId) {
-            alert("Por favor, selecione um datacenter primeiro.");
-            return;
-        }
+            // CORREÇÃO 1: Lê o modo de scan selecionado e o envia para o backend
+            const selectedMode = document.querySelector('input[name="scan_mode"]:checked').value;
 
-        socket.send(JSON.stringify({
-            action: "start_scan",
-            datacenter_id: parseInt(datacenterId)
-        }));
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: "start_scan",
+                    datacenter_id: parseInt(datacenterId),
+                    scan_mode: selectedMode
+                }));
 
-        // --- MUDANÇA 2: O botão apenas atualiza o status e os botões, NÃO limpa a lista ---
-        statusDiv.textContent = "Status: Iniciando scan...";
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-    });
+                statusDiv.textContent = "Status: Iniciando...";
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
+            } else {
+                alert("Erro: Conexão com o servidor não está aberta.");
+            }
+        });
 
-    stopBtn.addEventListener('click', () => {
-        const datacenterId = dcSelect.value;
-        socket.send(JSON.stringify({
-            action: "stop_scan",
-            datacenter_id: parseInt(datacenterId)
-        }));
-        // O status e os botões serão atualizados quando a mensagem "Scan finalizado" chegar do backend
-    });
+        stopBtn.addEventListener('click', () => {
+            const datacenterId = dcSelect.value;
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: "stop_scan",
+                    datacenter_id: parseInt(datacenterId)
+                }));
+                // Não muda o estado dos botões aqui, espera a confirmação "finalizado" do backend
+            }
+        });
+    }
 });
-</script>
 
+</script>
 {% endblock %}
