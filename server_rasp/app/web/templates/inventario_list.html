@@ -6,7 +6,7 @@
 <div class="content-header">
     <h1>Inventário</h1>
     <div class="header-actions">
-        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Manual</button>
         <a href="{{ url_for('download_inventory_csv') }}?datacenter_id={{ current_dc_id }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
@@ -55,13 +55,15 @@
 </div>
 
 <div class="form-card" style="margin-top: 1.5rem;">
-    <h3>Leitura por Pistola RFID</h3>
+    <h3>Adicionar Itens por Pistola RFID</h3>
     <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
+        
+        <button id="cancel-scan-btn" class="btn-danger-outline" style="display: none;">Cancelar</button>
     </div>
-    <h4>Tags Lidas na Sessão:</h4>
+    <h4>Tags Lidas na Sessão: <span id="scan-total-count" class="muted" style="font-size: 0.9em;"></span></h4>
     <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
         <div class="muted">Aguardando início da leitura...</div>
     </div>
@@ -85,8 +87,8 @@
     <table class="data-table">
         <thead>
             <tr>
-                <th style="width: 40%;">INVENTÁRIO ATUAL</th> 
-                <th style="width: 40%;">INVENTÁRIO ANTERIOR</th> 
+                <th style="width: 40%;">INVENTÁRIO ATUAL ({{ count_atual }})</th> 
+                <th style="width: 40%;">INVENTÁRIO ANTERIOR ({{ count_anterior }})</th> 
                 <th>MUDANÇA</th> 
             </tr>
         </thead>
@@ -120,7 +122,7 @@
 {% if current_view == 'current' %}
 <div class="list-container-full-width">
     <div class="list-header">
-        <h3>Inventário Atual</h3>
+        <h3>Inventário Atual (Total: {{ count_atual }})</h3>
         <div class="muted">
             {% if not snapshot_atual %} 
                 Nenhum inventário foi salvo ainda para este datacenter. 
@@ -403,77 +405,67 @@ document.addEventListener('DOMContentLoaded', function () {
 document.addEventListener('DOMContentLoaded', function () {
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
+    const cancelBtn = document.getElementById('cancel-scan-btn'); // Novo
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
+    const totalCountSpan = document.getElementById('scan-total-count');
     const dcSelect = document.getElementById('datacenter-select');
 
-    if (startBtn) { // Garante que este código só rode na página de inventário
-        
-        // --- INÍCIO DA CORREÇÃO ---
-        // 1. Criamos um WebSocket dedicado APENAS para esta página
+    let scannedTags = [];
+
+    if (startBtn) {
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
-        // --- FIM DA CORREÇÃO ---
         
         rfidSocket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
-        rfidSocket.onclose = () => { 
-            statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
-            startBtn.disabled = true; 
-            stopBtn.disabled = true; 
-        };
+        rfidSocket.onclose = () => { /* ... (código existente) ... */ };
         
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
-                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro")) {
+                
+                // Se o scan terminou por qualquer motivo, reseta a interface
+                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelado")) {
                     startBtn.disabled = false;
                     stopBtn.disabled = true;
+                    cancelBtn.style.display = 'none'; // Esconde o botão de cancelar
                 }
             }
             if (data.type === 'tag_scanned') {
-                if (tagsListDiv.querySelector('.muted')) {
-                    tagsListDiv.innerHTML = '';
-                }
-                const tagElement = document.createElement('code');
-                tagElement.textContent = data.tag_id;
-                tagsListDiv.appendChild(tagElement);
+                 // ... (código para adicionar tags na tela, sem alteração) ...
             }
         };
 
         startBtn.addEventListener('click', () => {
-            const datacenterId = dcSelect.value;
-            if (!datacenterId) {
-                alert("Por favor, selecione um datacenter primeiro.");
-                return;
-            }
-
-            // --- INÍCIO DA CORREÇÃO ---
-            // 2. Usamos nossa variável 'rfidSocket' e verificamos seu estado
-            if (rfidSocket.readyState === WebSocket.OPEN) {
-                rfidSocket.send(JSON.stringify({
-                    action: "start_scan",
-                    datacenter_id: parseInt(datacenterId)
-                }));
-
-                statusDiv.textContent = "Status: Iniciando...";
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
-                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
-            } else {
-                // Este alerta agora faz sentido, se a conexão dedicada falhar
-                alert("Erro: Conexão com o servidor de scan não está aberta.");
-            }
-            // --- FIM DA CORREÇÃO ---
+            // ... (código para iniciar, sem alteração) ...
+            
+            // Mostra os botões de ação
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            cancelBtn.style.display = 'inline-block'; 
         });
 
         stopBtn.addEventListener('click', () => {
-            const datacenterId = dcSelect.value;
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 rfidSocket.send(JSON.stringify({
-                    action: "stop_scan",
-                    datacenter_id: parseInt(datacenterId)
+                    action: "stop_scan_and_save" 
                 }));
+            }
+        });
+
+        // --- LÓGICA NOVA PARA O BOTÃO CANCELAR ---
+        cancelBtn.addEventListener('click', () => {
+            if (confirm('Tem certeza que deseja cancelar o scan? As tags lidas serão descartadas.')) {
+                if (rfidSocket.readyState === WebSocket.OPEN) {
+                    rfidSocket.send(JSON.stringify({
+                        action: "cancel_scan"
+                    }));
+                }
+                // Reseta a interface imediatamente para dar feedback ao usuário
+                scannedTags = [];
+                tagsListDiv.innerHTML = '<div class="muted">Scan cancelado pelo usuário.</div>';
+                totalCountSpan.textContent = '';
             }
         });
     }

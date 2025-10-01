@@ -400,25 +400,36 @@ async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(ge
                 task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id))
                 scanning_tasks[client_id] = task
 
-            elif action == "stop_scan":
-                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
-                    task = scanning_tasks[client_id]
-                    task.cancel() # Envia o sinal para a tarefa parar
-                    
-                    tags_lidas = []
+            elif action == "cancel_scan":
+                if client_id in scanning_tasks:
+                    session = scanning_tasks[client_id]
+                    session["task"].cancel()
                     try:
-                        # Aguarda a tarefa ser cancelada e recolhe a lista de tags
-                        tags_lidas = await task 
+                        await session["task"] # Espera a tarefa limpar os recursos
                     except asyncio.CancelledError:
-                        logger.info(f"Scan para o cliente {client_id} foi cancelado via botão 'parar'.")
-                        # O bloco finally na tarefa fará a limpeza
-                        pass
-
-                    # Após a finalização da tarefa, salva os resultados e limpa o estado
-                    if scan_rfid.save_tags_as_inventory(db, data.get("datacenter_id"), tags_lidas):
-                        await manager.broadcast("ATUALIZAR_ESTADO") # Notifica a todos para recarregar
+                        logger.info(f"Scan cancelado pelo cliente {client_id}. Nenhum dado será salvo.")
                     
-                    # Remove a tarefa finalizada do dicionário de controle
+                    # Apenas remove a sessão, SEM SALVAR NADA
+                    del scanning_tasks[client_id]
+
+            elif action == "stop_scan_and_save":
+                if client_id in scanning_tasks:
+                    session = scanning_tasks[client_id]
+                    session["task"].cancel()
+                    
+                    tags_para_salvar = []
+                    try:
+                        # Espera a tarefa retornar a lista de tags
+                        tags_para_salvar = await session["task"]
+                    except asyncio.CancelledError:
+                        # Se o cancelamento foi rápido, a tarefa pode não ter retornado a lista.
+                        # Pegamos a lista do estado da sessão como segurança.
+                        tags_para_salvar = list(session["tags"])
+
+                    # SALVA OS DADOS
+                    if scan_rfid.save_tags_as_inventory(db, session["datacenter_id"], tags_para_salvar):
+                        await manager.broadcast("ATUALIZAR_ESTADO")
+                    
                     del scanning_tasks[client_id]
 
     except WebSocketDisconnect:
@@ -1327,6 +1338,9 @@ def inventory_page(
     
     snapshot_atual = snapshots[0] if len(snapshots) > 0 else None
     snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
+
+    count_atual = len(snapshot_atual.items) if snapshot_atual else 0
+    count_anterior = len(snapshot_anterior.items) if snapshot_anterior else 0
     
     tabela_unificada = []
     inventario_atual_formatado = []
@@ -1363,7 +1377,9 @@ def inventory_page(
     return templates.TemplateResponse("inventario_list.html", {
         "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
         "tipos": tipos, "tabela_unificada": tabela_unificada, "inventario_atual": inventario_atual_formatado,
-        "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior, "current_view": view
+        "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior, "current_view": view,
+        "count_atual": count_atual,
+        "count_anterior": count_anterior
     })
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")
