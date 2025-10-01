@@ -408,29 +408,29 @@ document.addEventListener('DOMContentLoaded', function () {
     const dcSelect = document.getElementById('datacenter-select');
 
     if (startBtn) { // Garante que este código só rode na página de inventário
-        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
         
-        socket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
-        socket.onclose = () => { 
+        // --- INÍCIO DA CORREÇÃO ---
+        // 1. Criamos um WebSocket dedicado APENAS para esta página
+        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
+        // --- FIM DA CORREÇÃO ---
+        
+        rfidSocket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
+        rfidSocket.onclose = () => { 
             statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
             startBtn.disabled = true; 
             stopBtn.disabled = true; 
         };
         
-        socket.onmessage = (event) => {
+        rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
-
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
-                
-                // CORREÇÃO 2: Garante que os botões sejam resetados em QUALQUER estado final
-                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("cancelado") || data.message.toLowerCase().includes("erro")) {
+                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro")) {
                     startBtn.disabled = false;
                     stopBtn.disabled = true;
                 }
             }
-
             if (data.type === 'tag_scanned') {
                 if (tagsListDiv.querySelector('.muted')) {
                     tagsListDiv.innerHTML = '';
@@ -448,11 +448,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            // A linha que lia o 'scan_mode' foi REMOVIDA daqui.
-
-            if (window.socket) {
-                // A mensagem enviada agora é mais simples, sem o 'scan_mode'.
-                window.socket.send(JSON.stringify({
+            // --- INÍCIO DA CORREÇÃO ---
+            // 2. Usamos nossa variável 'rfidSocket' e verificamos seu estado
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({
                     action: "start_scan",
                     datacenter_id: parseInt(datacenterId)
                 }));
@@ -460,24 +459,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 statusDiv.textContent = "Status: Iniciando...";
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
-                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação...</div>';
+                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
             } else {
-                alert("Erro: Conexão com o servidor não estabelecida.");
+                // Este alerta agora faz sentido, se a conexão dedicada falhar
+                alert("Erro: Conexão com o servidor de scan não está aberta.");
             }
+            // --- FIM DA CORREÇÃO ---
         });
 
         stopBtn.addEventListener('click', () => {
             const datacenterId = dcSelect.value;
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({
                     action: "stop_scan",
                     datacenter_id: parseInt(datacenterId)
                 }));
-                // Não muda o estado dos botões aqui, espera a confirmação "finalizado" do backend
             }
         });
     }
 });
-
 </script>
 {% endblock %}
