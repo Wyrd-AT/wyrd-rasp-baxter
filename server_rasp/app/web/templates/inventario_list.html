@@ -406,35 +406,36 @@ document.addEventListener('DOMContentLoaded', function () {
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
 
+    // A lógica de conexão WebSocket permanece a mesma
     const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // --- MUDANÇA PRINCIPAL AQUI ---
     const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
     
-    socket.onopen = () => {
-        console.log("Conexão WebSocket para RFID estabelecida.");
-        statusDiv.textContent = "Status: Conectado e pronto.";
-    };
-    socket.onclose = () => {
-        console.warn("Conexão WebSocket para RFID perdida.");
-        statusDiv.textContent = "Status: Desconectado do servidor. Recarregue a página.";
-        startBtn.disabled = true;
-        stopBtn.disabled = true;
-    };
+    socket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
+    socket.onclose = () => { statusDiv.textContent = "Status: Desconectado. Recarregue a página."; startBtn.disabled = true; stopBtn.disabled = true; };
     
     socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log("WS RFID Recebido:", data);
 
+        // Atualiza a mensagem de status
         if (data.type === 'scan_status' || data.type === 'scan_error') {
             statusDiv.textContent = `Status: ${data.message}`;
-             if(data.message.includes("finalizado") || data.message.includes("cancelado") || data.message.includes("Erro")){
+
+            // --- MUDANÇA 1: Limpa a lista de tags SOMENTE se o scan iniciou com sucesso ---
+            if (data.message.includes("Scan iniciado")) {
+                tagsListDiv.innerHTML = '<div class="muted">Aguardando tags...</div>';
+            }
+
+            // Reseta os botões em caso de erro ou finalização
+            if (data.message.includes("finalizado") || data.message.includes("cancelado") || data.message.includes("Erro")) {
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
             }
         }
+
+        // Adiciona uma tag lida
         if (data.type === 'tag_scanned') {
             if (tagsListDiv.querySelector('.muted')) {
-                tagsListDiv.innerHTML = '';
+                tagsListDiv.innerHTML = ''; // Limpa a mensagem "Aguardando..."
             }
             const tagElement = document.createElement('code');
             tagElement.textContent = data.tag_id;
@@ -448,13 +449,16 @@ document.addEventListener('DOMContentLoaded', function () {
             alert("Por favor, selecione um datacenter primeiro.");
             return;
         }
+
         socket.send(JSON.stringify({
             action: "start_scan",
             datacenter_id: parseInt(datacenterId)
         }));
+
+        // --- MUDANÇA 2: O botão apenas atualiza o status e os botões, NÃO limpa a lista ---
+        statusDiv.textContent = "Status: Iniciando scan...";
         startBtn.disabled = true;
         stopBtn.disabled = false;
-        tagsListDiv.innerHTML = '<div class="muted">Aguardando tags...</div>';
     });
 
     stopBtn.addEventListener('click', () => {
@@ -463,8 +467,7 @@ document.addEventListener('DOMContentLoaded', function () {
             action: "stop_scan",
             datacenter_id: parseInt(datacenterId)
         }));
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
+        // O status e os botões serão atualizados quando a mensagem "Scan finalizado" chegar do backend
     });
 });
 </script>
