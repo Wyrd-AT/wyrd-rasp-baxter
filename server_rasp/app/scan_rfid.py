@@ -12,11 +12,11 @@ from .models import InventorySnapshot, InventoryItem, Product, ProductType
 
 logger = logging.getLogger(__name__)
 
-async def rfid_scan_task(websocket: WebSocket, datacenter_id: int, scan_mode: str) -> List[str]:
+async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     """
-    Tarefa de fundo que lê tags de RFID, suportando modo 'automatico' ou 'gatilho'.
+    Tarefa de fundo que coloca a pistola em modo de gatilho e ouve as tags lidas.
     """
-    PORTA_SERIAL = 'COM22' # Ou 'COM3' no Windows
+    PORTA_SERIAL = '/dev/rfcomm0' # Ou 'COM3', 'COM22' etc. no Windows
     tags_lidas = set()
     reader, writer = None, None
 
@@ -26,20 +26,13 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int, scan_mode: st
             timeout=5.0
         )
 
-        # --- LÓGICA CONDICIONAL BASEADA NO MODO ---
-        if scan_mode == "automatico":
-            # Modo 1: Leitura contínua automática
-            writer.write(b'.iv\r\n')
-            await websocket.send_text(json.dumps({"type": "scan_status", "message": "Scan automático iniciado..."}))
-        elif scan_mode == "gatilho":
-            # Modo 2: Ativa o gatilho da pistola
-            writer.write(b'.sa -s inv\r\n')
-            await writer.drain()
-            await websocket.send_text(json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione o gatilho para ler."}))
+        # A lógica agora é fixa: sempre ativa o modo de gatilho
+        writer.write(b'.sa -s inv\r\n')
+        await writer.drain()
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione o gatilho para ler."}))
         
-        # O loop de leitura é o mesmo para ambos os modos
+        # O loop de escuta continua o mesmo
         while True:
-            # O timeout encerra a sessão se não houver atividade
             linha_bytes = await asyncio.wait_for(reader.readline(), timeout=300.0)
             linha = linha_bytes.decode('ascii').strip()
 
@@ -61,11 +54,8 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int, scan_mode: st
     finally:
         logger.info("Finalizando tarefa de scan e limpando recursos.")
         if writer and not writer.is_closing():
-            # Limpeza condicional: desliga o gatilho ou aborta o scan
-            if scan_mode == "gatilho":
-                writer.write(b'.sa -s off\r\n')
-            else:
-                writer.write(b'.ab\r\n')
+            # A limpeza agora é fixa: sempre desativa o modo de gatilho
+            writer.write(b'.sa -s off\r\n')
             await writer.drain()
             writer.close()
             logger.info(f"Porta serial {PORTA_SERIAL} fechada.")

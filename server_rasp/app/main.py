@@ -378,10 +378,6 @@ scanning_tasks = {} # Dicionário para controlar as tarefas de scan de cada clie
 
 @app.websocket("/ws/rfid")
 async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
-    """
-    Endpoint WebSocket dedicado para controlar o scan de RFID.
-    Gerencia o início e o fim das sessões de leitura.
-    """
     client_id = f"{websocket.client.host}:{websocket.client.port}"
     await websocket.accept()
     logger.info(f"Cliente RFID conectado: {client_id}")
@@ -398,14 +394,12 @@ async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(ge
                     continue
                 
                 datacenter_id = data.get("datacenter_id")
-                scan_mode = data.get("scan_mode", "automatico") # Recebe o modo do frontend
-
                 if not datacenter_id:
                     await websocket.send_text(json.dumps({"type": "scan_error", "message": "Por favor, selecione um datacenter."}))
                     continue
 
-                # Inicia a tarefa de scan, passando o modo escolhido
-                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id, scan_mode))
+                # A chamada para a tarefa agora é mais simples, sem o 'scan_mode'
+                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id))
                 scanning_tasks[client_id] = task
 
             elif action == "stop_scan":
