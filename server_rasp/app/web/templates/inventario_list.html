@@ -405,56 +405,84 @@ document.addEventListener('DOMContentLoaded', function () {
 document.addEventListener('DOMContentLoaded', function () {
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
-    const cancelBtn = document.getElementById('cancel-scan-btn'); // Novo
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
-    const totalCountSpan = document.getElementById('scan-total-count');
     const dcSelect = document.getElementById('datacenter-select');
 
-    let scannedTags = [];
-
-    if (startBtn) {
+    if (startBtn) { // Garante que este código só rode na página de inventário
+        
+        // --- INÍCIO DA CORREÇÃO ---
+        // 1. Criamos um WebSocket dedicado APENAS para esta página
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
+        // --- FIM DA CORREÇÃO ---
         
         rfidSocket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
-        rfidSocket.onclose = () => { /* ... (código existente) ... */ };
+        rfidSocket.onclose = () => { 
+            statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
+            startBtn.disabled = true; 
+            stopBtn.disabled = true; 
+        };
         
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
-                
-                // Se o scan terminou por qualquer motivo, reseta a interface
-                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelado")) {
+                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro")) {
                     startBtn.disabled = false;
                     stopBtn.disabled = true;
-                    cancelBtn.style.display = 'none'; // Esconde o botão de cancelar
                 }
             }
             if (data.type === 'tag_scanned') {
-                 // ... (código para adicionar tags na tela, sem alteração) ...
+                // --- MUDANÇA AQUI ---
+                if (!scannedTags.includes(data.tag_id)) {
+                    scannedTags.push(data.tag_id); // Adiciona à lista local
+                    totalCountSpan.textContent = `(Total: ${scannedTags.length})`; // Atualiza a contagem na tela
+                }
+                if (tagsListDiv.querySelector('.muted')) {
+                    tagsListDiv.innerHTML = '';
+                }
+                const tagElement = document.createElement('code');
+                tagElement.textContent = data.tag_id;
+                tagsListDiv.appendChild(tagElement);
             }
         };
 
         startBtn.addEventListener('click', () => {
-            // ... (código para iniciar, sem alteração) ...
-            
-            // Mostra os botões de ação
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-            cancelBtn.style.display = 'inline-block'; 
+            const datacenterId = dcSelect.value;
+            if (!datacenterId) {
+                alert("Por favor, selecione um datacenter primeiro.");
+                return;
+            }
+
+            // --- INÍCIO DA CORREÇÃO ---
+            // 2. Usamos nossa variável 'rfidSocket' e verificamos seu estado
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({
+                    action: "start_scan",
+                    datacenter_id: parseInt(datacenterId)
+                }));
+
+                statusDiv.textContent = "Status: Iniciando...";
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
+            } else {
+                // Este alerta agora faz sentido, se a conexão dedicada falhar
+                alert("Erro: Conexão com o servidor de scan não está aberta.");
+            }
+            // --- FIM DA CORREÇÃO ---
         });
 
         stopBtn.addEventListener('click', () => {
+            const datacenterId = dcSelect.value;
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 rfidSocket.send(JSON.stringify({
-                    action: "stop_scan_and_save" 
+                    action: "stop_scan",
+                    datacenter_id: parseInt(datacenterId)
                 }));
             }
         });
-
-        // --- LÓGICA NOVA PARA O BOTÃO CANCELAR ---
         cancelBtn.addEventListener('click', () => {
             if (confirm('Tem certeza que deseja cancelar o scan? As tags lidas serão descartadas.')) {
                 if (rfidSocket.readyState === WebSocket.OPEN) {
