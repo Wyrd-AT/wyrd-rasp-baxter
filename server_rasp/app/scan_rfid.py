@@ -18,7 +18,7 @@ async def rfid_scan_task(client_id: str, datacenter_id: int) -> List[str]:
     """
     Tarefa de fundo que se conecta à pistola e usa o 'manager' para enviar os dados.
     """
-    PORTA_SERIAL = '/dev/rfcomm0' # Ou 'COM3', 'COM22' etc. no Windows
+    PORTA_SERIAL = 'COM22' # Ou 'COM3', 'COM22' etc. no Windows
     tags_lidas = set()
     reader, writer = None, None
 
