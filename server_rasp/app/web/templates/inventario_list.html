@@ -54,15 +54,18 @@
     </div>
 </div>
 
-<div class="form-card" style="margin-top: 1.5rem;">
+<div class="form-card">
     <h3>Leitura por Pistola RFID</h3>
     <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
     </div>
-    <h4>Tags Lidas na Sessão:</h4>
-    <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
+    <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 24px; border-top: 1px solid #eee; padding-top: 16px;">
+        <h4>Tags Lidas na Sessão: <span id="scan-total-count" class="muted" style="font-size: 0.9em;"></span></h4>
+        <button id="clear-scan-btn" class="btn-danger-outline btn-sm" style="display: none;">Limpar Lista</button>
+    </div>
+    <div id="scanned-tags-list" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
         <div class="muted">Aguardando início da leitura...</div>
     </div>
 </div>
