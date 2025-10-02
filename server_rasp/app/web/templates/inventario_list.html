@@ -439,10 +439,24 @@ document.addEventListener('DOMContentLoaded', function () {
         
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            
+            // NOVO: Bloco para tratar o erro de hardware de forma especial
+            if (data.type === 'hardware_error') {
+                statusDiv.textContent = data.message;
+                statusDiv.style.color = '#dc3545'; // Deixa o texto vermelho
+                statusDiv.style.fontWeight = 'bold';
+                // Desabilita todos os botões permanentemente até a página ser recarregada
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                cancelBtn.disabled = true;
+                return; // Interrompe o processamento para não executar outras lógicas
+            }
+            
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
                 if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelada")) {
                     resetScanUI();
+                    statusDiv.textContent = "Status: Conectado e pronto.";
                 }
             }
             if (data.type === 'tag_scanned') {

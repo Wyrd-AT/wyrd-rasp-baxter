@@ -45,7 +45,7 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     except asyncio.TimeoutError:
         await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão finalizada por inatividade."}))
     except (serial.SerialException, FileNotFoundError):
-        await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro: Porta serial '{PORTA_SERIAL}' indisponível."}))
+        await websocket.send_text(json.dumps({"type": "hardware_error", "message": f"ERRO DE HARDWARE: Verifique se a pistola RFID está conectada na porta '{PORTA_SERIAL}'."}))
     except asyncio.CancelledError:
         logger.info("Tarefa de scan foi cancelada pelo usuário.")
         raise
