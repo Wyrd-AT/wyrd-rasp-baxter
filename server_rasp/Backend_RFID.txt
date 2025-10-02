@@ -1,1411 +1,2593 @@
 ========================================
-ARQUIVO: app/web/templates/asset_form.html
+ARQUIVO: app/__init__.py
 ========================================
-{# asset_form.html (HSA ATUALIZADO) #}
-<div class="form-card">
-    <form action="{{ form_action }}" method="post">
-        <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativo{% endif %}</h3>
 
-        <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
-            <div class="form-group">
-                <label for="nome_ativo">Nome do Ativo</label>
-                <input type="text" id="nome_ativo" name="nome_ativo" value="{{ asset.nome_ativo if asset else '' }}" placeholder="Ex: Cama 101-A" required>
-            </div>
-            <div class="form-group">
-                <label for="mac_beacon">MAC do Beacon</label>
-                <input type="text" id="mac_beacon" name="mac_beacon" value="{{ asset.mac_beacon if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
-            </div>
-        </div>
-
-        <div class="form-fields-grid" style="grid-template-columns: 1fr auto; margin-top: 1.5rem;">
-            <div class="form-group">
-                <label for="tipo_ativo">Tipo de Ativo</label>
-                <input type="text" id="tipo_ativo" name="tipo_ativo" value="{{ asset.tipo_ativo if asset else '' }}" placeholder="Ex: Cama Hospitalar">
-            </div>
-
-            <button type="submit" class="icon-btn" title="{{ 'Atualizar' if asset else 'Salvar' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-            </button>
-        </div>
-    </form>
-</div>
 
 
 ========================================
-ARQUIVO: app/web/templates/assets_list.html
+ARQUIVO: app/aggregator.py
 ========================================
-{% extends "base.html" %}
+# aggregator.py (Versão Final com Média Móvel Exponencial)
+import asyncio
+import time
+import json
+from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting
+from .services import batch_update_asset_assignments
+from .mqtt_client import scan_data_queue
+import logging
+from .config import settings
 
-{% block title %}Gestão de Ativos{% endblock %}
+logger = logging.getLogger(__name__)
+signal_logger = logging.getLogger('signals')
 
-{% block content %}
-<div class="content-header">
-    <h1>Ativos</h1>
-    <div class="header-actions">
-        <form method="get" action="{{ url_for('list_assets') }}" class="search-bar">
-            <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
-            <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
-</button>
-        </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
-        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">BAIXAR DADOS</a>
-    </div>
-</div>
+# --- CACHE EM MEMÓRIA ---
+_esp_map = {}
+_asset_map = {}
+_config_needs_reload = asyncio.Event()
+_asset_realtime_state = {}
 
-{# FORMULÁRIO MOVIDO PARA CIMA E USANDO O CONTAINER VERTICAL #}
-<div class="forms-container-vertical" id="forms-container">
-    {% include 'asset_form.html' %}
-</div>
+SIGNAL_LOG_INTERVAL_SEC = 15.0  
+_last_signal_log_times_per_esp = {}
 
-{# TABELA AGORA VEM DEPOIS, EM UM CONTAINER DE LARGURA TOTAL #}
-<div class="list-container-full-width">
-    <table class="data-table">
-    <thead>
-        <tr>
-            <th style="text-align: center; width: 80px;">AÇÕES</th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'nome_ativo' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=sort_order) }}">NOME DA CAMA</a>
-                {% if current_filters.sort_by == 'nome_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-            </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'tipo_ativo' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='tipo_ativo', order=sort_order) }}">TIPO DE ATIVO</a>
-                {% if current_filters.sort_by == 'tipo_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-            </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'mac_beacon' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
-                {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-            </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
-                {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-            </th>
-            <th>STATUS</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for asset in assets %}
-        <tr class="selectable-row" data-id="{{ asset.id }}">
-            <td style="text-align: center;">
-                <div class="actions-menu-container">
-                    <button class="actions-menu-trigger" title="Abrir menu de ações">
-                        &#8942;
-                    </button>
-                    <div class="actions-dropdown">
-                        <a href="{{ url_for('edit_asset', asset_id=asset.id) }}" class="menu-item-link">Editar</a>
-                        <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o ativo {{ asset.nome_ativo }}?');">Excluir</a>
-                    </div>
-                </div>
-            </td>
-            <td>{{ asset.nome_ativo }}</td>
+# --- Configurações Padrão ---
+_config = {
+    "process_interval_sec": 2.0,
+    "reading_timeout_sec": 10,
+    "default_rssi_threshold": -75,
+    "conflict_margin_db": 5,
+    "inertia_entrada_ms": 3000,
+    "inertia_saida_ms": 10000,
+    "ema_alpha": 0.4,
+    "disappearance_tolerance_cycles": 10 
+}
 
-            {# NOVOS DADOS #}
-            <td>{{ asset.tipo_ativo or '---' }}</td>
-            
-            <td>{{ asset.mac_beacon }}</td>
-            <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
-            <td>
-                {% if asset.status == 'Online' %}
-                    <span class="status-indicator online" title="Ativo online"></span> ON
-                {% else %}
-                    <span class="status-indicator offline" title="Ativo offline"></span> OFF
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-</div>
+class AssetState:
+    def __init__(self, mac):
+        self.mac = mac
+        self.readings = {}
+        self.last_known_ema = {}
+        self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000}
+        self.candidate_quarto_id = None
+        self.candidate_since = None
+        self.disappeared_since = None
+        self.weak_signal_since = None
+        self.disappearance_count = 0
 
-{% endblock %}
+    def update_reading(self, esp_id, rssi, timestamp):
+        """
+        Atualiza a leitura de uma ESP e calcula a Média Móvel Exponencial (EMA).
+        """
+        old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi)
+        alpha = _config["ema_alpha"]
+        new_ema = (rssi * alpha) + (old_ema * (1 - alpha))
+        self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema}
+        self.last_known_ema[esp_id] = new_ema
+        self.disappeared_since = None
+        self.disappearance_count = 0 
 
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    // Lógica para controlar a abertura e fechamento do menu de ações
-    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
-        button.addEventListener('click', function (event) {
-            event.stopPropagation(); // Impede que o clique feche o menu imediatamente
-            
-            // Fecha qualquer outro menu que esteja aberto
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
-                if (d !== this.nextElementSibling) d.classList.remove('show');
-            });
-
-            // Alterna a exibição do menu clicado
-            this.nextElementSibling.classList.toggle('show');
-        });
-    });
-
-    // Fecha o menu se o usuário clicar em qualquer outro lugar da tela
-    window.addEventListener('click', (event) => {
-        if (!event.target.matches('.actions-menu-trigger')) {
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+    def cleanup_old_readings(self):
+        now = time.time()
+        self.readings = {
+            esp_id: data for esp_id, data in self.readings.items()
+            if now - data["timestamp"] < _config["reading_timeout_sec"]
         }
-    });
-});
-</script>
-{% endblock %}
+        return bool(self.readings)
 
+async def _consume_scan_data_queue():
+    global _last_signal_log_times_per_esp
+    db = None
 
-========================================
-ARQUIVO: app/web/templates/base.html
-========================================
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <title>{% block title %}Baxter Wyrd{% endblock %}</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
-</head>
-<body>
-    <div class="container">
+    try:
+        while not scan_data_queue.empty():
+            item = await scan_data_queue.get()
 
-        {% include 'sidebar.html' %}
+            esp_id = item.get("esp_id")
+            if not esp_id:
+                continue    
 
-        <div class="overlay" id="overlay"></div>
+            now = time.time()
+            last_log_time = _last_signal_log_times_per_esp.get(esp_id, 0)
 
-        <main class="main-content">
-            {% block content %}{% endblock %}
-        </main>
-    </div>
+            if (now - last_log_time) > SIGNAL_LOG_INTERVAL_SEC:
+                signal_logger.info(json.dumps(item))
+                _last_signal_log_times_per_esp[esp_id] = now
 
-    <script>
-    // Roda APENAS UMA VEZ, depois que todo o HTML da página foi carregado.
-    document.addEventListener('DOMContentLoaded', function() {
-    
-        // 1. Ativa todos os ícones da biblioteca Feather na página.
-
-        // 2. Lógica da Sidebar e do Overlay (fundo escurecido).
-        const sidebar = document.getElementById('sidebar');
-        const toggleButton = document.getElementById('sidebar-toggle-btn');
-        const overlay = document.getElementById('overlay');
-
-        if (toggleButton && sidebar && overlay) {
-            const toggleSidebar = () => {
-                sidebar.classList.toggle('expanded');
-                overlay.classList.toggle('active');
-            };
-            toggleButton.addEventListener('click', toggleSidebar);
-            overlay.addEventListener('click', toggleSidebar);
-        }
-        
-        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
-        const formsContainer = document.getElementById('forms-container');
-
-        // Só executa se o botão e o container existirem nesta página
-        if (toggleFormsBtn && formsContainer) {
             
-            // Função para atualizar o texto do tooltip (title) do botão
-            const updateButtonTitle = () => {
-                if (formsContainer.classList.contains('collapsed')) {
-                    toggleFormsBtn.title = 'Mostrar Formulários';
-                } else {
-                    toggleFormsBtn.title = 'Recolher Formulários';
-                }
-            };
+            payload = item.get("payload", {})
 
-            // Ao carregar a página, verifica se o estado "recolhido" estava salvo
-            if (localStorage.getItem('formsCollapsed') === 'true') {
-                formsContainer.classList.add('collapsed');
-                toggleFormsBtn.classList.add('collapsed');
-            }
-            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+            beacons_obj = payload.get("b", {})
 
-            // Adiciona o evento de clique ao botão
-            toggleFormsBtn.addEventListener('click', () => {
-                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
-                formsContainer.classList.toggle('collapsed');
-                toggleFormsBtn.classList.toggle('collapsed');
+            for mac, rssi in beacons_obj.items():
+                mac = mac.lower()
+                if not mac or mac not in _asset_map: continue
 
-                // Atualiza o texto do title para o novo estado
-                updateButtonTitle();
-
-                // Salva o estado atual no armazenamento local
-                localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
-            });
-        }
-        
-        function conectarWebSocket() {
-            const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const socket = new WebSocket(`${ws_protocol}//${window.location.host}/ws`);
-
-            socket.onopen = function(event) {
-                console.log("SUCESSO: Conexão WebSocket global estabelecida.");
-                // Anuncia para toda a aplicação que a conexão está aberta
-                window.dispatchEvent(new Event('websocket_open'));
-            };
-
-            socket.onmessage = function(event) {
-                // Ignora os pings para não poluir a consola
-                if (event.data === "ping") {
-                    return;
-                }
-
-                if (event.data === "ATUALIZAR_ESTADO") {
-                    console.log("Recebido sinal para atualizar. Recarregando a página...");
-                    // Adiciona um pequeno delay para garantir que o banco de dados foi atualizado
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 500); // 500ms de delay
-                }   
-
-                try {
-                    const data = JSON.parse(event.data);
-                    // Verifica se é a mensagem especial de conexão para receber o nosso "crachá"
-                    if (data.type === "CONNECTION_INFO") {
-                        myClientId = data.client_id;
-                        console.log("Crachá de cliente recebido:", myClientId);
-                        return; // Não precisa de anunciar esta mensagem para outras páginas
-                    }
-                } catch (e) {
-                    // A mensagem não é um JSON, provavelmente é "ATUALIZAR_ESTADO"
-                }
+                asset_info = _asset_map.get(mac)
                 
-                // Anuncia TODAS as outras mensagens para que as páginas específicas possam ouvi-las
-                window.dispatchEvent(new CustomEvent('websocket_message', { detail: event.data }));
-            };
-
-            socket.onclose = function(event) {
-                console.warn("AVISO: Conexão WebSocket perdida. Tentando reconectar em 5s...");
-                setTimeout(conectarWebSocket, 5000);
-            };
-
-            socket.onerror = function(error) {
-                console.error("ERRO: Erro na conexão WebSocket:", error);
-                socket.close(); // Força o onclose para acionar a reconexão
-            };
-        }
-        conectarWebSocket();
-    });
-    </script>
-    
-    {% block scripts %}{% endblock %}
-
-</body>
-</html>
-
-
-========================================
-ARQUIVO: app/web/templates/embarcado_form.html
-========================================
-{# embarcado_form.html #}
-<form action="{{ form_action }}" method="post">
-    <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
-    
-    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr auto;">
-        <div class="form-group">
-            <label for="id_esp">ID da ESP</label>
-            <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
-        </div>
-        
-        {# NOVO CAMPO ANDAR #}
-        <div class="form-group">
-            <label for="andar_nome">Andar</label>
-            <input type="text" id="andar_nome" name="andar_nome" 
-                   value="{{ embarcado.quarto.andar.nome if embarcado and embarcado.quarto and embarcado.quarto.andar else '' }}" 
-                   placeholder="Ex: Térreo, 1º Andar" required>
-        </div>
-
-        <div class="form-group">
-            <label for="quarto_nome">Quarto</label>
-            <input type="text" id="quarto_nome" name="quarto_nome" 
-                   value="{{ embarcado.quarto.nome if embarcado and embarcado.quarto else '' }}" 
-                   placeholder="Ex: 101, UTI-02" required>
-        </div>
-        
-        {# O campo RSSI foi movido para uma nova linha para melhor organização #}
-        <div class="form-group" style="grid-column: 1 / 4;"> {# Ocupa 3 colunas #}
-            <label for="rssi_threshold">RSSI Mínimo Individual (dBm)</label>
-            <input type="number" id="rssi_threshold" name="rssi_threshold"
-                   value="{{ embarcado.rssi_threshold if embarcado and embarcado.rssi_threshold is not none else '' }}"
-                   placeholder="Deixe em branco para usar o global">
-        </div>
-
-        <button type="submit" class="icon-btn" title="{{ 'Atualizar' if embarcado else 'Salvar' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-        </button>
-    </div>
-</form>
-
-
-========================================
-ARQUIVO: app/web/templates/embarcados_list.html
-========================================
-{% extends "base.html" %}
-
-{% block title %}Gestão de Embarcados{% endblock %}
-
-{% block content %}
-<div class="content-header">
-    <h1>Embarcados</h1>
-    <div class="header-actions">
-        <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
-            <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
-            <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
-        </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
-        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">BAIXAR DADOS</a>
-    </div>
-</div>
-
-{# 1. FORMULÁRIOS MOVIDOS PARA CIMA #}
-<div class="forms-container-horizontal" id="forms-container">
-    <div class="form-card">
-        {% include 'embarcado_form.html' with context %}
-    </div>
-    
-    <div class="form-card">
-        <form action="{{ url_for('update_settings') }}" method="post">
-            <h3>Configurações Globais</h3>
-            <div class="form-fields-grid">
-                <div class="form-group">
-                    <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
-                    <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="conflict_margin_db">Margem de Conflito (dB)</label>
-                    <input type="number" name="conflict_margin_db" value="{{ global_settings.conflict_margin_db }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inercia_entrada">Inércia de Entrada (ms)</label>
-                    <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
-                </div>
-                <div class="form-group">
-                    <label for="inercia_saida">Inércia de Saída (ms)</label>
-                    <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
-                </div>
-                <button type="submit" class="icon-btn" title="Salvar Configurações Globais">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
-
-{# 2. TABELA AGORA VEM DEPOIS DOS FORMULÁRIOS #}
-<div class="list-container-full-width">
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th style="text-align: center; width: 80px;">AÇÕES</th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'id_esp' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='id_esp', order=sort_order) }}">ID DO EMBARCADO</a>
-                    {% if current_filters.sort_by == 'id_esp' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'andar' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='andar', order=sort_order) }}">ANDAR</a>
-                    {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO</a>
-                    {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
-                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'wifi_signal' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='wifi_signal', order=sort_order) }}">SINAL WI-FI</a>
-                    {% if current_filters.sort_by == 'wifi_signal' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'mac_address' and current_filters.order == 'desc' else 'desc' %}
-                <th>
-                    <a href="{{ request.url.replace_query_params(sort_by='mac_address', order=sort_order) }}">
-                        MAC ADDRESS {% if current_filters.sort_by == 'mac_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                    </a>
-                </th>
-
-                {# Coluna IP Address agora ordenável #}
-                {% set sort_order = 'asc' if current_filters.sort_by == 'ip_address' and current_filters.order == 'desc' else 'desc' %}
-                <th>
-                    <a href="{{ request.url.replace_query_params(sort_by='ip_address', order=sort_order) }}">
-                        IP ADDRESS {% if current_filters.sort_by == 'ip_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                    </a>
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'rssi_min' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='rssi_min', order=sort_order) }}">RSSI MÍN.</a>
-                    {% if current_filters.sort_by == 'rssi_min' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for emb in embarcados %}
-            <tr class="selectable-row" data-id="{{ emb.id }}">
-                {# 1. Ações #}
-                <td style="text-align: center;">
-                    <div class="actions-menu-container">
-                        <button class="actions-menu-trigger" title="Abrir menu de ações">
-                            &#8942;
-                        </button>
-                        <div class="actions-dropdown">
-                            <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar</a>
-                            <a href="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o embarcado {{ emb.id_esp }}?');">Excluir</a>
-                            <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
-                            <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
-                                <button type="submit" class="menu-item-btn">Reconfigurar</button>
-                            </form>
-                            <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
-                                <button type="submit" class="menu-item-btn">Reiniciar</button>
-                            </form>
-                        </div>
-                    </div>
-                </td>
-
-                {# 2. ID do Embarcado #}
-                <td>{{ emb.id_esp }}</td>
-
-                {# 3. Andar #}
-                <td>{{ emb.quarto.andar.nome if emb.quarto and emb.quarto.andar else '---' }}</td>
-
-                {# 4. Quarto #}
-                <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
-
-                {# 5. Status #}
-                <td>
-                    {% if emb.status_rede == 'online' %}
-                        <span class="status-indicator online" title="Último contato: {{ emb.last_seen_str }}"></span> ON
-                    {% else %}
-                        <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
-                    {% endif %}
-                </td>
-
-                {# 6. Sinal Wi-Fi #}
-                <td>
-                    {% if emb.wifi_signal %}
-                        {{ emb.wifi_signal }} dBm
-                    {% else %}
-                        ---
-                    {% endif %}
-                </td>
-
-                <td>{% if emb.status_rede == 'online' %}{{ emb.mac_address or '---' }}{% else %}---{% endif %}</td>
-                <td>{% if emb.status_rede == 'online' %}{{ emb.ip_address or '---' }}{% else %}---{% endif %}</td>
-
-                {# 9. RSSI Mín. #}
-                <td>
-                    {% if emb.rssi_threshold is not none %}
-                        <span title="RSSI Individual">{{ emb.rssi_threshold }}</span>
-                    {% else %}
-                        <span title="Usando Configuração Global" style="color: #999;">Global</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-
-<div id="rssi-modal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3 id="modal-title">Relatório de RSSI</h3>
-            <span class="close-btn" id="modal-close-btn">&times;</span>
-        </div>
-        <div class="modal-body" id="modal-body-content">
-            </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// Variável global para guardar nosso ID de cliente do WebSocket
-let myClientId = null;
-
-document.addEventListener('DOMContentLoaded', function () {
-    // Lógica para controlar a abertura e fechamento do modal
-    const modal = document.getElementById('rssi-modal');
-    const closeBtn = document.getElementById('modal-close-btn');
-    if (modal && closeBtn) {
-        closeBtn.onclick = () => { modal.style.display = "none"; };
-        window.onclick = (event) => {
-            if (event.target == modal) {
-                modal.style.display = "none";
-            }
-        };
-    }
-
-    // Lógica para controlar o menu de três pontinhos (sem alterações)
-    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
-        button.addEventListener('click', function (event) {
-            event.stopPropagation();
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
-                if (d !== this.nextElementSibling) d.classList.remove('show');
-            });
-            this.nextElementSibling.classList.toggle('show');
-        });
-    });
-    window.addEventListener('click', (event) => {
-        if (!event.target.matches('.actions-menu-trigger')) {
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
-        }
-    });
-
-    // --- INÍCIO DA NOVA LÓGICA ---
-    // Mapeamento de MAC para Nome do Ativo (para o relatório)
-    const rssiThresholds = JSON.parse('{{ rssi_thresholds | safe }}');
-    let assetNameMap = {};
-    fetch("{{ url_for('get_assets_map') }}")
-        .then(response => response.json())
-        .then(data => { assetNameMap = data; });
-
-    // Adiciona o evento de clique para TODOS os botões de "Testar RSSI"
-    document.querySelectorAll('.test-rssi-btn').forEach(button => {
-        button.addEventListener('click', function() {
-            if (!myClientId) {
-                alert("Ainda a conectar ao servidor, por favor tente novamente em segundos.");
-                return;
-            }
-            const embarcadoId = this.dataset.embarcadoId;
-
-            // Mostra um feedback visual de carregamento
-            const modalTitle = document.getElementById('modal-title');
-            const modalBody = document.getElementById('modal-body-content');
-            modalTitle.textContent = 'Aguardando Relatório...';
-            modalBody.innerHTML = '<p style="text-align:center;">Solicitando dados do servidor...</p>';
-            modal.style.display = 'block';
-
-            // Envia o pedido para o backend
-            fetch("{{ url_for('test_rssi_esp') }}", {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    embarcado_id: parseInt(embarcadoId),
-                    client_id: myClientId // Envia o nosso "crachá" de conexão
-                })
-            });
-        });
-    });
-
-    // "Ouvinte" global de mensagens WebSocket, que vai receber o relatório de volta
-    window.addEventListener('websocket_message', function (event) {
-        try {
-            const data = JSON.parse(event.detail); 
-            
-            if (data.type === "RSSI_REPORT") {
-                const modalTitle = document.getElementById('modal-title');
-                const modalBody = document.getElementById('modal-body-content');
-                const esp_id = data.esp_id;
-
-                const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
+                if asset_info.get("status") == 'Offline':
+                    if db is None: db = SessionLocal() 
+                    asset_db = db.query(Asset).get(asset_info.get("id"))
+                    if asset_db:
+                        asset_db.status = 'Online'
+                        _asset_map[mac]['status'] = 'Online'
                 
-                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
+                if mac not in _asset_realtime_state:
+                    _asset_realtime_state[mac] = AssetState(mac)
                 
-                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
+                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
+    finally:
+        if db:
+            db.commit()
+            db.close()
 
-                if (data.report && data.report.length > 0) {
-                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
-                    data.report.forEach(beacon => {
-                        const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
-                        const rssiValue = beacon.rssi;
-                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
-                        
-                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
-                    });
-                } else {
-                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
-                }
+async def _processar_localizacoes():
+    if not _esp_map or not _asset_map: return
 
-                reportHtml += '</tbody></table>';
-                modalBody.innerHTML = reportHtml;
-                modal.style.display = "block";
-            }
-        } catch (e) { /* Ignora outras mensagens que não sejam JSON */ }
-    });
-    // --- FIM DA NOVA LÓGICA ---
-});
-</script>
-{% endblock %}
+    changes_to_commit = []
+    db = SessionLocal()
+    try:
+        for mac, state in list(_asset_realtime_state.items()):
+            asset_info = _asset_map.get(mac, {})
+            asset_id = asset_info.get("id")
+            quarto_id_atual = asset_info.get("quarto_id")
 
+            if not asset_id: continue
 
-========================================
-ARQUIVO: app/web/templates/events_list.html
-========================================
-{% extends "base.html" %}
-
-{% block title %}Histórico de Eventos{% endblock %}
-
-{% block content %}
-<div class="content-header">
-    <h1>Histórico de Eventos</h1>
-    <a href="{{ url_for('download_events_csv') }}?{{ request.url.query }}" class="btn-primary">BAIXAR DADOS</a>
-</div>
-
-{# Seção de Filtros (sem alterações) #}
-<form class="filters-toolbar" method="get" action="{{ url_for('list_events') }}">
-    <div class="filter-group-left">
-        <select name="filter_ativo" class="filter-dropdown-main" onchange="this.form.submit()">
-            <option value="">Todos os Ativos</option>
-            {% for nome, mac in all_assets %}
-            <option value="{{ mac }}" {% if current_filters.ativo == mac %}selected{% endif %}>{{ nome }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div class="filter-group-right">
-        <select name="time_filter" class="filter-btn" onchange="this.form.submit()">
-            <option value="all" {% if not current_filters.time_filter or current_filters.time_filter == 'all' %}selected{% endif %}>Data e Hora</option>
-            <option value="daily" {% if current_filters.time_filter == 'daily' %}selected{% endif %}>Últimas 24h</option>
-            <option value="weekly" {% if current_filters.time_filter == 'weekly' %}selected{% endif %}>Últimos 7 dias</option>
-            <option value="monthly" {% if current_filters.time_filter == 'monthly' %}selected{% endif %}>Últimos 30 dias</option>
-        </select>
-        <select name="filter_andar" class="filter-btn" onchange="this.form.submit()">
-            <option value="">Andar</option>
-            {% for andar in all_andares %}
-            <option value="{{ andar }}" {% if current_filters.andar == andar %}selected{% endif %}>{{ andar }}</option>
-            {% endfor %}
-        </select>
-        <select name="filter_quarto" class="filter-btn" onchange="this.form.submit()">
-            <option value="">Quarto</option>
-            {% for quarto in all_quartos %}
-            <option value="{{ quarto }}" {% if current_filters.quarto == quarto %}selected{% endif %}>{{ quarto }}</option>
-            {% endfor %}
-        </select>
-        <select name="filter_action" class="filter-btn" onchange="this.form.submit()">
-          <option value="">Ação</option>
-          {% for value, name in all_action_options %}
-          <option value="{{ value }}" {% if current_filters.action == value %}selected{% endif %}>{{ name }}</option>
-          {% endfor %}
-        </select>
-        <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
-          <option value="">Status</option>
-          {% for status_option in all_status_options %}
-          <option value="{{ status_option }}" {% if current_filters.status == status_option %}selected{% endif %}>{{ status_option }}</option>
-          {% endfor %}
-        </select>
-        <a href="{{ url_for('list_events') }}" class="filter-reset-btn" title="Limpar Filtros">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/reiniciar.svg') }})"></span>
-        </a>
-    </div>
-</form>
-
-{# Seção da Tabela de Histórico (COM AS CORREÇÕES) #}
-<div class="history-table-container">
-    <table class="data-table history-table">
-        <thead>
-            <tr>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'data_on' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='data_on', order=sort_order) }}">
-                    DATA {% if current_filters.sort_by == 'data_on' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a>
-                </th>
-                <th>HORA</th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'ativo' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='ativo', order=sort_order) }}">ATIVO</a>
-                    {% if current_filters.sort_by == 'ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO</a>
-                    {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
+            if not state.cleanup_old_readings():
+                state.disappearance_count += 1
                 
-                {# === INÍCIO DAS MUDANÇAS === #}
-                {% set sort_order = 'asc' if current_filters.sort_by == 'andar' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='andar', order=sort_order) }}">ANDAR</a>
-                    {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {# === FIM DAS MUDANÇAS === #}
+                logger.debug(f"Ativo {mac} sem sinal. Contagem de desaparecimento: {state.disappearance_count}/{_config['disappearance_tolerance_cycles']}.")
 
-                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
-                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'rssi' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='rssi', order=sort_order) }}">SINAL BLE</a>
-                    {% if current_filters.sort_by == 'rssi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'wifi' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='wifi', order=sort_order) }}">SINAL WI-FI</a>
-                    {% if current_filters.sort_by == 'wifi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
-                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for event in events %}
-            <tr>
-                <td>{{ event.data_str }}</td>
-                <td>{{ event.hora_str }}</td>
-                <td>{{ event.nome_ativo }}</td>
-                <td>{{ event.quarto }}</td>
-
-                {# === INÍCIO DAS MUDANÇAS === #}
-                <td>{{ event.andar_nome or '---' }}</td>
-                {# === FIM DAS MUDANÇAS === #}
-
-                <td>
-                    {% if event.action == 'GET' %}
-                        <span class="action-get">Conectar</span>
-                    {% elif event.action == 'OUT' %}
-                        <span class="action-out">Desconectar</span>
-                    {% elif event.action == 'ALERTA' %}
-                        <span class="action-warning">Alerta</span>
-                    {% else %}
-                        <span>{{ event.action }}</span>
-                    {% endif %}
-                </td>
-                <td>{{ event.rssi or '---' }}</td>     
-                <td>{{ event.wifi or '---' }}</td>     
-                <td>
-                    {% if event.status %}
-                        <span class="status-box status-{{ event.status | lower }}"
-                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
-                            {{ event.status }}
-                        </span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-
-<div class="pagination">
-    {% if page > 1 %}<a href="{{ request.url.replace_query_params(page=page-1) }}">Anterior</a>{% endif %}
-    <span>Página {{ page }}</span>
-    {% if has_next %}<a href="{{ request.url.replace_query_params(page=page+1) }}">Próxima</a>{% endif %}
-</div>
-{% endblock %}
-
-
-========================================
-ARQUIVO: app/web/templates/inventario_form.html
-========================================
-{# inventario_form.html MODIFICADO #}
-<form action="{{ url_for('save_inventory_snapshot') }}" method="post" id="inventory-form">
-    
-    {# --- INÍCIO DA CORREÇÃO DO ERRO --- #}
-    {# Este campo oculto envia o ID do datacenter selecionado ao salvar. #}
-    <input type="hidden" name="datacenter_id" value="{{ current_dc_id or '' }}">
-    {# --- FIM DA CORREÇÃO DO ERRO --- #}
-
-    <h3>Adicionar Itens ao Inventário</h3>
-
-    <div class="form-fields-grid" style="grid-template-columns: 2fr 1.5fr auto auto; gap: 12px; align-items: flex-end;">
-        <div class="form-group" style="margin: 0;">
-            <label for="codigo_rfid">Código RFID</label>
-            <input type="text" id="codigo_rfid" 
-                   placeholder="ex: 300833B2DDD90140" autocomplete="off">
-        </div>
-
-        <div class="form-group" style="margin: 0;">
-            <label for="product_type_id">Tipo de Produto</label>
-            <select id="product_type_id">
-                {% for t in tipos %}
-                  <option value="{{ t.id }}">{{ t.nome }}</option>
-                {% endfor %}
-            </select>
-        </div>
-
-        <button type="button" class="icon-btn" id="add-inventory-btn" title="Adicionar Item à Lista">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-                 viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-        </button>
-
-        <button type="button" class="icon-btn" id="clear-inventory-btn" title="Limpar lista de itens a salvar">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-                 viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
-                <path d="M10 11v6M14 11v6"></path>
-                <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"></path>
-            </svg>
-        </button>
-    </div>
-
-    <div class="form-group" style="margin-top: 1.5rem;">
-        <label>Itens a serem salvos:</label>
-        <div id="pendentes" class="pending-list dotted"></div>
-        <div id="hidden-inputs"></div>
-    </div>
-
-    {# --- INÍCIO DO AJUSTE DE LAYOUT --- #}
-    {# Adicionado display:flex e justify-content:flex-end para alinhar o botão à direita #}
-    <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
-        <button type="submit" class="btn-primary">Salvar Inventário Atual</button>
-    </div>
-    {# --- FIM DO AJUSTE DE LAYOUT --- #}
-</form>
-
-
-========================================
-ARQUIVO: app/web/templates/inventario_list.html
-========================================
-{% extends "base.html" %}
-
-{% block title %}Inventário{% endblock %}
-
-{% block content %}
-<div class="content-header">
-    <h1>Inventário</h1>
-    <div class="header-actions">
-        <button id="toggle-forms-btn" class="icon-btn" title="Mostrar/Esconder Formulário">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
-        <a href="{{ url_for('download_inventory_csv') }}?datacenter_id={{ current_dc_id }}" class="btn-primary">BAIXAR DADOS</a>
-    </div>
-</div>
-
-<div class="top-controls-container">
-    <form class="filters-toolbar" method="get" action="{{ url_for('list_inventario') }}" style="margin-bottom: 0;">
-        <div class="filter-group-left">
-            <select name="datacenter_id" id="datacenter-select" class="filter-dropdown-main" onchange="this.form.submit()">
-                {% for dc in all_datacenters %}
-                <option value="{{ dc.id }}" {% if current_dc_id and dc.id == current_dc_id|int %}selected{% endif %}>
-                    {{ dc.nome }}
-                </option>
-                {% endfor %}
-            </select>
-        </div>
-    </form>
-
-    <div class="view-toggle">
-        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=comparison"
-           class="btn-toggle {% if current_view == 'comparison' %}active{% endif %}">
-           Comparativo
-        </a>
-        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=current"
-           class="btn-toggle {% if current_view == 'current' %}active{% endif %}">
-           Inventário Atual
-        </a>
-    </div>
-    </div>
-
-<div class="forms-container-vertical" id="forms-container"> 
-    <div class="form-card"> 
-        {% include 'inventario_form.html' with context %} 
-    </div>
-</div>
-
-{% if current_view == 'comparison' %}
-<div class="list-container-full-width">
-    <div class="list-header">
-        <h3>Comparativo de Inventário</h3>
-        <div class="muted">
-            {% if snapshot_atual and snapshot_anterior %} 
-                Comparando de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>. 
-            {% elif snapshot_atual %} 
-                Exibindo o primeiro inventário salvo em <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>. 
-            {% else %} 
-                Nenhum inventário foi salvo ainda para este datacenter. 
-            {% endif %} 
-        </div>
-    </div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th style="width: 40%;">INVENTÁRIO ATUAL</th> 
-                <th style="width: 40%;">INVENTÁRIO ANTERIOR</th> 
-                <th>MUDANÇA</th> 
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in tabela_unificada %} 
-            <tr>
-                <td>
-                    {% if row.tipo_atual != '---' %} 
-                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_atual }}) 
-                    {% else %}<span class="muted">---</span>{% endif %} 
-                </td>
-                <td>
-                    {% if row.tipo_anterior != '---' %} 
-                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_anterior }}) 
-                    {% else %}<span class="muted">---</span>{% endif %} 
-                </td>
-                <td style="font-weight: 500;">
-                    {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span> 
-                    {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span> 
-                    {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %} 
-                </td>
-            </tr>
-            {% else %} 
-            <tr><td colspan="3" class="muted">Nenhum item de inventário encontrado para comparar.</td></tr> 
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% endif %} 
-
-{% if current_view == 'current' %}
-<div class="list-container-full-width">
-    <div class="list-header">
-        <h3>Inventário Atual</h3>
-        <div class="muted">
-            {% if not snapshot_atual %} 
-                Nenhum inventário foi salvo ainda para este datacenter. 
-            {% endif %} 
-        </div>
-    </div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>CÓDIGO RFID</th> 
-                <th>TIPO DE PRODUTO</th> 
-                <th>DATA DE CRIAÇÃO</th> 
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in inventario_atual %}
-            <tr>
-                <td><code>{{ row.codigo_rfid }}</code></td> 
-                <td>{{ row.tipo }}</td> 
-                <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td> 
-            </tr>
-            {% else %}
-            <tr><td colspan="3" class="muted">Nenhum item no inventário atual.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% endif %}
-
-{% endblock %}
-
-{% block scripts %}
-<style>
-.top-controls-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.view-toggle { display: inline-flex; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; margin: 0; }
-.btn-toggle { padding: 8px 16px; text-decoration: none; color: #495057; background-color: #fff; border-right: 1px solid #dee2e6; font-size: 0.9rem; transition: background-color 0.2s ease; }
-.btn-toggle:last-child { border-right: none; }
-.btn-toggle.active { background-color: #0466C8; color: #fff; font-weight: 500; }
-.btn-toggle:not(.active):hover { background-color: #f8f9fa; }
-.pending-items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px 16px; padding-left: 0; list-style-type: none; }
-</style>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  const inventoryForm = document.getElementById('inventory-form'); 
-  const rfidInput = document.getElementById('codigo_rfid'); 
-  const tipoSelect = document.getElementById('product_type_id'); 
-  const addBtn = document.getElementById('add-inventory-btn'); 
-  const pendentesDiv = document.getElementById('pendentes'); 
-  const hiddenInputsDiv = document.getElementById('hidden-inputs'); 
-  const clearBtn = document.getElementById('clear-inventory-btn'); 
-  let buffer = [];
-  inventoryForm.addEventListener('submit', function(event) {
-    if (buffer.length === 0) {
-      event.preventDefault(); 
-      alert("Por favor, adicione pelo menos um item ao inventário antes de salvar."); 
-    }
-  }); 
-  function renderPendingItems(){
-    if(buffer.length === 0){
-      pendentesDiv.innerHTML = '<div class="muted">Nenhum item adicionado para salvar.</div>'; 
-      hiddenInputsDiv.innerHTML = ''; 
-      return;
-    }
-    pendentesDiv.innerHTML = '<ul class="pending-items-grid">' + buffer.map((item, index) => (
-      `<li style="display:flex; align-items:center; gap:6px; margin-bottom: 4px;">
-        <code>${item.codigo}</code> — ${item.tipoNome}
-        <button type="button" class="icon-btn" title="Remover" onclick="removePendingItem(${index})"
-                style="display:inline-flex; align-items:center; justify-content:center;
-                       width:20px; height:20px; padding:0; margin:0; border-radius: 50%;">
-          <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/close.svg') }}); width:14px; height:14px;"></span> 
-        </button>
-      </li>`
-    )).join('') + '</ul>';
-    hiddenInputsDiv.innerHTML = buffer.map(item =>
-      `<input type="hidden" name="codigos" value="${item.codigo}"/>
-       <input type="hidden" name="tipos" value="${item.tipoId}"/>`
-    ).join(''); 
-  }
-  window.removePendingItem = (index) => {
-    buffer.splice(index, 1); 
-    renderPendingItems(); 
-  }
-  addBtn?.addEventListener('click', () => {
-    const codigo = (rfidInput.value || '').trim().toUpperCase();
-    if(!codigo){ rfidInput.focus(); return; }
-    if (buffer.some(item => item.codigo === codigo)) {
-        rfidInput.value = '';
-        rfidInput.focus();
-        return;
-    }
-    const tipoId = tipoSelect.value;
-    const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text; 
-    buffer.push({codigo: codigo, tipoId: tipoId, tipoNome: tipoNome});
-    rfidInput.value = ''; rfidInput.focus(); renderPendingItems();
-  });
-  rfidInput?.addEventListener('keydown', e => {
-    if(e.key === 'Enter'){ e.preventDefault(); addBtn.click(); } 
-  });
-  clearBtn?.addEventListener('click', () => { buffer = []; renderPendingItems(); }); 
-  renderPendingItems();
-});
-</script>
-{% endblock %}
-
-
-========================================
-ARQUIVO: app/web/templates/login.html
-========================================
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}">
-</head>
-<body class="login-page">
-
-    <div class="login-background-image"></div>
-
-    <main class="login-card">
-        
-        <header class="login-header">
-            <img src="{{ url_for('static', path='icons/novo_logo.png') }}" class="logo-login" id="logo-icone" alt="Logo da Empresa">
-            <p>Utilize suas credenciais para realizar o login</p>
-        </header>
-
-        <form class="login-form" method="post" action="{{ url_for('login') }}">
-            <div class="form-fields">
-                <div class="form-group">
-                    <label for="username">Email</label>
-                    <input type="email" id="username" name="username" placeholder="saude@wyrd.com.br" required>
-                    <div class="input-line"></div>
-                </div>
-                <div class="form-group">
-                    <label for="password">Senha</label>
-                    <div class="password-wrapper">
-                        <input type="password" id="password" name="password" placeholder="••••••••" required>
-                        <img id="password-icon" src="{{ url_for('static', path='icons/olho_abrir.svg') }}" class="eye-icon" alt="Mostrar/Ocultar Senha" onclick="togglePassword()">
-                    </div>
-                    <div class="input-line"></div>
-                </div>
-    
-                <a href="#" class="forgot-password">Esqueceu sua senha?</a>
-            </div>
-            
-            <button type="submit" class="login-button">ENTRAR</button>
-        </form>
-        
-    </main>
-
-    <script>
-        function togglePassword() {
-            const passwordInput = document.getElementById('password');
-            const passwordIcon = document.getElementById('password-icon');
-
-            if (passwordInput.type === 'password') {
-                passwordInput.type = 'text';
-                passwordIcon.src = "{{ url_for('static', path='icons/olho_fechar.svg') }}";
-            } else {
-                passwordInput.type = 'password';
-                passwordIcon.src = "{{ url_for('static', path='icons/olho_abrir.svg') }}";
-            }
-        }
-    </script>
-
-</body>
-</html>
-
-
-========================================
-ARQUIVO: app/web/templates/main.html
-========================================
-{% extends "base.html" %}
-
-{% block title %}Dashboard Principal{% endblock %}
-
-{% block content %}
-<div class="content-header">
-  <h1>Dashboard</h1>
-</div>
-
-<div class="dashboard-container">
-  <div class="dashboard-card">
-    <h2>Bem-vindo ao WH Connect</h2>
-    <p>Este é o painel de controle do servidor intermediário para o projeto WYRD-Rtls.</p>
-    <p>Utilize o menu lateral para navegar entre as seções:</p>
-    <ul>
-      <li><strong>Histórico:</strong> Visualize o histórico de todos os eventos recebidos.</li>
-      <li><strong>Embarcados:</strong> Faça a gestão dos dispositivos ESP na sua rede.</li>
-      <li><strong>Ativos:</strong> Faça a gestão dos ativos e dos beacons associados.</li>
-    </ul>
-  </div>
-</div>
-{% endblock %}
-
-
-========================================
-ARQUIVO: app/web/templates/planta_baixa.html
-========================================
-{% extends "base.html" %}
-
-{% block title %}Plantas Baixas{% endblock %}
-
-{% block content %}
-<div class="content-header">
-    <h1>Plantas Baixas</h1>
-</div>
-
-<div id="planta-grid" class="planta-grid-container">
-    </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const gridContainer = document.getElementById('planta-grid');
-
-    const coordenadasDosPontos = {
-        'quarto-1': { top: '40%', left: '50%' },
-        'quarto-2': { top: '50%', left: '70%' },
-        'quarto-3': { top: '50%', left: '50%' },
-        'quarto-4': { top: '50%', left: '50%' },
-        'quarto-5': { top: '65%', left: '50%' },
-        'quarto-6': { top: '50%', left: '48%' }
-    };
-
-    function atualizarPlanta() {
-        fetch("{{ url_for('get_planta_dados') }}")
-            .then(response => response.json())
-            .then(dadosQuartos => {
-                gridContainer.innerHTML = '';
-
-                dadosQuartos.forEach(quarto => {
-                    const quartoContainer = document.createElement('div');
-                    quartoContainer.className = 'quarto-container';
-                    quartoContainer.id = quarto.id_quarto;
-
-                    const tituloH3 = document.createElement('h3');
-                    tituloH3.className = 'quarto-titulo';
-                    tituloH3.textContent = quarto.nome_quarto;
-
-                    const imgSvg = document.createElement('img');
-                    const numeroDoQuarto = quarto.id_quarto.split('-')[1];
-                    imgSvg.src = `{{ url_for('static', path='maps/') }}${numeroDoQuarto}.svg`;
-
-                    const pontoDiv = document.createElement('div');
-                    pontoDiv.className = 'ponto-status-overlay';
-                    const coords = coordenadasDosPontos[quarto.id_quarto] || { top: '50%', left: '50%' };
-                    pontoDiv.style.top = coords.top;
-                    pontoDiv.style.left = coords.left;
-                    pontoDiv.style.transform = 'translate(-50%, -50%)';
-
-                    // --- NOVA LÓGICA DE CORES ---
-                    if (quarto.status_embarcado === 'Offline') {
-                        pontoDiv.style.backgroundColor = '#6c757d'; // Cinza para Offline
-                    } else if (quarto.numero_ativos > 0) {
-                        pontoDiv.style.backgroundColor = '#28a745'; // Verde para Ocupado
-                    } else {
-                        pontoDiv.style.backgroundColor = '#dc3545'; // Vermelho para Livre (mas Online)
-                    }
-
-                    const contagemP = document.createElement('p');
-                    contagemP.className = 'quarto-asset-count';
-                    const textoAtivos = quarto.numero_ativos === 1 ? '1 ativo' : `${quarto.numero_ativos} ativos`;
+                if state.disappearance_count >= _config['disappearance_tolerance_cycles']:
                     
-                    if (quarto.status_embarcado === 'Offline') {
-                        contagemP.textContent = 'Embarcado Offline';
-                    } else {
-                        contagemP.textContent = quarto.numero_ativos > 0 ? textoAtivos : 'Livre';
-                    }
+                    if quarto_id_atual is not None:
+                        logger.info(f"EVENTO OUT (CICLOS): Ativo {mac} desapareceu consistentemente. Removendo do Quarto {quarto_id_atual}.")
+                        changes_to_commit.append({
+                            "asset_id": asset_id, 
+                            "new_quarto_id": None,
+                            "source_esp_id": state.last_strongest_signal.get("esp_id") or "server_disappearance",
+                            "rssi": state.last_strongest_signal.get("rssi", -1000),
+                            "details": f"Ativo desapareceu do radar BLE por {_config['disappearance_tolerance_cycles']} ciclos."
+                        })
                     
-                    // --- NOVA LÓGICA DE TOOLTIP ---
-                    let tooltipText = `${quarto.nome_quarto}`;
-                    if (quarto.status_embarcado === 'Offline') {
-                        tooltipText += `\n(Embarcado Offline)`;
-                    } else if (quarto.numero_ativos > 0) {
-                        // Itera sobre a nova lista de ativos detalhados
-                        quarto.ativos.forEach(ativo => {
-                            tooltipText += `\n- ${ativo.nome} (Entrada: ${ativo.horario_entrada})`;
-                        });
-                    } else {
-                        tooltipText += `\nLivre`;
-                    }
-                    pontoDiv.title = tooltipText;
+                    if asset_info.get("status") == 'Online':
+                        logger.warning(f"Ativo '{mac}' desapareceu consistentemente. Marcando como Offline.")
+                        asset_db = db.query(Asset).get(asset_id)
+                        if asset_db:
+                            asset_db.status = 'Offline'
+                        if mac in _asset_map:
+                            _asset_map[mac]['status'] = 'Offline'
 
-                    quartoContainer.appendChild(tituloH3);
-                    quartoContainer.appendChild(imgSvg);
-                    quartoContainer.appendChild(pontoDiv);
-                    quartoContainer.appendChild(contagemP);
+                    del _asset_realtime_state[mac]
+                continue 
+            
+            # Encontra o candidato mais forte baseado na EMA
+            strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None}
+            for esp_id, reading in state.readings.items():
+                if esp_id not in _esp_map: continue
+                q_id, q_rssi = _esp_map[esp_id]
+                threshold = q_rssi if q_rssi is not None else _config["default_rssi_threshold"]
+                # A decisão de ser um candidato agora usa a EMA
+                if reading["ema_rssi"] > threshold and reading["ema_rssi"] > strongest_candidate["ema_rssi"]:
+                    strongest_candidate = {
+                        "esp_id": esp_id, 
+                        "rssi": reading["rssi"],      # Guarda o RSSI bruto para log
+                        "ema_rssi": reading["ema_rssi"],# Usa a EMA para decisão
+                        "quarto_id": q_id
+                    }
+            
+            # Atualiza o sinal mais forte geral (para logs e referência)
+            top_esp, top_read = max(state.readings.items(), key=lambda i: i[1]['ema_rssi'])
+            state.last_strongest_signal = {"esp_id": top_esp, "rssi": top_read['rssi'], "ema_rssi": top_read['ema_rssi']}
+
+            candidate_quarto_id = strongest_candidate["quarto_id"]
+
+            if quarto_id_atual is not None and not candidate_quarto_id:
+                if state.weak_signal_since is None: state.weak_signal_since = time.time()
+                elif (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
+                    logger.info(f"EVENTO OUT (SINAL FRACO): Ativo {mac} marcado para remoção do Quarto {quarto_id_atual}.")
+                    # Adiciona a mudança à lista
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": state.last_strongest_signal['esp_id'],
+                        "rssi": state.last_strongest_signal['rssi'],
+                        "details": f"Sinal (EMA) permaneceu fraco por {_config['inertia_saida_ms']}ms"
+                    })
+                    if mac in _asset_map: _asset_map[mac]['quarto_id'] = None
+                    state.weak_signal_since = None
+                    continue
+            elif state.weak_signal_since is not None: state.weak_signal_since = None
+
+            if candidate_quarto_id == quarto_id_atual:
+                state.candidate_quarto_id = quarto_id_atual
+                state.candidate_since = None
+                continue
+
+            if candidate_quarto_id != state.candidate_quarto_id:
+                if quarto_id_atual is not None and candidate_quarto_id is not None:
+                    esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
                     
-                    gridContainer.appendChild(quartoContainer);
-                });
-            });
+                    leituras_ao_vivo = [r["ema_rssi"] for e, r in state.readings.items() if e in esps_no_quarto_atual]
+                    
+                    if leituras_ao_vivo:
+                        rssi_para_comparacao = max(leituras_ao_vivo)
+                    else:
+                        emas_conhecidos = [ema for esp, ema in state.last_known_ema.items() if esp in esps_no_quarto_atual]
+                        rssi_para_comparacao = max(emas_conhecidos) if emas_conhecidos else -1000
+                    
+                    if strongest_candidate["ema_rssi"] < (rssi_para_comparacao + _config["conflict_margin_db"]):
+                        #logger.info(f"CONFLITO: Ativo {mac}: Troca de Q{quarto_id_atual} para Q{candidate_quarto_id} NEGADA. Sinal EMA Cand: {strongest_candidate['ema_rssi']:.1f}dBm vs Base Atual: {rssi_para_comparacao:.1f}dBm + Margem: {_config['conflict_margin_db']}dBm")
+                        continue
+                
+                state.candidate_quarto_id = candidate_quarto_id
+                state.candidate_since = time.time()
+
+            if state.candidate_since and state.candidate_quarto_id is not None:
+                if (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
+                    if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
+                        logger.info(f"EVENTO IN: Ativo {mac} confirmado no Quarto {state.candidate_quarto_id}.")
+                        # Adiciona a mudança à lista
+                        changes_to_commit.append({
+                            "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
+                            "source_esp_id": strongest_candidate['esp_id'],
+                            "rssi": strongest_candidate['rssi'],
+                            "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f})"
+                        })
+                        if mac in _asset_map:
+                            _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
+                        state.candidate_since = None
+        
+        if changes_to_commit:
+            await batch_update_asset_assignments(db, changes_to_commit)
+        db.commit()
+    finally:
+        db.close()
+
+def clear_asset_state(mac_beacon_to_clear: str):
+    """Função de controle para limpar o estado de um ativo, chamada externamente."""
+    if mac_beacon_to_clear in _asset_realtime_state:
+        del _asset_realtime_state[mac_beacon_to_clear]
+        logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
+        return True
+    return False
+
+def _load_maps_from_db():
+    global _esp_map, _asset_map, _config
+    db = SessionLocal()
+    try:
+        esps = db.query(Embarcado).all()
+        _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
+        
+        assets = db.query(Asset).all()
+        # --- ATUALIZAÇÃO AQUI: Guardamos o status também ---
+        _asset_map = {
+            a.mac_beacon: {
+                "id": a.id, 
+                "quarto_id": a.quarto_id,
+                "status": a.status
+            } for a in assets
+        }
+
+        settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
+        
+        # Sobrescreve as configurações padrão com as do banco de dados
+        _config["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", _config["default_rssi_threshold"]))
+        _config["conflict_margin_db"] = int(settings_from_db.get("conflict_margin_db", _config["conflict_margin_db"]))
+        _config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))
+        _config["inertia_saida_ms"] = int(settings_from_db.get("inercia_saida", _config["inertia_saida_ms"]))
+        _config["ema_alpha"] = float(settings_from_db.get("ema_alpha", _config["ema_alpha"]))
+        
+        # (NOVO) Carrega as configurações do config.ini, se não estiverem no banco de dados
+        _config["process_interval_sec"] = float(settings.get('process_interval_sec', _config["process_interval_sec"]))
+        _config["reading_timeout_sec"] = int(settings.get('reading_timeout_sec', _config["reading_timeout_sec"]))
+        _config["disappearance_tolerance_cycles"] = int(settings.get('disappearance_tolerance_cycles', _config["disappearance_tolerance_cycles"]))
+        
+        logger.info(f"[RTLS] Cache (re)carregado: {len(_esp_map)} ESPs, {len(_asset_map)} Ativos. Configs: {str(_config)}")
+    finally:
+        db.close()
+
+def flag_for_reload():
+    _config_needs_reload.set()
+
+async def main_aggregator_loop():
+    logger.info("[RTLS] Motor de localização (v. com EMA) iniciado.")
+    _load_maps_from_db()
+    while True:
+        try:
+            if _config_needs_reload.is_set():
+                _load_maps_from_db()
+                _config_needs_reload.clear()
+            await _consume_scan_data_queue()
+            await _processar_localizacoes()
+        except Exception as e:
+            logger.error(f"[RTLS] Erro crítico no loop principal: {e}", exc_info=True)
+        await asyncio.sleep(_config["process_interval_sec"])
+
+
+========================================
+ARQUIVO: app/auth.py
+========================================
+# auth.py
+import logging
+logger = logging.getLogger(__name__)
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+security = HTTPBasic()
+ADMIN_USER = "admin"
+ADMIN_PASS = "wyrd"   # idealmente carregue via variável de ambiente
+
+def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    correct = (credentials.username == ADMIN_USER and credentials.password == ADMIN_PASS)
+    if not correct:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais inválidas",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+
+========================================
+ARQUIVO: app/config.py
+========================================
+# config.py
+import configparser
+import os
+import logging
+logger = logging.getLogger(__name__)
+
+# Define o nome do arquivo de configuração que ficará ao lado do .exe
+CONFIG_FILE = 'config.ini'
+
+def load_configuration():
+    """
+    Lê o arquivo config.ini e retorna um dicionário com as configurações.
+    Se o arquivo não existir, cria um com valores padrão.
+    """
+    config = configparser.ConfigParser()
+    
+    if not os.path.exists(CONFIG_FILE):
+        logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
+        config['Network'] = {
+            'IP': '0.0.0.0',
+            'PORT': '9500'
+        }
+        config['MQTT'] = {
+            'MQTT_BROKER_HOST': '127.0.0.1',
+            'MQTT_BROKER_PORT': '1883',
+            'MQTT_ASSET_LIST_TOPIC': 'wyrd/rtls/assets/available',
+            'MQTT_ESP_COMMAND_TOPIC': 'wyrd/rtls/esp/all/command'
+        }
+        # --- NOVA SEÇÃO ADICIONADA ---
+        config['Aggregator'] = {
+            'process_interval_sec': '2.0',
+            'reading_timeout_sec': '10',
+            'disappearance_tolerance_cycles': '10' # Novo parâmetro para a lógica de saída
+        }
+        
+        with open(CONFIG_FILE, 'w') as configfile:
+            config.write(configfile)
+    
+    config.read(CONFIG_FILE)
+    
+    # Junta todas as configurações de todas as seções em um único dicionário
+    settings = {}
+    for section in config.sections():
+        settings.update(config[section])
+        
+    return settings
+
+# Carrega as configurações para serem importadas por outros módulos
+settings = load_configuration()
+
+
+========================================
+ARQUIVO: app/connection_manager.py
+========================================
+# app/connection_manager.py
+import uuid
+from typing import Dict
+from fastapi import WebSocket
+
+class ConnectionManager:
+    def __init__(self):
+        # Usamos um dicionário para guardar {client_id: websocket}
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket) -> str:
+        """Aceita uma nova conexão, gera um ID e guarda-a."""
+        await websocket.accept()
+        client_id = str(uuid.uuid4()) # Gera um ID único
+        self.active_connections[client_id] = websocket
+        return client_id
+
+    def disconnect(self, client_id: str):
+        """Remove uma conexão pelo seu ID."""
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+
+    async def send_to_client(self, client_id: str, message: str):
+        """Envia uma mensagem para um cliente específico."""
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_text(message)
+
+    async def broadcast(self, message: str):
+        """Envia uma mensagem para TODOS os clientes."""
+        for connection in self.active_connections.values():
+            await connection.send_text(message)
+
+manager = ConnectionManager()
+
+
+========================================
+ARQUIVO: app/dispatcher.py
+========================================
+# dispatcher.py (versão final e assíncrona)
+import logging
+logger = logging.getLogger(__name__)
+import requests
+import json
+import asyncio # <--- IMPORTAMOS A BIBLIOTECA ASYNCIO
+from .config import settings
+
+def _exponential_backoff(attempt: int) -> int:
+    """Calcula o tempo de espera, dobrando a cada tentativa até um máximo de 60s."""
+    return min(2 ** attempt, 60)
+
+# --- ALTERAÇÃO AQUI: A função agora é 'async def' ---
+async def dispatch_event_to_rtls(tipo_evento: str, event_data: dict) -> bool:
+    """
+    Envia um evento formatado para a Rtls de forma assíncrona.
+    Retorna True em caso de sucesso (status 202) e False em caso de falha final.
+    """
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": settings.get("rtls_api_key")
+    }
+    payload = { "tipoEvento": tipo_evento, "eventData": event_data }
+    logger.info(f"[DISPATCHER] Preparando para enviar para Rtls: {payload}")
+
+    max_attempts = 5
+    for attempt in range(1, max_attempts + 1):
+        logger.info(f"[DISPATCHER] Tentativa {attempt}/{max_attempts}...")
+        try:
+            # NOTA: requests é uma biblioteca síncrona. O ideal seria usar httpx ou aiohttp.
+            # Mas para não adicionar novas dependências, a chamada síncrona aqui é rápida
+            # e o principal ganho de performance vem do asyncio.sleep.
+            response = requests.post(
+                settings.get("rtls_webhook_url"),
+                headers=headers,
+                json=payload,
+                timeout=10
+            )
+            if response.status_code == 200:
+                logger.info(f"[DISPATCHER] Sucesso! Evento '{tipo_evento}' aceito pela Rtls.")
+                return True
+
+            if 400 <= response.status_code < 500:
+                logger.info(f"[DISPATCHER] ERRO CLIENTE! Status: {response.status_code}. Abortando.")
+                return False
+
+            logger.info(f"[DISPATCHER] ERRO SERVIDOR! Status: {response.status_code}. Tentando novamente...")
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[DISPATCHER] ERRO DE CONEXÃO: {e}. Tentando novamente...")
+
+        if attempt < max_attempts:
+            wait_time = _exponential_backoff(attempt)
+            logger.info(f"[DISPATCHAER] Aguardando {wait_time}s de forma não-bloqueante.")
+            # --- ALTERAÇÃO AQUI: Usamos await asyncio.sleep() ---
+            await asyncio.sleep(wait_time)
+
+    logger.info(f"[DISPATCHER] FALHA FINAL! Evento '{tipo_evento}' descartado após {max_attempts} tentativas.")
+    return False
+
+
+========================================
+ARQUIVO: app/logging_config.py
+========================================
+# logging_config.py (Corrigido e com Fuso Horário)
+import logging
+import logging.config
+import sys
+from datetime import datetime
+
+# --- NOVO: Classe para forçar o fuso horário de São Paulo ---
+class SaoPauloTimeFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        # Esta função converte o tempo do log para o nosso fuso
+        # Não precisa de bibliotecas externas
+        from datetime import timezone, timedelta
+        sao_paulo_tz = timezone(timedelta(hours=-3))
+        return datetime.fromtimestamp(record.created, tz=sao_paulo_tz).strftime(datefmt)
+
+def setup_logging():
+    LOGGING_CONFIG = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'default': {
+                # --- NOVO: Usa a nossa classe de formatação customizada ---
+                '()': SaoPauloTimeFormatter,
+                'format': '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s',
+                'datefmt': '%d/%m/%Y %H:%M:%S',
+            },
+            'signal_formatter': {
+                # --- NOVO: Usa a nossa classe e adiciona o timestamp ---
+                '()': SaoPauloTimeFormatter,
+                'format': '%(asctime)s - %(message)s',
+                'datefmt': '%d/%m/%Y %H:%M:%S',
+            },
+        },
+        'handlers': {
+            'console': { 'class': 'logging.StreamHandler', 'formatter': 'default', 'stream': sys.stdout, },
+            'file': {
+                'class': 'logging.handlers.TimedRotatingFileHandler', 'formatter': 'default',
+                'filename': 'rtls_events.log', 'when': 'D', 'interval': 1, 'backupCount': 7, 'encoding': 'utf-8',
+            },
+            'signals_handler': {
+                'class': 'logging.handlers.TimedRotatingFileHandler', # <-- Alterado de FileHandler
+                'formatter': 'signal_formatter',
+                'filename': 'rtls_signals.log', 
+                'when': 'D',            # <-- Rotação diária
+                'interval': 1,          # <-- A cada 1 dia
+                'backupCount': 7,       # <-- Mantém 7 ficheiros antigos
+                'encoding': 'utf-8',
+            },
+        },
+        'loggers': { 'signals': { 'handlers': ['signals_handler'], 'level': 'INFO', 'propagate': False, }, },
+        'root': { 'handlers': ['console', 'file'], 'level': 'INFO', },
+    }
+    logging.config.dictConfig(LOGGING_CONFIG)
+    logging.info("INFO: Sistema de logging configurado. Fuso horário: São Paulo.")
+
+
+========================================
+ARQUIVO: app/main.py
+========================================
+# main.py (Versão Final, Completa e Consolidada para Multi-Ativo)
+
+import asyncio
+import logging 
+from .logging_config import setup_logging
+from . import aggregator 
+
+setup_logging() 
+
+logger = logging.getLogger(__name__)
+
+import threading
+import time
+import uvicorn
+import csv
+from io import StringIO
+import json
+import sys
+import os
+from typing import Optional, Dict, List
+from datetime import datetime, timedelta, timezone
+
+from fastapi import WebSocket, WebSocketDisconnect, BackgroundTasks
+from .connection_manager import manager
+from . import scan_rfid 
+from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status
+from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import event, or_, desc, asc
+
+from urllib.parse import urlencode
+from pydantic import BaseModel
+
+from sqladmin import Admin, ModelView
+from sqladmin.authentication import AuthenticationBackend
+from starlette.requests import Request as StarletteRequest
+from starlette.exceptions import WebSocketException 
+from starlette.datastructures import URL
+
+# --- Importações dos Módulos da Aplicação ---
+from .models import (
+    engine, SessionLocal, Asset, Embarcado, Quarto,
+    ReceivedEvent, GlobalSetting, Andar, 
+    ProductType, Product, InventorySnapshot, InventoryItem, 
+    DataCenter, init_db
+)
+from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
+from . import mqtt_client
+from .aggregator import main_aggregator_loop, _asset_realtime_state
+from .config import settings
+from .auth import authenticate_admin
+
+logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
+
+# --- Constantes e Configuração Inicial ---
+HISTORY_RETENTION_DAYS = 7
+EVENT_PAGE_SIZE = 25
+CLEANUP_INTERVAL_SEC = 3600
+NUM_FIXED_ROOMS = 6
+
+try:
+    base_path = sys._MEIPASS
+except Exception:
+    base_path = os.path.dirname(os.path.abspath(__file__))
+
+templates_path = os.path.join(base_path, "web/templates")
+static_path = os.path.join(base_path, "web/static")
+
+init_db()
+
+
+class AdminAuth(AuthenticationBackend):
+    async def login(self, request: StarletteRequest) -> bool:
+        form = await request.form()
+        username, password = form["username"], form["password"]
+
+        # Credenciais definidas diretamente no código, como solicitado
+        if username == "admin" and password == "wyrd":
+            request.session.update({"token": "admin_logged_in"})
+            return True
+        return False
+
+    async def logout(self, request: StarletteRequest) -> bool:
+        request.session.clear()
+        return True
+
+    async def authenticate(self, request: StarletteRequest) -> bool:
+        return "token" in request.session
+
+authentication_backend = AdminAuth(secret_key="W753y@r159d")
+
+def seed_database():
+    db = SessionLocal()
+    try:
+        # Garante que um andar padrão exista antes de criar os quartos
+        default_andar_nome = "Andar Principal"
+        andar_obj = db.query(Andar).filter(Andar.nome == default_andar_nome).first()
+        if not andar_obj:
+            andar_obj = Andar(nome=default_andar_nome)
+            db.add(andar_obj)
+            db.commit()
+            db.refresh(andar_obj)
+
+        num_quartos = db.query(Quarto).count()
+        if num_quartos < NUM_FIXED_ROOMS:
+            logger.info(f"INFO: Detectados {num_quartos}/{NUM_FIXED_ROOMS} quartos. Criando os restantes...")
+            for i in range(num_quartos + 1, NUM_FIXED_ROOMS + 1):
+                quarto_nome = f"Quarto {i}"
+                if not db.query(Quarto).filter(Quarto.nome == quarto_nome).first():
+                    # Associa o novo quarto ao andar padrão
+                    db.add(Quarto(nome=quarto_nome, andar_id=andar_obj.id))
+            db.commit()
+            logger.info("INFO: Quartos fixos criados com sucesso.")
+    except Exception as e:
+        logger.error(f"ERRO ao 'semear' o banco de dados com quartos fixos: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+def seed_datacenters():
+    db = SessionLocal()
+    try:
+        datacenters = ["Datacenter Principal SP", "Datacenter Secundário RJ", "Datacenter Sul"]
+        for nome in datacenters:
+            if not db.query(DataCenter).filter(DataCenter.nome == nome).first():
+                # Gera um 'slug' simples a partir do nome
+                slug = nome.lower().replace(" ", "-").replace("á", "a").replace("ç", "c")
+                db_datacenter = DataCenter(nome=nome, slug=slug)
+                db.add(db_datacenter)
+        db.commit()
+    except Exception as e:
+        logger.error(f"ERRO ao 'semear' datacenters: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+#seed_database()
+#seed_datacenters()
+
+def seed_product_types():
+    db = SessionLocal()
+    try:
+        tipos_desejados = ["Servidor", "Roteador", "Cabo"]
+        existentes = {nome for (nome,) in db.query(ProductType.nome).all()}
+        novos = [t for t in tipos_desejados if t not in existentes]
+
+        if novos:
+            logger.info(f"INFO: Inserindo tipos: {novos}")
+            db.add_all([ProductType(nome=t) for t in novos])
+            db.commit()
+        else:
+            logger.info("INFO: Tipos já existentes. Nenhuma inserção necessária.")
+    except Exception as e:
+        logger.error(f"ERRO ao semear tipos de produto: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+seed_product_types()
+
+app = FastAPI(title="Wyrd-Baxter Connect")
+
+admin = Admin(app, engine, authentication_backend=authentication_backend)
+
+# Define como cada tabela será exibida no admin
+class AssetAdmin(ModelView, model=Asset):
+    column_list = [Asset.id, Asset.nome_ativo, Asset.mac_beacon, Asset.quarto]
+    column_searchable_list = [Asset.nome_ativo, Asset.mac_beacon]
+    name = "Ativo"
+    name_plural = "Ativos"
+    icon = "fa-solid fa-tag"
+
+class EmbarcadoAdmin(ModelView, model=Embarcado):
+    column_list = [Embarcado.id, Embarcado.id_esp, Embarcado.quarto]
+    column_searchable_list = [Embarcado.id_esp]
+    name = "Embarcado"
+    name_plural = "Embarcados"
+    icon = "fa-solid fa-microchip"
+
+class QuartoAdmin(ModelView, model=Quarto):
+    column_list = [Quarto.id, Quarto.nome]
+    name = "Quarto"
+    name_plural = "Quartos"
+    icon = "fa-solid fa-door-closed"
+
+class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
+    can_create = False
+    can_edit = False
+    column_list = [
+        ReceivedEvent.id, ReceivedEvent.data_on, ReceivedEvent.ativo,
+        ReceivedEvent.action, ReceivedEvent.status, ReceivedEvent.rssi
+    ]
+    column_searchable_list = [ReceivedEvent.ativo, ReceivedEvent.esp_id]
+    column_sortable_list = [ReceivedEvent.id, ReceivedEvent.data_on]
+    name = "Evento Recebido"
+    name_plural = "Eventos Recebidos"
+    icon = "fa-solid fa-list-ul"
+
+class ProductTypeAdmin(ModelView, model=ProductType):
+    column_list = [ProductType.id, ProductType.nome]
+    name = "Tipo de Produto"
+    name_plural = "Tipos de Produto"
+    icon = "fa-solid fa-layer-group"
+
+class ProductAdmin(ModelView, model=Product):
+    column_list = [Product.id, Product.codigo_rfid, Product.product_type]
+    column_searchable_list = [Product.codigo_rfid]
+    name = "Produto (RFID)"
+    name_plural = "Produtos (RFID)"
+    icon = "fa-solid fa-box"
+
+class DataCenterAdmin(ModelView, model=DataCenter):
+    name = "Datacenter"
+    name_plural = "Datacenters"
+    icon = "fa-solid fa-server"
+    # Colunas que aparecerão na lista
+    column_list = [DataCenter.id, DataCenter.nome, DataCenter.slug]
+    # Colunas que aparecerão no formulário de edição/criação
+    form_columns = [DataCenter.nome, DataCenter.slug]
+
+class ProductAdmin(ModelView, model=Product):
+    name = "Produto (Catálogo RFID)"
+    name_plural = "Produtos (Catálogo RFID)"
+    icon = "fa-solid fa-box"
+    column_list = [Product.id, Product.codigo_rfid, Product.product_type]
+    column_searchable_list = [Product.codigo_rfid]
+
+class ProductTypeAdmin(ModelView, model=ProductType):
+    name = "Tipo de Produto (RFID)"
+    name_plural = "Tipos de Produto (RFID)"
+    icon = "fa-solid fa-layer-group"
+    column_list = [ProductType.id, ProductType.nome]
+
+class InventorySnapshotAdmin(ModelView, model=InventorySnapshot):
+    name = "Snapshot de Inventário"
+    name_plural = "Snapshots de Inventário"
+    icon = "fa-solid fa-camera"
+    can_create = False # Geralmente criados pela aplicação
+    can_edit = False
+    column_list = [InventorySnapshot.id, InventorySnapshot.created_on, InventorySnapshot.datacenter]
+
+class InventoryItemAdmin(ModelView, model=InventoryItem):
+    name = "Item de Inventário"
+    name_plural = "Itens de Inventário"
+    icon = "fa-solid fa-tag"
+    can_create = False
+    can_edit = False
+    column_list = [InventoryItem.id, InventoryItem.product, InventoryItem.snapshot]
+
+admin.add_view(ProductTypeAdmin)
+admin.add_view(ProductAdmin)
+admin.add_view(AssetAdmin)
+admin.add_view(EmbarcadoAdmin)
+admin.add_view(QuartoAdmin)
+admin.add_view(ReceivedEventAdmin)
+
+admin.add_view(DataCenterAdmin)
+admin.add_view(InventorySnapshotAdmin)
+admin.add_view(InventoryItemAdmin)
+
+# --- Dependência do Banco de Dados ---
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+app.mount("/static", StaticFiles(directory=static_path), name="static")
+templates = Jinja2Templates(directory=templates_path)
+
+# --- INÍCIO DA CORREÇÃO DE FUSO HORÁRIO ---
+def to_sao_paulo_time(utc_dt: datetime):
+    """Filtro Jinja2 para converter uma data UTC para o fuso de São Paulo (GMT-3)."""
+    if not isinstance(utc_dt, datetime):
+        return utc_dt # Retorna o valor original se não for uma data
+    sao_paulo_tz = timezone(timedelta(hours=-3))
+    return utc_dt.astimezone(sao_paulo_tz)
+
+# Adiciona o filtro customizado ao ambiente do Jinja2 para que possamos usá-lo nos templates
+templates.env.filters['to_spt'] = to_sao_paulo_time
+
+def get_or_create_andar(db: Session, nome: str) -> Andar:
+    andar = db.query(Andar).filter(Andar.nome == nome).first()
+    if not andar:
+        logger.info(f"Andar '{nome}' não encontrado. Criando novo registro.")
+        andar = Andar(nome=nome)
+        db.add(andar)
+        db.commit()
+        db.refresh(andar)
+    return andar
+
+def get_or_create_quarto(db: Session, nome: str, andar_id: int) -> Quarto:
+    quarto = db.query(Quarto).filter(Quarto.nome == nome).first()
+    if not quarto:
+        logger.info(f"Quarto '{nome}' não encontrado. Criando e associando ao andar ID {andar_id}.")
+        quarto = Quarto(nome=nome, andar_id=andar_id)
+        db.add(quarto)
+        db.commit()
+        db.refresh(quarto)
+    # Se o quarto já existe, mas pertence a outro andar (caso de edição)
+    elif quarto.andar_id != andar_id:
+        quarto.andar_id = andar_id
+        db.commit()
+    return quarto
+
+@app.get("/login", name="login_page")
+def display_login_page(request: Request):
+    """
+    Esta rota apenas exibe a página de login.
+    """
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login", name="login")
+def handle_login(request: Request, username: str = Form(...), password: str = Form(...)):
+    """
+    Esta rota processa os dados do formulário de login.
+    Por enquanto, ela apenas redireciona para a página de quartos.
+    """
+    # A lógica de autenticação pode ser adicionada aqui no futuro.
+    # Por agora, qualquer login redireciona para a página de quartos.
+    return RedirectResponse(url=request.url_for("list_quartos"), status_code=303)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    client_id = await manager.connect(websocket)
+    receiver_task = None
+    pinger_task = None
+    
+    try:
+        logger.info("[WebSocket] Nova conexão estabelecida. Cliente: %s, ID: %s", websocket.client, client_id)
+        await websocket.send_text(json.dumps({"type": "CONNECTION_INFO", "client_id": client_id}))
+        #logger.info("[WebSocket] ID '%s' enviado para o cliente.", client_id)
+
+        async def receiver(ws: WebSocket):
+            # Esta tarefa simplesmente espera. Se o cliente desconectar, ela irá falhar.
+            async for _ in ws.iter_text():
+                pass
+
+        async def pinger(ws: WebSocket):
+            while True:
+                await asyncio.sleep(30)
+                try:
+                    # Tenta enviar o ping.
+                    await ws.send_text("ping")
+                    logger.debug("[WebSocket] Ping enviado para %s.", client_id)
+                except (WebSocketException, RuntimeError):
+                    # Se falhar porque a conexão está a fechar, quebra o loop silenciosamente.
+                    # Isto é o que previne o erro.
+                    break
+        
+        receiver_task = asyncio.create_task(receiver(websocket))
+        pinger_task = asyncio.create_task(pinger(websocket))
+        
+        # Espera que uma das tarefas termine (o que indica uma desconexão)
+        done, pending = await asyncio.wait(
+            [receiver_task, pinger_task], return_when=asyncio.FIRST_COMPLETED
+        )
+
+    except Exception as e:
+        logger.error("[WebSocket] Erro inesperado no endpoint com %s: %s", client_id, e, exc_info=True)
+    finally:
+        # Bloco de limpeza final
+        if pinger_task: pinger_task.cancel()
+        if receiver_task: receiver_task.cancel()
+        
+        manager.disconnect(client_id)
+        logger.info("[WebSocket] Conexão com o cliente %s limpa e encerrada.", client_id)
+
+
+scanning_sessions = {} # Dicionário para controlar as tarefas de scan de cada cliente
+
+scanning_tasks = {} # Dicionário para controlar as tarefas de scan de cada cliente
+
+@app.websocket("/ws/rfid")
+async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
+    client_id = f"{websocket.client.host}:{websocket.client.port}"
+    await websocket.accept()
+    logger.info(f"Cliente RFID conectado: {client_id}")
+    
+    try:
+        while True:
+            data_text = await websocket.receive_text()
+            data = json.loads(data_text)
+            action = data.get("action")
+
+            if action == "start_scan":
+                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
+                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Um scan já está em progresso."}))
+                    continue
+                
+                datacenter_id = data.get("datacenter_id")
+                if not datacenter_id:
+                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Por favor, selecione um datacenter."}))
+                    continue
+
+                # A chamada para a tarefa agora é mais simples, sem o 'scan_mode'
+                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id))
+                scanning_tasks[client_id] = task
+
+            elif action == "stop_scan":
+                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
+                    task = scanning_tasks[client_id]
+                    task.cancel() # Envia o sinal para a tarefa parar
+                    
+                    tags_lidas = []
+                    try:
+                        # Aguarda a tarefa ser cancelada e recolhe a lista de tags
+                        tags_lidas = await task 
+                    except asyncio.CancelledError:
+                        logger.info(f"Scan para o cliente {client_id} foi cancelado via botão 'parar'.")
+                        # O bloco finally na tarefa fará a limpeza
+                        pass
+
+                    # Após a finalização da tarefa, salva os resultados e limpa o estado
+                    if scan_rfid.save_tags_as_inventory(db, data.get("datacenter_id"), tags_lidas):
+                        await manager.broadcast("ATUALIZAR_ESTADO") # Notifica a todos para recarregar
+                    
+                    # Remove a tarefa finalizada do dicionário de controle
+                    del scanning_tasks[client_id]
+
+    except WebSocketDisconnect:
+        # Se o usuário fechar a página, cancela e limpa a tarefa de scan associada
+        if client_id in scanning_tasks and scanning_tasks[client_id]:
+            scanning_tasks[client_id].cancel()
+            del scanning_tasks[client_id]
+        logger.info(f"Cliente RFID {client_id} desconectado. Scan (se houver) interrompido.")
+
+# ===================================================================
+# SEÇÃO 1: ROTAS DE ALTO NÍVEL, CONFIGURAÇÕES E API PARA ESPs
+# ===================================================================
+
+@app.get("/api/time", name="get_server_time")
+def get_server_time():
+    """
+    Endpoint para que os ESPs possam sincronizar seu relógio.
+    Retorna o tempo atual do servidor como um timestamp Unix (segundos desde 1970).
+    """
+    return {"unix_time": int(time.time())}
+
+@app.get("/", name="main")
+def main_page(request: Request):
+    return RedirectResponse(url=request.url_for("login_page"), status_code=303)
+
+@app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
+async def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    await synchronize_and_reset_esp(db=db, embarcado_id=embarcado_id)
+    time.sleep(1) 
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+@app.post("/embarcados/test_rssi", name="test_rssi_esp")
+async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+    embarcado_id = data.get("embarcado_id")
+    client_id = data.get("client_id")
+
+    if not embarcado_id or not client_id:
+        raise HTTPException(status_code=400, detail="embarcado_id e client_id são necessários.")
+
+    embarcado = db.query(Embarcado).get(embarcado_id)
+    if not embarcado:
+        raise HTTPException(status_code=404, detail="Embarcado não encontrado.")
+
+    logger.info("Gerando relatório RSSI para a ESP '%s' a pedido do cliente '%s'.", embarcado.id_esp, client_id)
+    
+    report_data = []
+    
+    for mac, state in _asset_realtime_state.items():
+        if embarcado.id_esp in state.readings:
+            reading = state.readings[embarcado.id_esp]
+            report_data.append({
+                "mac": mac,
+                "rssi": reading.get("rssi", -1000) 
+            })
+    
+    websocket_message = {
+        "type": "RSSI_REPORT",
+        "esp_id": embarcado.id_esp,
+        "report": report_data
     }
 
-    window.addEventListener('websocket_open', function() {
-        console.log("Planta Baixa: WebSocket conectado. Carregando dados iniciais.");
-        atualizarPlanta();
-    });
+    await manager.send_to_client(client_id, json.dumps(websocket_message))
+    
+    return Response(status_code=status.HTTP_200_OK)
 
-    // Ouve pelo evento 'atualizar_estado' disparado pelo base.html
-    window.addEventListener('websocket_message', function (event) {
-        if (event.detail === "ATUALIZAR_ESTADO") {
-            console.log("Planta Baixa: Sinal de atualização recebido.");
-            atualizarPlanta();
-        }
-    });
-});
-</script>
-{% endblock %}
+@app.get("/api/assets/map", name="get_assets_map")
+def get_assets_map(db: Session = Depends(get_db)):
+    """
+    Retorna um dicionário JSON simples mapeando
+    o mac_beacon de cada ativo para o seu nome_ativo.
+    """
+    assets = db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()
+    asset_map = {asset.mac_beacon: asset.nome_ativo for asset in assets}
+    return asset_map
 
+@app.post("/embarcados/{embarcado_id}/reconfigure", name="reconfigure_esp")
+def reconfigure_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    embarcado = db.query(Embarcado).get(embarcado_id)
+    if embarcado:
+        logger.info("Enviando comando 'FETCH_CONFIG' individual para a ESP '%s'.", embarcado.id_esp)        
+        command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
+        mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
+        
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-========================================
-ARQUIVO: app/web/templates/quarto_form.html
-========================================
-<div class="form-card">
-    <h3>{% if quarto %}Editar Quarto{% else %}Cadastro de Quarto{% endif %}</h3>
-    <form action="{{ form_action }}" method="post">
-        <div class="form-group">
-            <label for="nome">Nome do Quarto</label>
-            <input type="text" id="nome" name="nome" value="{{ quarto.nome if quarto else '' }}" placeholder="Ex: Sala de Reunião 1" required>
-        </div>
-        <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if quarto else 'Salvar' }}</button>
-    </form>
-</div>
+@app.post("/embarcados/{embarcado_id}/reboot", name="reboot_esp")
+def reboot_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    embarcado = db.query(Embarcado).get(embarcado_id)
+    if embarcado:
+        logger.info("Enviando comando 'REBOOT' para a ESP '%s'.", embarcado.id_esp)
+        command = {"type": "command", "data": {"name": "REBOOT"}}
+        # Usamos a função que envia para o canal individual da ESP
+        mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
+@app.post("/settings/update", name="update_settings")
+def update_settings(
+    request: Request, db: Session = Depends(get_db), 
+    rssi_threshold: str = Form(...),
+    conflict_margin_db: str = Form(...),
+    inercia_entrada: str = Form(...), # Novo
+    inercia_saida: str = Form(...)   # Novo
+):
+    settings_data = {
+        "rssi_threshold": rssi_threshold,
+        "conflict_margin_db": conflict_margin_db,
+        "inercia_entrada": inercia_entrada,
+        "inercia_saida": inercia_saida,
+    }
+    for key, value in settings_data.items():
+        setting = db.query(GlobalSetting).filter(GlobalSetting.key == key).first()
+        if not setting:
+            setting = GlobalSetting(key=key)
+            db.add(setting)
+        setting.value = value
+    db.commit()
+    aggregator.flag_for_reload()
+    logger.info(f"[main] Configurações globais do motor RTLS salvas: {settings_data}")
+    # Já não é preciso enviar comando para as ESPs, o servidor agora gere isto.
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-========================================
-ARQUIVO: app/web/templates/quartos_list.html
-========================================
-{% extends "base.html" %}
+LIVENESS_CHECK_INTERVAL_SEC = 30
+FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
+ESP_TIMEOUT_SEC = 150 # 2.5 minutos (2.5 * 60)
+ESP_STATUS_UPDATE_INTERVAL_SEC = 90 
 
-{% block title %}Status dos Quartos{% endblock %}
-
-{% block content %}
-<div class="content-header">
-    <h1>Status dos Quartos</h1>
-</div>
-
-{# Usamos o container de largura total da Baxter #}
-<div class="room-cards-container-fullwidth">
-
-    {% for quarto in quartos %}
-    {# O estilo do card foi adaptado para se parecer com os da Baxter #}
-    <div class="form-card" style="width: 400px; min-width: 300px; margin: 0;">
-        <form class="room-card-header" action="{{ url_for('update_quarto', quarto_id=quarto.id) }}" method="post" style="padding-bottom: 10px; border-bottom: 1px solid #eee;">
+async def check_esp_liveness():
+    """
+    Tarefa de background que verifica na base de dados por ESPs offline.
+    Usa o campo 'status_rede' para um estado de quarentena persistente.
+    """
+    while True:
+        await asyncio.sleep(LIVENESS_CHECK_INTERVAL_SEC)
+        
+        db = SessionLocal()
+        try:
+            now_utc = datetime.now(timezone.utc)
+            cutoff_time = now_utc - timedelta(seconds=ESP_TIMEOUT_SEC)
             
-            <div style="display: flex; flex-direction: column;">
-                {# O nome do quarto continua editável #}
-                <h3 class="room-name-display">{{ quarto.nome }}</h3>
-                <input type="text" name="nome" value="{{ quarto.nome }}" class="room-name-input" hidden>
+            # 1. A query agora busca apenas os ESPs que o sistema considera 'online'.
+            #    Isto substitui a verificação do set '_esps_em_quarentena'.
+            esps_a_verificar = db.query(Embarcado).filter(
+                Embarcado.last_seen != None,
+                Embarcado.status_rede == 'online'
+            ).all()
+
+            esps_que_ficaram_offline = []
+            for emb in esps_a_verificar:
+                # A lógica de verificação do tempo é a mesma
+                last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
+                if last_seen_utc < cutoff_time:
+                    esps_que_ficaram_offline.append(emb)
+            
+            if esps_que_ficaram_offline:
+                logger.warning("[LIVENESS] ESPs considerados offline nesta verificação: %s", [e.id_esp for e in esps_que_ficaram_offline])
                 
-                {# A NOVA INFORMAÇÃO DO ANDAR É EXIBIDA AQUI #}
-                {% if quarto.andar %}
-                    <span style="font-size: 0.8rem; color: #666;">{{ quarto.andar.nome }}</span>
-                {% endif %}
-            </div>
+                for emb in esps_que_ficaram_offline:
+                    await release_assets_for_offline_esp(db, emb.id_esp)
+                    
+                    emb.status_rede = 'offline'
+                    emb.wifi_signal = None  
+                    emb.mac_address = None 
+                    emb.ip_address = None
+                
+                # 3. Commit final para salvar todas as alterações de status na base de dados.
+                db.commit()
+        
+        except Exception as e:
+            logger.error("[LIVENESS] Ocorreu um erro durante a verificação de atividade das ESPs: %s", e, exc_info=True)
+            db.rollback()
+        finally:
+            db.close()
 
-            {# Botões de ação permanecem os mesmos #}
-            <button type="button" class="icon-btn room-edit-btn" title="Editar nome">
-                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span>
-            </button>
-            <button type="submit" class="icon-btn room-save-btn" title="Salvar" hidden>
-                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/check.svg') }})"></span>
-            </button>
-        </form>
+async def batch_update_esp_status():
+    """
+    Tarefa de background que periodicamente escreve o status mais recente
+    dos ESPs (last_seen, wifi_signal) no banco de dados de uma só vez.
+    """
+    # Adicione uma constante no topo do seu main.py, se não existir
+    # ESP_STATUS_UPDATE_INTERVAL_SEC = 90 
+    
+    logger.info("[BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.")
+    while True:
+        await asyncio.sleep(90) # Roda a cada 90 segundos
+        
+        status_updates = mqtt_client.get_and_clear_status_cache()
+        if not status_updates:
+            continue
 
-        <div class="room-block-body" style="padding-top: 15px;">
-            {% if quarto.assets %}
-                <ul class="asset-list">
-                    {% for asset in quarto.assets %}
-                        <li title="Entrada em: {{ asset.data_entrada_str }}">
-                            <span class="asset-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
-                            <span>{{ asset.nome_ativo }}</span>
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p class="no-assets-message">Nenhum ativo neste quarto.</p>
-            {% endif %}
-        </div>
-    </div>
-    {% endfor %}
-</div>
-{% endblock %}
+        logger.info(f"[BATCH-UPDATE-ESP] Atualizando status de {len(status_updates)} embarcados no banco de dados.")
+        db = SessionLocal()
+        try:
+            esp_ids_to_update = list(status_updates.keys())
+            embarcados_to_update = db.query(Embarcado).filter(Embarcado.id_esp.in_(esp_ids_to_update)).all()
+            
+            for emb in embarcados_to_update:
+                if emb.id_esp in status_updates:
+                    data = status_updates[emb.id_esp]
+                    emb.last_seen = data["last_seen"]
+                    if "wifi_signal" in data:
+                        emb.wifi_signal = data["wifi_signal"]
+                    if emb.status_rede == 'offline':
+                        emb.status_rede = 'online'
+            
+            db.commit()
+        except Exception as e:
+            logger.error(f"[BATCH-UPDATE-ESP] Erro ao atualizar status dos embarcados: {e}", exc_info=True)
+            db.rollback()
+        finally:
+            db.close()
 
-{# O JavaScript para edição inline do nome do quarto continua o mesmo #}
-{% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const editButtons = document.querySelectorAll('.room-edit-btn');
-    editButtons.forEach(btn => {
-        btn.addEventListener('click', function() {
-            const header = this.closest('.room-card-header');
-            const nameDisplay = header.querySelector('.room-name-display');
-            const nameInput = header.querySelector('.room-name-input');
-            const saveBtn = header.querySelector('.room-save-btn');
+def get_global_settings(db: Session) -> dict:
+    settings_from_db = db.query(GlobalSetting).all()
+    defaults = {"rssi_threshold": "-60", "inercia_chegada": "500", "inercia_saida": "15000"}
+    db_settings = {s.key: s.value for s in settings_from_db}
+    return {**defaults, **db_settings}
 
-            nameDisplay.hidden = true;
-            this.hidden = true;
-            nameInput.hidden = false;
-            saveBtn.hidden = false;
-            nameInput.focus();
-            nameInput.select();
-        });
-    });
-});
-</script>
-{% endblock %}
+@app.get("/api/esp/handshake", name="esp_handshake")
+def esp_handshake(
+    request: Request,
+    db: Session = Depends(get_db),
+    id_esp: str = Query(...),
+    mac: str = Query(...),
+    ip: str = Query("N/A"),
+    fw: str = Query("N/A")
+):
+    logger.info(f"HANDSHAKE recebido da ESP: {id_esp} (MAC: {mac}, IP: {ip}, FW: {fw})")
+
+    embarcado = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
+    if embarcado:
+        # Lógica para salvar o MAC e IP
+        embarcado.mac_address = mac
+        embarcado.ip_address = ip
+        db.commit()
+    else:
+        logger.warning(f"Handshake recebido de um embarcado não cadastrado: {id_esp}")
+
+    all_assets = db.query(Asset.mac_beacon).filter(Asset.mac_beacon.isnot(None)).all()
+    whitelist = [m for m, in all_assets]
+
+    logger.info(f"Enviando configuração para {id_esp}: {len(whitelist)} ativos na whitelist.")
+    return {"whitelist": whitelist}
+
+@app.get("/planta", name="view_planta")
+def view_planta(request: Request, db: Session = Depends(get_db)):
+    """
+    Renderiza a página da planta baixa interativa.
+    """
+    return templates.TemplateResponse("planta_baixa.html", {"request": request})
+
+@app.get("/api/planta/dados", name="get_planta_dados")
+def get_planta_dados(db: Session = Depends(get_db)):
+    """
+    Endpoint de API que fornece os dados de ocupação dos quartos,
+    incluindo o status do embarcado e detalhes de cada ativo.
+    """
+    quartos = db.query(Quarto).options(
+        joinedload(Quarto.assets),
+        joinedload(Quarto.embarcados)
+    ).order_by(Quarto.id).all()
+    
+    dados_quartos = []
+    now_utc = datetime.now(timezone.utc)
+    sao_paulo_tz = timezone(timedelta(hours=-3))
+
+    for quarto in quartos:
+        status_embarcado = "Offline"
+        if quarto.embarcados: # Verifica se existe um embarcado associado
+            embarcado = quarto.embarcados[0] # Pega o primeiro (deve ser apenas um)
+            if embarcado.last_seen:
+                last_seen_utc = embarcado.last_seen.replace(tzinfo=timezone.utc)
+                if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
+                    status_embarcado = "Online"
+        
+        # 2. Obter detalhes de cada ativo individualmente
+        ativos_detalhados = []
+        for asset in quarto.assets:
+            # Para cada ativo, busca o seu último evento de entrada bem sucedido
+            ultimo_evento = db.query(ReceivedEvent).filter(
+                ReceivedEvent.ativo == asset.mac_beacon,
+                ReceivedEvent.action == 'GET',
+                ReceivedEvent.status.in_(['OK', 'Confirmado'])
+            ).order_by(desc(ReceivedEvent.data_on)).first()
+            
+            horario = "N/A"
+            if ultimo_evento:
+                # Usamos um fuso horário para formatar a hora local corretamente
+                horario_local = ultimo_evento.data_on.astimezone(sao_paulo_tz)
+                horario = horario_local.strftime("%H:%M:%S")
+            ativos_detalhados.append({
+                "nome": asset.nome_ativo,
+                "horario_entrada": horario
+            })
+
+        dados_quartos.append({
+            "id_quarto": f"quarto-{quarto.id}",
+            "nome_quarto": quarto.nome,
+            "numero_ativos": len(quarto.assets),
+            "status_embarcado": status_embarcado, # <-- NOVO DADO
+            "ativos": ativos_detalhados          # <-- NOVA ESTRUTURA DE DADOS
+        })
+        
+    return JSONResponse(content=dados_quartos)
+
+# ===================================================================
+# SEÇÃO 2: CRUD PARA QUARTOS
+# ===================================================================
+@app.get("/quartos", name="list_quartos")
+def list_quartos(request: Request, db: Session = Depends(get_db)):
+    """
+    Exibe o dashboard de status dos quartos, agora carregando também os andares.
+    """
+    # A query foi atualizada para carregar o andar junto com o quarto e os ativos
+    quartos_com_assets = db.query(Quarto).options(
+        joinedload(Quarto.assets),
+        joinedload(Quarto.andar)  # <-- MUDANÇA IMPORTANTE AQUI
+    ).order_by(Quarto.id).all()
+
+    # O resto da lógica para encontrar a data de entrada dos ativos permanece
+    for quarto in quartos_com_assets:
+        for asset in quarto.assets:
+            ultimo_evento_entrada = db.query(ReceivedEvent).filter(
+                ReceivedEvent.ativo == asset.mac_beacon,
+                ReceivedEvent.action == 'GET',
+                ReceivedEvent.status.in_(['OK', 'Confirmado'])
+            ).order_by(ReceivedEvent.data_on.desc()).first()
+
+            if ultimo_evento_entrada:
+                asset.data_entrada_obj = ultimo_evento_entrada.data_on
+                asset.data_entrada_str = ultimo_evento_entrada.data_on.strftime("%d/%m/%Y às %H:%M:%S")
+            else:
+                asset.data_entrada_obj = datetime.min.replace(tzinfo=timezone.utc)
+                asset.data_entrada_str = "Horário de entrada não registrado"
+        
+        quarto.assets.sort(key=lambda b: b.data_entrada_obj)
+
+    return templates.TemplateResponse("quartos_list.html", {
+        "request": request,
+        "quartos": quartos_com_assets
+    })
+
+@app.post("/quartos/{quarto_id}/edit", name="update_quarto")
+def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: Session = Depends(get_db)):
+    """
+    Processa a atualização do nome de um quarto (submetido pelo formulário inline).
+    """
+    quarto = db.query(Quarto).get(quarto_id)
+    if quarto:
+        quarto.nome = nome
+        db.commit()
+        aggregator.flag_for_reload() 
+    return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
+
+# ===================================================================
+# SEÇÃO 3: CRUD PARA EMBARCADOS
+# ===================================================================
+@app.get("/embarcados", name="list_embarcados")
+def list_embarcados(
+    request: Request, db: Session = Depends(get_db),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("id_esp"),
+    order: Optional[str] = Query("asc")
+):
+    # A query agora precisa carregar o andar junto com o quarto
+    query = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar))
+    
+    # Lógica de busca
+    if search:
+        search_term = f"%{search}%"
+        query = query.join(Embarcado.quarto).join(Quarto.andar).filter(
+            or_(Embarcado.id_esp.ilike(search_term), Quarto.nome.ilike(search_term), Andar.nome.ilike(search_term), Embarcado.mac_address.ilike(search_term), Embarcado.ip_address.ilike(search_term))
+        )
+    
+    # Lógica de ordenação
+    sortable_columns = {
+        "id_esp": Embarcado.id_esp, "andar": Andar.nome, "quarto": Quarto.nome,
+        "status": Embarcado.status_rede, "wifi_signal": Embarcado.wifi_signal, "rssi_min": Embarcado.rssi_threshold,
+        "mac_address": Embarcado.mac_address, "ip_address": Embarcado.ip_address
+    }
+    if sort_by in ["andar", "quarto"]:
+        query = query.join(Embarcado.quarto).join(Quarto.andar)
+
+    sort_column = sortable_columns.get(sort_by, Embarcado.id_esp)
+    query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
+    
+    embarcados = query.all()
+    
+    global_settings = get_global_settings(db)
+    rssi_thresholds = {
+        "global": int(global_settings.get("rssi_threshold", -60)),
+        "individuais": {
+            emb.id_esp: emb.rssi_threshold for emb in embarcados if emb.rssi_threshold is not None
+        }
+    }
+    
+    # Lógica para formatar a data (last_seen)
+    fuso_local = timezone(timedelta(hours=-3))
+    for emb in embarcados:
+        emb.status = emb.status_rede.capitalize() if emb.status_rede else "Desconhecido"
+        if emb.last_seen:
+            last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
+            data_local = last_seen_utc.astimezone(fuso_local)
+            emb.last_seen_str = data_local.strftime("às %H:%M:%S de %d/%m")
+        else:
+            emb.last_seen_str = "Nunca visto"
+
+    assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
+    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
+    
+    # A LINHA MAIS IMPORTANTE: enviando a variável que faltava
+    return templates.TemplateResponse("embarcados_list.html", {
+        "request": request,
+        "embarcados": embarcados,
+        "available_quartos": available_quartos,
+        "form_action": request.url_for("create_embarcado"),
+        "embarcado": None, 
+        "search": search,
+        "global_settings": get_global_settings(db),
+        "rssi_thresholds": json.dumps(rssi_thresholds),
+        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
+    })
+
+@app.post("/embarcados/new", name="create_embarcado")
+def create_embarcado(
+    request: Request,
+    id_esp: str = Form(...),
+    andar_nome: str = Form(...),
+    quarto_nome: str = Form(...),
+    rssi_threshold: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    andar_obj = get_or_create_andar(db, andar_nome.strip())
+    quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
+    
+    rssi_value = int(rssi_threshold) if rssi_threshold else None
+    
+    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, rssi_threshold=rssi_value)
+        
+    try:
+        db.add(novo_embarcado)
+        db.commit()
+        db.refresh(novo_embarcado)
+        aggregator.flag_for_reload()
+        logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. Disparando reset automático.")
+        command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
+        mqtt_client.publish_command_to_esp(esp_id=novo_embarcado.id_esp, command=command)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[main-db] ERRO ao criar embarcado: {e}")
+
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+@app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
+def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    emb_para_editar = db.query(Embarcado).get(embarcado_id)
+    
+    assigned_quarto_ids = {
+        emb.quarto_id for emb in db.query(Embarcado).filter(
+            Embarcado.id != embarcado_id,
+            Embarcado.quarto_id.isnot(None)
+        ).all()
+    }
+    
+    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
+    
+    # Adicionando a variável que faltava
+    return templates.TemplateResponse("embarcados_list.html", {
+        "request": request,
+        "embarcados": db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar)).order_by(Embarcado.id_esp).all(),
+        "available_quartos": available_quartos,
+        "form_action": request.url_for("update_embarcado", embarcado_id=embarcado_id),
+        "embarcado": emb_para_editar,
+        "search": None, 
+        "global_settings": get_global_settings(db),
+        "rssi_thresholds": json.dumps({ "global": 0, "individuais": {} }),
+        "current_filters": {"search": None, "sort_by": "id_esp", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
+    })
+
+# Em main.py
+
+@app.post("/embarcados/{embarcado_id}/edit", name="update_embarcado")
+def update_embarcado(
+    request: Request,
+    embarcado_id: int,
+    andar_nome: str = Form(...),
+    quarto_nome: str = Form(...),
+    rssi_threshold: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    emb = db.query(Embarcado).get(embarcado_id)
+    if emb:
+        andar_obj = get_or_create_andar(db, andar_nome.strip())
+        quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
+        
+        rssi_value = int(rssi_threshold) if rssi_threshold else None
+        
+        emb.quarto_id = quarto_obj.id
+        emb.rssi_threshold = rssi_value
+        db.commit()
+        aggregator.flag_for_reload()
+        logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. Disparando reset automático.")
+        command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
+        mqtt_client.publish_command_to_esp(esp_id=emb.id_esp, command=command)
+        
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+@app.get("/embarcados/{embarcado_id}/delete", name="delete_embarcado")
+def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    emb = db.query(Embarcado).get(embarcado_id)
+    if emb:
+        db.delete(emb)
+        db.commit()
+        aggregator.flag_for_reload() 
+
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+
+# ===================================================================
+# SEÇÃO 4: CRUD PARA ATIVOS
+# ===================================================================
+@app.get("/assets", name="list_assets")
+def list_assets(
+    request: Request, db: Session = Depends(get_db),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("nome_ativo"),
+    order: Optional[str] = Query("asc")
+):
+    query = db.query(Asset).options(joinedload(Asset.quarto))
+    
+    # Lógica de busca
+    if search:
+        search_term = f"%{search}%"
+        # O outerjoin é usado para que a busca funcione mesmo em ativos que não estão em nenhum quarto
+        query = query.outerjoin(Asset.quarto).filter(
+            or_(Asset.nome_ativo.ilike(search_term), 
+                Asset.mac_beacon.ilike(search_term), 
+                Quarto.nome.ilike(search_term), 
+                Asset.tipo_ativo.ilike(search_term))
+        )
+
+    # Lógica de ordenação
+    sortable_columns = {
+        "nome_ativo": Asset.nome_ativo, "tipo_ativo": Asset.tipo_ativo,
+        "mac_beacon": Asset.mac_beacon, 
+        "quarto": Quarto.nome
+    }
+    if sort_by == "quarto":
+        query = query.outerjoin(Asset.quarto)
+        
+    sort_column = sortable_columns.get(sort_by, Asset.nome_ativo)
+    query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
+
+    assets = query.all()
+    
+    # Enviando a variável que faltava para o template
+    return templates.TemplateResponse("assets_list.html", {
+        "request": request, "assets": assets,
+        "form_action": request.url_for("create_asset"), "asset": None, 
+        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
+    })
+
+@app.post("/assets", name="create_asset")
+def create_asset(
+    request: Request,
+    nome_ativo: str = Form(...),
+    mac_beacon: str = Form(...),
+    tipo_ativo: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    asset = Asset(
+        nome_ativo=nome_ativo,
+        mac_beacon=mac_beacon.lower(),
+        tipo_ativo=tipo_ativo
+    )
+    try:
+        db.add(asset)
+        db.commit()
+        aggregator.flag_for_reload()
+        logger.info("[main] Ativo criado. Enviando comando de sincronização para todas as ESPs.")
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
+    except IntegrityError:
+        db.rollback()
+        logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[main-db] ERRO ao criar ativo: {e}")
+    return RedirectResponse(request.url_for("list_assets"), status_code=303)
+
+@app.get("/assets/{asset_id}/edit", name="edit_asset")
+def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
+    # A única mudança é adicionar o "current_filters" no dicionário
+    return templates.TemplateResponse("assets_list.html", {
+        "request": request, 
+        "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
+        "form_action": request.url_for("update_asset", asset_id=asset_id),
+        "asset": db.query(Asset).get(asset_id), 
+        "search": None,
+        "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
+    })
+
+@app.post("/assets/{asset_id}/edit", name="update_asset")
+def update_asset(
+    request: Request,
+    asset_id: int,
+    nome_ativo: str = Form(...),
+    mac_beacon: str = Form(...),
+    tipo_ativo: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    asset = db.query(Asset).get(asset_id)
+    if asset:
+        asset.nome_ativo = nome_ativo
+        asset.mac_beacon = mac_beacon.lower()
+        asset.tipo_ativo = tipo_ativo
+        
+        db.commit()
+        aggregator.flag_for_reload() 
+        logger.info("[main] Ativo atualizado. Enviando comando de sincronização para todas as ESPs.")
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
+            
+    return RedirectResponse(request.url_for("list_assets"), status_code=303)
+
+@app.get("/assets/{asset_id}/delete", name="delete_asset")
+def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
+    asset = db.query(Asset).get(asset_id)
+    if asset:
+        db.delete(asset)
+        db.commit()
+        aggregator.flag_for_reload()
+        logger.info("[main] Ativo apagado. Enviando comando de sincronização para todas as ESPs.")
+        command_payload = {"command": "fetch_config"}
+        mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
+    return RedirectResponse(request.url_for("list_assets"), status_code=303)
+
+# ===================================================================
+# SEÇÃO 5: HISTÓRICO DE EVENTOS E DOWNLOADS
+# ===================================================================
+@app.get("/events", name="list_events")
+def list_events(
+    request: Request, page: int = Query(1, ge=1),
+    filter_ativo: Optional[str] = Query(None), filter_quarto: Optional[str] = Query(None),
+    filter_action: Optional[str] = Query(None), filter_status: Optional[str] = Query(None),
+    time_filter: Optional[str] = Query(None), db: Session = Depends(get_db)
+):
+    # O mapa de embarcados já não é necessário aqui, a lógica fica mais simples
+    asset_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
+
+    query = db.query(ReceivedEvent)
+    
+    # A lógica de filtro por quarto agora funciona com o novo campo!
+    if filter_quarto: 
+        query = query.filter(ReceivedEvent.quarto_nome == filter_quarto)
+    
+    if filter_ativo: query = query.filter(ReceivedEvent.ativo == filter_ativo)
+    if filter_action: query = query.filter(ReceivedEvent.action == filter_action)
+    if filter_status: query = query.filter(ReceivedEvent.status == filter_status)
+    if time_filter:
+        now = datetime.now(timezone.utc)
+        if time_filter == 'daily': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
+        elif time_filter == 'weekly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(weeks=1))
+        elif time_filter == 'monthly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=30))
+
+    total = query.count()
+    events = query.order_by(ReceivedEvent.data_on.desc()).offset((page - 1) * EVENT_PAGE_SIZE).limit(EVENT_PAGE_SIZE).all()
+
+    sao_paulo_tz = timezone(timedelta(hours=-3))
+    for e in events:
+        e.nome_ativo = asset_map.get(e.ativo, e.ativo)
+        
+        e.quarto = e.quarto_nome if e.quarto_nome else "N/A"
+
+        data_utc = e.data_on.replace(tzinfo=timezone.utc)
+        data_local = data_utc.astimezone(sao_paulo_tz)
+        e.data_str = data_local.strftime("%d/%m/%Y")
+        e.hora_str = data_local.strftime("%H:%M:%S")
+
+    return templates.TemplateResponse("events_list.html", {
+        "request": request, "events": events, "page": page, "has_next": total > page * EVENT_PAGE_SIZE,
+        "all_assets": db.query(Asset.nome_ativo, Asset.mac_beacon).distinct().order_by(Asset.nome_ativo).all(),
+        "all_action_options": [("GET", "Conectar"), ("OUT", "Desconectar")],
+        "all_status_options": ["OK", "Erro", "Enfileirado", "Ignorado", "Confirmado"],
+        "all_quartos": sorted([q.nome for q in db.query(Quarto).order_by(Quarto.nome).all()]),
+        "current_filters": {"ativo": filter_ativo, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
+    })
+
+@app.get("/events/download", name="download_events_csv")
+def download_events_csv(
+    db: Session = Depends(get_db),
+    # Parâmetros de filtro, agora incluindo a AÇÃO
+    filter_ativo: Optional[str] = Query(None),
+    filter_quarto: Optional[str] = Query(None),
+    filter_status: Optional[str] = Query(None),
+    filter_action: Optional[str] = Query(None), # <-- PARÂMETRO ADICIONADO
+    time_filter: Optional[str] = Query(None)
+):
+    embarcados_map = {emb.id_esp: emb.quarto.nome for emb in db.query(Embarcado).options(joinedload(Embarcado.quarto)).all() if emb.quarto}
+    beacon_to_asset_name_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
+
+    query = db.query(ReceivedEvent)
+
+    # Aplica todos os mesmos filtros da página de eventos
+    if filter_ativo: query = query.filter(ReceivedEvent.ativo == filter_ativo)
+    if time_filter:
+        now = datetime.now(timezone.utc)
+        if time_filter == 'daily': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=1))
+        elif time_filter == 'weekly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(weeks=1))
+        elif time_filter == 'monthly': query = query.filter(ReceivedEvent.data_on >= now - timedelta(days=30))
+    if filter_quarto:
+        esps_ids = [id for id, nome in embarcados_map.items() if nome == filter_quarto]
+        query = query.filter(ReceivedEvent.esp_id.in_(esps_ids)) if esps_ids else query.filter(False)
+    if filter_status: query = query.filter(ReceivedEvent.status == filter_status)
+    
+    # --- LÓGICA DE FILTRO ADICIONADA AQUI ---
+    if filter_action:
+        query = query.filter(ReceivedEvent.action == filter_action)
+
+    events = query.order_by(ReceivedEvent.data_on.desc()).all()
+
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["Data/Hora", "Nome do Ativo", "Quarto", "Status", "Ação", "RSSI"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+        action_map = {"GET": "Conectar", "OUT": "Desconectar"}
+
+        for e in events:
+            quarto = embarcados_map.get(e.esp_id, "Desconhecido")
+            nome_ativo = beacon_to_asset_name_map.get(e.ativo, e.ativo)
+            acao_traduzida = action_map.get(e.action, e.action)
+            writer.writerow([
+                e.data_on.strftime("%Y-%m-%d %H:%M:%S") if e.data_on else "",
+                nome_ativo, quarto, e.status, acao_traduzida, e.rssi
+            ])
+            yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+    return StreamingResponse(
+        iter_csv(), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
+    )
+
+@app.get("/assets/download", name="download_assets_csv")
+def download_assets_csv(db: Session = Depends(get_db)):
+    # --- CORREÇÃO AQUI: Usa 'joinedload' para carregar o quarto junto ---
+    assets = db.query(Asset).options(joinedload(Asset.quarto)).order_by(Asset.nome_ativo).all()
+    
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["NOME DO ATIVO", "MAC BEACON", "QUARTO ATUAL"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        for asset in assets:
+            # --- CORREÇÃO AQUI: Acessa o nome do quarto de forma segura ---
+            quarto_nome = asset.quarto.nome if asset.quarto else ""
+            writer.writerow([asset.nome_ativo, asset.mac_beacon, quarto_nome])
+            yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+            
+    return StreamingResponse(
+        iter_csv(), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=ativos_export.csv"}
+    )
+
+@app.get("/embarcados/download", name="download_embarcados_csv")
+def download_embarcados_csv(db: Session = Depends(get_db)):
+    # --- CORREÇÃO AQUI: Usa 'joinedload' para carregar o quarto junto ---
+    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).order_by(Embarcado.id_esp).all()
+    
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        # --- CORREÇÃO AQUI: Remove a coluna 'ANDAR' que não existe mais ---
+        writer.writerow(["ID DO EMBARCADO", "QUARTO"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        for emb in embarcados:
+            # --- CORREÇÃO AQUI: Acessa o nome do quarto e remove 'andar' ---
+            quarto_nome = emb.quarto.nome if emb.quarto else ""
+            writer.writerow([emb.id_esp, quarto_nome])
+            yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+            
+    return StreamingResponse(
+        iter_csv(), media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=embarcados_export.csv"}
+    )
+
+# ===================================================================
+# SEÇÃO 5.1: DATACENTERS
+# ===================================================================7
+# Schema Pydantic para as respostas da API
+class DatacenterSchema(BaseModel):
+    id: int
+    nome: str
+    slug: str
+    snapshots_count: int
+
+    class Config:
+        from_attributes = True
+
+# Schema para validação na criação
+class DatacenterCreate(BaseModel):
+    nome: str
+
+# Schema para validação na atualização
+class DatacenterUpdate(BaseModel):
+    nome: str
+
+# ROTA PARA LISTAR TODOS OS DATACENTERS (para o modal de gerenciamento)
+@app.get("/api/datacenters", response_model=List[DatacenterSchema], name="list_datacenters_api")
+def list_datacenters_api(db: Session = Depends(get_db)):
+    """Retorna uma lista de todos os datacenters, incluindo a contagem de snapshots."""
+    datacenters = db.query(DataCenter).order_by(DataCenter.nome).all()
+    for dc in datacenters:
+        dc.snapshots_count = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == dc.id).count()
+    return datacenters
+
+# ROTA PARA CRIAR UM NOVO DATACENTER
+@app.post("/api/datacenters/new", response_model=DatacenterSchema, name="create_datacenter_api")
+def create_datacenter_api(
+    dc_in: DatacenterCreate,
+    db: Session = Depends(get_db)
+):
+    """Cria um novo datacenter."""
+    if db.query(DataCenter).filter(DataCenter.nome == dc_in.nome).first():
+        raise HTTPException(status_code=409, detail="Um datacenter com este nome já existe.")
+    slug = dc_in.nome.lower().replace(" ", "-").replace("á", "a").replace("ç", "c")
+    novo_dc = DataCenter(nome=dc_in.nome, slug=slug)
+    db.add(novo_dc)
+    db.commit()
+    db.refresh(novo_dc)
+    novo_dc.snapshots_count = 0 # Define a contagem inicial como 0
+    logger.info(f"Novo datacenter criado via API: {novo_dc.nome}")
+    return novo_dc
+
+# ROTA PARA ATUALIZAR (EDITAR) UM DATACENTER
+@app.put("/api/datacenters/{dc_id}", response_model=DatacenterSchema, name="update_datacenter_api")
+def update_datacenter_api(
+    dc_id: int,
+    dc_in: DatacenterUpdate,
+    db: Session = Depends(get_db)
+):
+    """Atualiza o nome de um datacenter existente."""
+    dc_to_update = db.query(DataCenter).get(dc_id)
+    if not dc_to_update:
+        raise HTTPException(status_code=404, detail="Datacenter não encontrado.")
+    
+    dc_to_update.nome = dc_in.nome
+    dc_to_update.slug = dc_in.nome.lower().replace(" ", "-").replace("á", "a").replace("ç", "c")
+    db.commit()
+    db.refresh(dc_to_update)
+    dc_to_update.snapshots_count = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == dc_to_update.id).count()
+    return dc_to_update
+
+# ROTA PARA DELETAR UM DATACENTER
+@app.delete("/api/datacenters/{dc_id}", name="delete_datacenter_api")
+def delete_datacenter_api(dc_id: int, db: Session = Depends(get_db)):
+    """Deleta um datacenter e TODOS os seus inventários associados."""
+    dc_to_delete = db.query(DataCenter).get(dc_id)
+    if not dc_to_delete:
+        raise HTTPException(status_code=404, detail="Datacenter não encontrado.")
+    
+    # Apaga todos os snapshots associados primeiro
+    db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == dc_id).delete(synchronize_session=False)
+
+    # Agora, apaga o datacenter
+    db.delete(dc_to_delete)
+    db.commit()
+    return {"ok": True, "detail": "Datacenter e seus inventários associados foram excluídos."}
+
+
+# ===================================================================
+# SEÇÃO 5.2: INVENTÁRIO DE PRODUTOS
+# ===================================================================
+
+@app.get("/inventario", name="list_inventario")
+def inventory_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    # --- CORREÇÃO: Visão padrão alterada para 'current' ---
+    view: str = Query("current"),
+    datacenter_id: Optional[int] = Query(None)
+):
+    all_datacenters = db.query(DataCenter).order_by(DataCenter.id).all()
+
+    if datacenter_id is None:
+        if all_datacenters:
+            primeiro_dc_id = all_datacenters[0].id
+            
+            # --- CORREÇÃO: Lógica de redirect melhorada para preservar outros parâmetros ---
+            params = dict(request.query_params)
+            params['datacenter_id'] = primeiro_dc_id
+            # A função urlencode transforma o dicionário em "datacenter_id=1&view=current" etc.
+            redirect_url = request.url.replace(query=urlencode(params))
+            return RedirectResponse(url=str(redirect_url))
+
+    # O resto da função permanece o mesmo...
+    tipos = db.query(ProductType).order_by(ProductType.nome).all()
+
+    snapshot_query = db.query(InventorySnapshot)
+    if datacenter_id:
+        snapshot_query = snapshot_query.filter(InventorySnapshot.datacenter_id == datacenter_id)
+    
+    snapshots = snapshot_query.order_by(InventorySnapshot.created_on.desc()).limit(2).all()
+    
+    snapshot_atual = snapshots[0] if len(snapshots) > 0 else None
+    snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
+
+    count_atual = len(snapshot_atual.items) if snapshot_atual else 0
+    count_anterior = len(snapshot_anterior.items) if snapshot_anterior else 0
+    
+    tabela_unificada = []
+    inventario_atual_formatado = []
+
+    if view == "comparison" and snapshot_atual:
+        def get_data_from_snapshot(snapshot_id):
+            items = db.query(Product.codigo_rfid, ProductType.nome)\
+                      .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                      .join(ProductType, ProductType.id == Product.product_type_id)\
+                      .filter(InventoryItem.snapshot_id == snapshot_id).all()
+            return {codigo: tipo for codigo, tipo in items}
+
+        map_codigo_para_tipo_atual = get_data_from_snapshot(snapshot_atual.id)
+        map_codigo_para_tipo_anterior = get_data_from_snapshot(snapshot_anterior.id) if snapshot_anterior else {}
+
+        codigos_atuais_set = set(map_codigo_para_tipo_atual.keys())
+        codigos_anteriores_set = set(map_codigo_para_tipo_anterior.keys())
+        todos_os_codigos = sorted(list(codigos_atuais_set | codigos_anteriores_set))
+        
+        for codigo in todos_os_codigos:
+            status = "Mantido"
+            if codigo in codigos_atuais_set and codigo not in codigos_anteriores_set: status = "Adicionado"
+            elif codigo not in codigos_atuais_set and codigo in codigos_anteriores_set: status = "Deletado"
+            tabela_unificada.append({ "codigo_rfid": codigo, "tipo_atual": map_codigo_para_tipo_atual.get(codigo, "---"), "tipo_anterior": map_codigo_para_tipo_anterior.get(codigo, "---"), "status": status })
+    
+    elif view == "current" and snapshot_atual:
+        itens = db.query(Product.codigo_rfid, ProductType.nome)\
+                  .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                  .join(ProductType, ProductType.id == Product.product_type_id)\
+                  .filter(InventoryItem.snapshot_id == snapshot_atual.id)\
+                  .order_by(Product.codigo_rfid).all()
+        inventario_atual_formatado = [{ "codigo_rfid": codigo, "tipo": tipo, "created_on": snapshot_atual.created_on } for codigo, tipo in itens]
+
+    return templates.TemplateResponse("inventario_list.html", {
+        "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
+        "tipos": tipos, "tabela_unificada": tabela_unificada, "inventario_atual": inventario_atual_formatado,
+        "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior, "current_view": view,
+        "count_atual": count_atual,
+        "count_anterior": count_anterior
+    })
+
+@app.post("/inventario/salvar", name="save_inventory_snapshot")
+def inventory_save(
+    request: Request, db: Session = Depends(get_db),
+    codigos: List[str] = Form(...), tipos: List[int] = Form(...),
+    datacenter_id: int = Form(...)
+):
+    # #- LÓGICA CORRIGIDA para a estrutura de Catálogo (Product)
+    if not datacenter_id:
+        raise HTTPException(status_code=400, detail="Datacenter não especificado.")
+
+    # 1. Obter ou criar os produtos no "catálogo" mestre
+    produtos_processados = []
+    for codigo_rfid, tipo_id in zip(codigos, tipos):
+        codigo_rfid = codigo_rfid.strip().upper()
+        if not codigo_rfid: continue
+        
+        produto = db.query(Product).filter(Product.codigo_rfid == codigo_rfid).first()
+        if not produto:
+            produto = Product(codigo_rfid=codigo_rfid, product_type_id=tipo_id)
+            db.add(produto)
+        elif produto.product_type_id != tipo_id: # Atualiza o tipo se mudou
+            produto.product_type_id = tipo_id
+        produtos_processados.append(produto)
+    
+    db.flush() # Garante que os IDs dos novos produtos sejam gerados
+
+    # 2. Criar o snapshot
+    novo_snapshot = InventorySnapshot(datacenter_id=datacenter_id)
+    db.add(novo_snapshot)
+    db.flush()
+
+    # 3. Criar os itens de inventário (a ligação)
+    itens_vistos = set()
+    itens_para_salvar = []
+    for p in produtos_processados:
+        if p.id in itens_vistos: continue
+        itens_para_salvar.append(InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id))
+        itens_vistos.add(p.id)
+    
+    if itens_para_salvar:
+        db.add_all(itens_para_salvar)
+        db.commit()
+    else:
+        db.rollback()
+
+    redirect_url = request.url_for("list_inventario").include_query_params(datacenter_id=datacenter_id)
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
+
+@app.get("/inventario/download", name="download_inventory_csv")
+def download_inventory_csv(
+    db: Session = Depends(get_db),
+    datacenter_id: Optional[int] = Query(None)
+):
+    """
+    Gera e faz o download de um arquivo CSV para o inventário mais recente,
+    filtrado opcionalmente por datacenter.
+    """
+    snapshot_query = db.query(InventorySnapshot)
+    if datacenter_id:
+        snapshot_query = snapshot_query.filter(InventorySnapshot.datacenter_id == datacenter_id)
+    
+    ultimo_snapshot = snapshot_query.order_by(InventorySnapshot.created_on.desc()).first()
+    
+    def iter_csv():
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["codigo_rfid", "tipo_produto"])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+        if ultimo_snapshot:
+            itens = db.query(Product.codigo_rfid, ProductType.nome)\
+                      .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                      .join(ProductType, ProductType.id == Product.product_type_id)\
+                      .filter(InventoryItem.snapshot_id == ultimo_snapshot.id)\
+                      .order_by(Product.codigo_rfid)\
+                      .all()
+            
+            for codigo, tipo in itens:
+                writer.writerow([codigo, tipo])
+                yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+    filename = f"inventario_dc_{datacenter_id}.csv" if datacenter_id else "inventario.csv"
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ===================================================================
+# SEÇÃO 6: STARTUP, SHUTDOWN E TAREFAS EM BACKGROUND
+# ===================================================================
+def purge_old_events():
+    db = SessionLocal()
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=HISTORY_RETENTION_DAYS)
+        deleted_count = db.query(ReceivedEvent).filter(ReceivedEvent.data_on < cutoff).delete()
+        db.commit()
+        if deleted_count > 0:
+            logger.info(f"[main] Limpeza de eventos antigos: {deleted_count} registros removidos.")
+    except Exception as e:
+        logger.error(f"ERRO durante a limpeza de eventos: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+def start_cleanup_scheduler():
+    def loop():
+        while True:
+            time.sleep(CLEANUP_INTERVAL_SEC)
+            purge_old_events()
+    threading.Thread(target=loop, daemon=True).start()
+
+running_tasks = {} # Dicionário global para guardar as nossas tarefas
+
+async def check_background_tasks_health():
+    """Tarefa de background que monitoriza as outras tarefas."""
+    while True:
+        await asyncio.sleep(60) # A cada minuto
+        for name, task in running_tasks.items():
+            if task.done() and not task.cancelled():
+                # A tarefa terminou, mas não foi cancelada! Provavelmente falhou.
+                try:
+                    # Chamar task.result() vai levantar a exceção que causou a falha
+                    task.result()
+                except Exception as e:
+                    logger.critical(
+                        f"[HEALTH CHECK] A TAREFA CRÍTICA '{name}' FALHOU: {e}",
+                        exc_info=True
+                    )
+                    # Ação a tomar: Poderíamos tentar reiniciar a tarefa ou o servidor.
+
+@app.on_event("startup")
+async def on_startup():
+    logger.info("[main] Startup: Iniciando serviços em background.")
+    running_tasks["aggregator"] = asyncio.create_task(main_aggregator_loop())
+    running_tasks["liveness_check"] = asyncio.create_task(check_esp_liveness())
+    running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
+    running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
+    mqtt_client.start_mqtt_client()
+    start_cleanup_scheduler()
+
+    await asyncio.sleep(5) 
+    
+    logger.info("[main] Startup: Enviando comando de reconfiguração para todas as ESPs.")    
+    command_payload = {"command": "fetch_config"} 
+    
+    mqtt_client.client.publish(
+        topic=settings.get("mqtt_esp_command_topic"), 
+        payload=json.dumps(command_payload),
+        qos=1 
+    )
+    logger.info("[main] Startup: Comando de sincronização enviado.")
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "app.main:app", host=settings.get("ip", "0.0.0.0"),
+        port=int(settings.get("port", 8000)), reload=True
+    )
 
 
 ========================================
-ARQUIVO: app/web/templates/sidebar.html
+ARQUIVO: app/models.py
 ========================================
-<aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-        {# O botão foi substituído por este container clicável com os logos #}
-        <div id="sidebar-logo-toggle" title="Menu">
-            <img src="{{ url_for('static', path='icons/novo_logo_icone.png') }}" alt="Ícone do Logo" class="logo-sidebar" id="logo-icone">
-            <img src="{{ url_for('static', path='icons/novo_logo.png') }}" alt="Logo Completo" class="logo-sidebar" id="logo-completo">
-        </div>
-    </div>
-    <nav class="sidebar-nav">
-        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/hist.svg') }})"></span>
-            <span class="nav-text">Histórico</span>
-        </a>
+# models.py
+from sqlalchemy import (Column, DateTime, ForeignKey, Integer, JSON, String,
+                        create_engine)
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from datetime import datetime, timezone
+import logging
 
-        <a href="{{ url_for('list_embarcados') }}" class="nav-item {% if 'embarcados' in request.url.path %}active{% endif %}" title="Embarcados">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/emb.svg') }})"></span>
-            <span class="nav-text">Embarcados</span>
-        </a>
+logger = logging.getLogger(__name__)
 
-        <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'assets' in request.url.path %}active{% endif %}" title="Ativos">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
-            <span class="nav-text">Ativos</span>
-        </a>
-        <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
-            <span class="nav-text">Quartos</span>
-        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
-            <span class="nav-text">Planta</span>
-        </a>
-        <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventory' in request.url.path %}active{% endif %}" title="Inventario">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }})"></span>
-            <span class="nav-text">Inventário</span>
-        </a>
-    </nav>
-    <button id="sidebar-toggle-btn" title="Alternar menu">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"></polyline>
-        </svg>
-    </button>
+DATABASE_URL = "sqlite:///./base_rtls_rfid.db"
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+Base = declarative_base()
 
-    <a href="{{ url_for('login_page') }}" class="nav-item" title="Sair">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/sair.svg') }})"></span>
-        <span class="nav-text">Sair</span>
-    </a>
+class Andar(Base):
+    __tablename__ = "andares"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    quartos = relationship("Quarto", back_populates="andar")
 
-    <div class="sidebar-footer">
-    {# --- INÍCIO DA MUDANÇA --- #}
-    <div class="footer-brand">
-        <span class="brand-icon">V.0.4.0</span> <span class="brand-full">WH RTLS v0.4.0</span> </div>    
-</div>
-</aside>
+class Quarto(Base):
+    __tablename__ = "quartos"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    andar_id = Column(Integer, ForeignKey("andares.id"), nullable=False)
+    andar = relationship("Andar", back_populates="quartos")
+    embarcados = relationship("Embarcado", back_populates="quarto")
+    assets = relationship("Asset", back_populates="quarto")
+
+class GlobalSetting(Base):
+    __tablename__ = "global_settings"
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=True)
+
+class Asset(Base):
+    __tablename__ = "assets"
+    id = Column(Integer, primary_key=True, index=True)
+    nome_ativo = Column(String, nullable=False, unique=True)
+    mac_beacon = Column(String, unique=True, nullable=False, index=True)
+    tipo_ativo = Column(String, nullable=True)
+    quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
+    quarto = relationship("Quarto", back_populates="assets")
+    status = Column(String, default='Online', nullable=False)
+
+class Embarcado(Base):
+    __tablename__ = "embarcados"
+    id = Column(Integer, primary_key=True, index=True)
+    id_esp = Column(String, unique=True, nullable=False, index=True)
+    last_seen = Column(DateTime(timezone=True), nullable=True)
+    mac_address = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    wifi_signal = Column(Integer, nullable=True)
+    status_rede = Column(String, default="offline", nullable=False)
+    quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
+    rssi_threshold = Column(Integer, nullable=True)
+    quarto = relationship("Quarto", back_populates="embarcados")
+
+class ReceivedEvent(Base):
+    __tablename__ = "received_events"
+    id = Column(Integer, primary_key=True, index=True)
+    esp_id = Column(String, nullable=False, index=True)
+    ativo = Column(String, nullable=False, index=True)
+    quarto_nome = Column(String, nullable=True)
+    andar_nome = Column(String, nullable=True)
+    action = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=True, index=True)
+    status_detail = Column(String, nullable=True)
+    rssi = Column(Integer, nullable=True)
+    wifi = Column(Integer, nullable=True)
+    data_on = Column(DateTime(timezone=True), nullable=False, index=True)
+    raw = Column(JSON, nullable=False)
+
+# ====================================================
+#         MODELOS DE INVENTÁRIO CORRIGIDOS
+# ====================================================
+
+class DataCenter(Base):
+    __tablename__ = "datacenters" 
+    id = Column(Integer, primary_key=True)
+    nome = Column(String(80), unique=True, nullable=False)
+    slug = Column(String(40), unique=True, nullable=False)
+    snapshots = relationship("InventorySnapshot", back_populates="datacenter")
+
+class ProductType(Base):
+    __tablename__ = 'product_types'
+    id = Column(Integer, primary_key=True)
+    nome = Column(String(100), nullable=False, unique=True)
+    
+    # Relação para acessar todos os produtos de um certo tipo
+    products = relationship('Product', back_populates='product_type')
+
+# #- NOVO: Product é o nosso "Catálogo" de itens físicos.
+class Product(Base):
+    __tablename__ = "products"
+    id = Column(Integer, primary_key=True, index=True)
+    codigo_rfid = Column(String, unique=True, nullable=False, index=True)
+    
+    product_type_id = Column(Integer, ForeignKey("product_types.id"), nullable=False)
+    product_type = relationship("ProductType", back_populates="products")
+
+    # Relação para ver em quais inventários este produto apareceu
+    inventory_entries = relationship("InventoryItem", back_populates="product")
+
+class InventorySnapshot(Base):
+    __tablename__ = 'inventory_snapshots'
+    id = Column(Integer, primary_key=True)
+    created_on = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    datacenter_id = Column(Integer, ForeignKey("datacenters.id"), nullable=False)
+    datacenter = relationship("DataCenter", back_populates="snapshots") 
+    
+    # Relação com os itens "vistos" neste snapshot
+    items = relationship('InventoryItem', back_populates='snapshot', cascade="all, delete-orphan")
+
+# #- NOVO: InventoryItem agora é apenas a ligação entre um Snapshot e um Product.
+class InventoryItem(Base):
+    __tablename__ = 'inventory_items'
+    id = Column(Integer, primary_key=True)
+    
+    snapshot_id = Column(Integer, ForeignKey('inventory_snapshots.id'), nullable=False)
+    product_id = Column(Integer, ForeignKey('products.id'), nullable=False) # <-- MUDANÇA
+    
+    # Relações bidirecionais
+    snapshot = relationship('InventorySnapshot', back_populates='items')
+    product = relationship('Product', back_populates='inventory_entries') # <-- MUDANÇA
+
+def init_db():
+    """Inicializa o banco de dados e cria as tabelas."""
+    Base.metadata.create_all(bind=engine)
+
+
+========================================
+ARQUIVO: app/mqtt_client.py
+========================================
+# Conteúdo para app/mqtt_client.py
+import paho.mqtt.client as mqtt
+import json
+import asyncio
+import threading
+from datetime import datetime, timezone
+from .config import settings
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Fila para dados de scan (localização)
+scan_data_queue = asyncio.Queue()
+
+# Cache em memória para atualizações de status e um "lock" para segurança
+_esp_status_cache = {}
+_cache_lock = threading.Lock()
+
+client = mqtt.Client()
+
+def get_and_clear_status_cache():
+    """
+    Função segura para a tarefa de batch update obter os dados do cache e limpá-lo.
+    """
+    with _cache_lock:
+        cache_copy = _esp_status_cache.copy()
+        _esp_status_cache.clear()
+        return cache_copy
+
+def publish_command_to_esp(esp_id: str, command: dict):
+    """
+    Publica um comando para o canal individual de um embarcado.
+    """
+    if not client.is_connected():
+        logger.warning(f"[MQTT] Cliente não conectado. Abortando envio de comando para {esp_id}.")
+        return
+
+    command_topic = f"wyrd/rtls/esp/{esp_id}/command"
+    payload = json.dumps(command)
+    logger.info(f"[MQTT] Enviando comando {payload} para a ESP '{esp_id}' no tópico '{command_topic}'")
+    client.publish(command_topic, payload, qos=1)
+
+def on_message(client, userdata, msg):
+    """
+    Callback super rápido que agora SÓ coloca dados na fila e no cache, sem acessar o banco.
+    """
+    topic_parts = msg.topic.split('/')
+    
+    if len(topic_parts) == 5 and topic_parts[4] == "scan_data":
+        esp_id = topic_parts[3]
+        try:
+            payload = json.loads(msg.payload)
+            # 1. Coloca dados de scan na fila do aggregator (como antes)
+            scan_data_queue.put_nowait({"esp_id": esp_id, "payload": payload})
+
+            # 2. Atualiza o cache de status com as novas informações
+            with _cache_lock:
+                update_data = {
+                    "last_seen": datetime.now(timezone.utc)
+                }
+                # AQUI ESTÁ A MÁGICA: Captura o sinal de Wi-Fi do payload
+                if 'w' in payload:
+                    update_data["wifi_signal"] = payload['w']
+                
+                _esp_status_cache[esp_id] = update_data
+
+        except json.JSONDecodeError:
+            logger.warning("[MQTT] JSON inválido recebido no tópico: %s", msg.topic)
+        except Exception as e:
+            logger.error("[MQTT] Erro ao processar mensagem de %s: %s", esp_id, e)
+
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        logger.info("[MQTT] Conectado com sucesso ao Broker MQTT!")
+        client.subscribe("wyrd/rtls/esp/+/scan_data", qos=0) 
+        logger.info("[MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'")
+    else:
+        logger.error(f"[MQTT] Falha ao conectar, código de retorno: {rc}")
+
+def start_mqtt_client():
+    logger.info("[MQTT] Iniciando cliente...")
+    client.on_connect = on_connect
+    client.on_message = on_message
+    try:
+        broker_port = int(settings.get("mqtt_broker_port")) 
+        client.connect(settings.get("mqtt_broker_host"), broker_port, 60) 
+        client.loop_start() 
+    except Exception as e:
+        logger.error(f"[MQTT] Não foi possível conectar ao broker: {e}")
+
+
+========================================
+ARQUIVO: app/scan_rfid.py
+========================================
+import logging
+import json
+import asyncio
+import serial_asyncio
+from typing import List
+
+from fastapi import WebSocket
+from sqlalchemy.orm import Session
+
+# Importa os modelos necessários do seu arquivo de modelos
+from .models import InventorySnapshot, InventoryItem, Product, ProductType
+
+logger = logging.getLogger(__name__)
+
+async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
+    """
+    Tarefa de fundo que coloca a pistola em modo de gatilho e ouve as tags lidas.
+    """
+    PORTA_SERIAL = '/dev/rfcomm0' # Ou 'COM3', 'COM22' etc. no Windows
+    tags_lidas = set()
+    reader, writer = None, None
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            serial_asyncio.open_serial_connection(url=PORTA_SERIAL, baudrate=115200),
+            timeout=5.0
+        )
+
+        # A lógica agora é fixa: sempre ativa o modo de gatilho
+        writer.write(b'.sa -s inv\r\n')
+        await writer.drain()
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione o gatilho para ler."}))
+        
+        # O loop de escuta continua o mesmo
+        while True:
+            linha_bytes = await asyncio.wait_for(reader.readline(), timeout=300.0)
+            linha = linha_bytes.decode('ascii').strip()
+
+            if linha.startswith('EP:'):
+                tag_id = linha[4:]
+                if tag_id not in tags_lidas:
+                    tags_lidas.add(tag_id)
+                    await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
+    
+    except asyncio.TimeoutError:
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão finalizada por inatividade."}))
+    except (serial.SerialException, FileNotFoundError):
+        await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro: Porta serial '{PORTA_SERIAL}' indisponível."}))
+    except asyncio.CancelledError:
+        logger.info("Tarefa de scan foi cancelada pelo usuário.")
+        raise
+    except Exception as e:
+        await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro inesperado: {e}"}))
+    finally:
+        logger.info("Finalizando tarefa de scan e limpando recursos.")
+        if writer and not writer.is_closing():
+            # A limpeza agora é fixa: sempre desativa o modo de gatilho
+            writer.write(b'.sa -s off\r\n')
+            await writer.drain()
+            writer.close()
+            logger.info(f"Porta serial {PORTA_SERIAL} fechada.")
+        
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão de leitura finalizada."}))
+        return list(tags_lidas)
+
+def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):
+    """Pega uma lista de tags e salva como um novo snapshot de inventário."""
+    if not tags:
+        logger.info("Nenhuma tag para salvar no inventário.")
+        return False
+    
+    try:
+        produtos_processados = []
+        # Para simplificar, vamos associar todas as novas tags ao primeiro tipo de produto que encontrarmos
+        default_tipo = db.query(ProductType).first()
+        if not default_tipo:
+            raise Exception("Nenhum tipo de produto encontrado no banco de dados para associar as tags.")
+        default_tipo_id = default_tipo.id
+
+        for codigo_rfid in tags:
+            produto = db.query(Product).filter(Product.codigo_rfid == codigo_rfid).first()
+            if not produto:
+                produto = Product(codigo_rfid=codigo_rfid, product_type_id=default_tipo_id)
+                db.add(produto)
+            produtos_processados.append(produto)
+        db.flush()
+
+        novo_snapshot = InventorySnapshot(datacenter_id=datacenter_id)
+        db.add(novo_snapshot)
+        db.flush()
+
+        itens_para_salvar = [InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id) for p in set(produtos_processados)]
+        db.add_all(itens_para_salvar)
+        db.commit()
+        logger.info(f"{len(tags)} tags salvas no novo snapshot de inventário {novo_snapshot.id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Erro ao salvar inventário do scan RFID: {e}")
+        db.rollback()
+        return False
+
+
+========================================
+ARQUIVO: app/services.py
+========================================
+# app/services.py
+
+# ==============================================================================
+# ARQUIVO: services.py (Versão Refatorada para Maior Coesão)
+# FUNÇÃO:  Orquestra as ações de negócio, garantindo a consistência entre o
+#          agregador, o banco de dados e a UI.
+# ==============================================================================
+
+import logging
+from datetime import datetime, timezone
+from sqlalchemy.orm import Session, joinedload
+
+from . import aggregator # Permite que os serviços interajam com o estado do agregador
+from . import mqtt_client
+from .connection_manager import manager
+from .models import Asset, Embarcado, Quarto, ReceivedEvent
+
+logger = logging.getLogger(__name__)
+
+
+async def batch_update_asset_assignments(db: Session, changes: list):
+    """
+    (FUNÇÃO PRINCIPAL E INALTERADA)
+    Processa uma lista de mudanças de localização de ativos numa única transação.
+    """
+    if not changes:
+        return
+
+    try:
+        for change in changes:
+            asset_id = change["asset_id"]
+            new_quarto_id = change["new_quarto_id"]
+            
+            asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
+            if not asset:
+                continue
+
+            quarto_anterior_id = asset.quarto_id
+            nome_quarto_evento = None
+            action = "GET"
+
+            if new_quarto_id is not None:
+                novo_quarto = db.query(Quarto).get(new_quarto_id)
+                if novo_quarto:
+                    nome_quarto_evento = novo_quarto.nome
+            else:
+                action = "OUT"
+                if asset.quarto:
+                    nome_quarto_evento = asset.quarto.nome
+            
+            quarto_evento_obj = None
+            if action == "GET":
+                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first() 
+            else: # action == "OUT"
+                if asset.quarto:
+                    quarto_evento_obj = asset.quarto 
+
+            event = ReceivedEvent(
+                esp_id=change.get("source_esp_id", "server"),
+                ativo=asset.mac_beacon,
+                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else None,
+                # Esta é a linha mais importante que adicionamos
+                andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
+                action=action,
+                status="OK",
+                status_detail=change.get("details"),
+                rssi=change.get("rssi"),
+                data_on=datetime.now(timezone.utc),
+                raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
+            )
+            db.add(event)
+
+            asset.quarto_id = new_quarto_id
+
+        db.commit()
+        
+        logger.info(f"Lote de {len(changes)} mudanças processado e salvo com sucesso.")
+        await manager.broadcast("ATUALIZAR_ESTADO")
+
+    except Exception as e:
+        logger.error(f"ERRO na transação de atualização em lote: {e}", exc_info=True)
+        db.rollback()
+
+
+async def synchronize_and_reset_esp(db: Session, embarcado_id: int):
+    """
+    (LÓGICA CORRIGIDA) Força a remoção de todos os ativos associados
+    ao quarto de um embarcado diretamente no servidor.
+    Esta função NÃO envia mais comandos para a ESP.
+    """
+    try:
+        embarcado = db.query(Embarcado).get(embarcado_id)
+        if not embarcado or not embarcado.quarto_id:
+            logger.warning(f"[SERVICE] Reset solicitado para embarcado ID {embarcado_id}, mas ele não foi encontrado ou não tem quarto associado.")
+            return
+
+        quarto_id_para_limpar = embarcado.quarto_id
+        logger.info(f"[SERVICE] Iniciando remoção forçada de todos os ativos do Quarto ID {quarto_id_para_limpar} (acionado pelo embarcado {embarcado.id_esp}).")
+
+        # 1. Encontra todos os ativos que estão atualmente neste quarto.
+        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id_para_limpar).all()
+
+        if not assets_no_quarto:
+            logger.info(f"[SERVICE] O quarto já estava vazio. Nenhuma ação necessária.")
+            return
+
+        changes_to_commit = []
+        for asset in assets_no_quarto:
+            logger.info(f"[SERVICE] Preparando remoção forçada do ativo '{asset.nome_ativo}' (MAC: {asset.mac_beacon}).")
+            
+            # 2. Limpa o estado em tempo real do ativo no aggregator para parar o processamento.
+            aggregator.clear_asset_state(asset.mac_beacon)
+
+            # 3. Prepara a "mudança de saída" para ser processada em lote.
+            changes_to_commit.append({
+                "asset_id": asset.id,
+                "new_quarto_id": None,
+                "source_esp_id": "manual_reset",
+                "rssi": -999,
+                "details": f"Remoção forçada pelo operador via reset do embarcado '{embarcado.id_esp}'."
+            })
+
+        # 4. Processa todas as saídas de uma vez só, de forma consistente.
+        if changes_to_commit:
+            await batch_update_asset_assignments(db, changes_to_commit)
+            logger.info(f"[SERVICE] {len(changes_to_commit)} ativos foram removidos com sucesso do Quarto ID {quarto_id_para_limpar}.")
+
+    except Exception as e:
+        logger.error(f"[SERVICE] ERRO durante a remoção forçada de ativos para o embarcado ID '{embarcado_id}': {e}", exc_info=True)
+
+
+async def release_assets_for_offline_esp(db: Session, esp_id: str):
+    """
+    (FUNÇÃO CORRIGIDA) Liberta todos os ativos de um quarto cuja ESP ficou offline.
+    """
+    embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
+    if not embarcado or not embarcado.quarto_id:
+        return
+
+    quarto_nome = embarcado.quarto.nome
+    logger.warning(f"[LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Libertando seus ativos...")
+    
+    assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
+    if not assets_no_quarto:
+        return
+
+    changes_to_commit = []
+    for asset in assets_no_quarto:
+        logger.info(f"[LIVENESS] Preparando para libertar ativo '{asset.nome_ativo}'...")
+        
+        # 1. (NOVO) Limpa o estado de cada ativo na memória do agregador.
+        #    Para isso, precisaremos de uma nova função no agregador.
+        aggregator.clear_asset_state(asset.mac_beacon)
+
+        # 2. Prepara a informação de "saída" para cada ativo.
+        changes_to_commit.append({
+            "asset_id": asset.id,
+            "new_quarto_id": None,
+            "source_esp_id": "liveness_check",
+            "rssi": -999,
+            "details": f"Ativo libertado porque a ESP '{esp_id}' do quarto '{quarto_nome}' ficou offline."
+        })
+
+    # 3. Processa todas as saídas de uma só vez através da função principal.
+    if changes_to_commit:
+        logger.info(f"[LIVENESS] Processando a saída de {len(changes_to_commit)} ativos do quarto {quarto_nome}.")
+        await batch_update_asset_assignments(db, changes_to_commit)
 
 

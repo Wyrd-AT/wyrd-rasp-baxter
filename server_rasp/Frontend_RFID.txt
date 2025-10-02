@@ -47,10 +47,8 @@ ARQUIVO: app/web/templates/assets_list.html
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
-        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">BAIXAR DADOS</a>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
+        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
 
@@ -191,39 +189,37 @@ ARQUIVO: app/web/templates/base.html
             overlay.addEventListener('click', toggleSidebar);
         }
         
-        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
+        const toggleFormsBtn = document.getElementById('forms-toggle-btn');
         const formsContainer = document.getElementById('forms-container');
 
         // Só executa se o botão e o container existirem nesta página
         if (toggleFormsBtn && formsContainer) {
             
-            // Função para atualizar o texto do tooltip (title) do botão
-            const updateButtonTitle = () => {
+            // Função para atualizar o texto do botão
+            const updateButtonText = () => {
                 if (formsContainer.classList.contains('collapsed')) {
-                    toggleFormsBtn.title = 'Mostrar Formulários';
+                    toggleFormsBtn.textContent = 'Mostrar Formulários'; 
                 } else {
-                    toggleFormsBtn.title = 'Recolher Formulários';
+                    toggleFormsBtn.textContent = 'Recolher Formulários'; 
                 }
             };
 
             // Ao carregar a página, verifica se o estado "recolhido" estava salvo
             if (localStorage.getItem('formsCollapsed') === 'true') {
-                formsContainer.classList.add('collapsed');
-                toggleFormsBtn.classList.add('collapsed');
+                formsContainer.classList.add('collapsed'); 
             }
-            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+            updateButtonText(); // Garante que o texto esteja correto no carregamento
 
             // Adiciona o evento de clique ao botão
             toggleFormsBtn.addEventListener('click', () => {
-                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
-                formsContainer.classList.toggle('collapsed');
-                toggleFormsBtn.classList.toggle('collapsed');
-
-                // Atualiza o texto do title para o novo estado
-                updateButtonTitle();
+                // Alterna a classe 'collapsed' no container
+                formsContainer.classList.toggle('collapsed'); 
+                
+                // Atualiza o texto do botão para o novo estado
+                updateButtonText();
 
                 // Salva o estado atual no armazenamento local
-                localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
+                localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed')); 
             });
         }
         
@@ -345,10 +341,8 @@ ARQUIVO: app/web/templates/embarcados_list.html
             <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
-        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">BAIXAR DADOS</a>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
+        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
 
@@ -784,7 +778,7 @@ ARQUIVO: app/web/templates/inventario_form.html
     <input type="hidden" name="datacenter_id" value="{{ current_dc_id or '' }}">
     {# --- FIM DA CORREÇÃO DO ERRO --- #}
 
-    <h3>Adicionar Itens ao Inventário</h3>
+    <h3>Adicionar Itens Manualmente</h3>
 
     <div class="form-fields-grid" style="grid-template-columns: 2fr 1.5fr auto auto; gap: 12px; align-items: flex-end;">
         <div class="form-group" style="margin: 0;">
@@ -849,25 +843,34 @@ ARQUIVO: app/web/templates/inventario_list.html
 <div class="content-header">
     <h1>Inventário</h1>
     <div class="header-actions">
-        <button id="toggle-forms-btn" class="icon-btn" title="Mostrar/Esconder Formulário">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
-        <a href="{{ url_for('download_inventory_csv') }}?datacenter_id={{ current_dc_id }}" class="btn-primary">BAIXAR DADOS</a>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
+        <a href="{{ url_for('download_inventory_csv') }}?datacenter_id={{ current_dc_id }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
 
 <div class="top-controls-container">
-    <form class="filters-toolbar" method="get" action="{{ url_for('list_inventario') }}" style="margin-bottom: 0;">
-        <div class="filter-group-left">
-            <select name="datacenter_id" id="datacenter-select" class="filter-dropdown-main" onchange="this.form.submit()">
-                {% for dc in all_datacenters %}
-                <option value="{{ dc.id }}" {% if current_dc_id and dc.id == current_dc_id|int %}selected{% endif %}>
-                    {{ dc.nome }}
-                </option>
-                {% endfor %}
-            </select>
+    
+    <div class="filters-toolbar" style="margin-bottom: 0;">
+        <div class="filter-group-left" style="display: flex; align-items: center; gap: 8px;">
+            
+            <form id="datacenter-form" method="get" action="{{ url_for('list_inventario') }}">
+                <select name="datacenter_id" id="datacenter-select" class="filter-dropdown-main" onchange="this.form.submit()">
+                    {% for dc in all_datacenters %}
+                    <option value="{{ dc.id }}" {% if current_dc_id and dc.id == current_dc_id|int %}selected{% endif %}>
+                        {{ dc.nome }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </form>
+
+            <button id="add-datacenter-btn" type="button" class="icon-btn" title="Adicionar Novo Datacenter" style="font-size: 20px; line-height: 1;">+</button>
+
+            <button id="manage-datacenters-btn" type="button" class="icon-btn" title="Gerenciar Datacenters">
+                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/settings.svg') }});"></span>
+            </button>
+
         </div>
-    </form>
+    </div>
 
     <div class="view-toggle">
         <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=comparison"
@@ -879,13 +882,28 @@ ARQUIVO: app/web/templates/inventario_list.html
            Inventário Atual
         </a>
     </div>
-    </div>
+
+</div>
 
 <div class="forms-container-vertical" id="forms-container"> 
     <div class="form-card"> 
         {% include 'inventario_form.html' with context %} 
     </div>
 </div>
+
+<div class="form-card" style="margin-top: 1.5rem;">
+    <h3>Leitura por Pistola RFID</h3>
+    <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
+    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+        <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
+        <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
+    </div>
+    <h4>Tags Lidas na Sessão:</h4>
+    <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
+        <div class="muted">Aguardando início da leitura...</div>
+    </div>
+</div>
+
 
 {% if current_view == 'comparison' %}
 <div class="list-container-full-width">
@@ -969,10 +987,45 @@ ARQUIVO: app/web/templates/inventario_list.html
 </div>
 {% endif %}
 
+<div id="datacenter-modal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+        <div class="modal-header">
+            <h3>Novo Datacenter</h3>
+            <span class="close-btn" id="modal-close-btn">&times;</span>
+        </div>
+        <div class="modal-body">
+            <form id="new-datacenter-form">
+                <div class="form-group">
+                    <label for="new_dc_name">Nome do Datacenter</label>
+                    <input type="text" id="new_dc_name" required autocomplete="off" placeholder="Ex: Datacenter Campinas">
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                    <button type="button" id="modal-cancel-btn" class="btn-secondary">Cancelar</button>
+                    <button type="submit" class="btn-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div id="manage-modal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>Gerenciar Datacenters</h3>
+            <span class="close-btn" id="manage-modal-close-btn">&times;</span>
+        </div>
+        <div class="modal-body">
+            <ul id="datacenter-manage-list" class="manage-list">
+                </ul>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
+{{ super() }}
 <style>
+/* Estilos que já tínhamos */
 .top-controls-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .view-toggle { display: inline-flex; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; margin: 0; }
 .btn-toggle { padding: 8px 16px; text-decoration: none; color: #495057; background-color: #fff; border-right: 1px solid #dee2e6; font-size: 0.9rem; transition: background-color 0.2s ease; }
@@ -980,66 +1033,287 @@ ARQUIVO: app/web/templates/inventario_list.html
 .btn-toggle.active { background-color: #0466C8; color: #fff; font-weight: 500; }
 .btn-toggle:not(.active):hover { background-color: #f8f9fa; }
 .pending-items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px 16px; padding-left: 0; list-style-type: none; }
+
+/* Estilos para o novo modal de gerenciamento */
+.manage-list { list-style: none; padding: 0; margin: 0; }
+.manage-list li { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
+.manage-list li:last-child { border-bottom: none; }
+.manage-list .dc-name { font-weight: 500; }
+.manage-list .actions { display: flex; gap: 8px; }
 </style>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  const inventoryForm = document.getElementById('inventory-form'); 
-  const rfidInput = document.getElementById('codigo_rfid'); 
-  const tipoSelect = document.getElementById('product_type_id'); 
-  const addBtn = document.getElementById('add-inventory-btn'); 
-  const pendentesDiv = document.getElementById('pendentes'); 
-  const hiddenInputsDiv = document.getElementById('hidden-inputs'); 
-  const clearBtn = document.getElementById('clear-inventory-btn'); 
-  let buffer = [];
-  inventoryForm.addEventListener('submit', function(event) {
-    if (buffer.length === 0) {
-      event.preventDefault(); 
-      alert("Por favor, adicione pelo menos um item ao inventário antes de salvar."); 
+    // --- LÓGICA 1: GERENCIAR LISTA DE ITENS PENDENTES ---
+    const inventoryForm = document.getElementById('inventory-form'); 
+    const rfidInput = document.getElementById('codigo_rfid'); 
+    const tipoSelect = document.getElementById('product_type_id'); 
+    const addBtn = document.getElementById('add-inventory-btn'); 
+    const pendentesDiv = document.getElementById('pendentes'); 
+    const hiddenInputsDiv = document.getElementById('hidden-inputs'); 
+    const clearBtn = document.getElementById('clear-inventory-btn'); 
+    let buffer = [];
+
+    if (inventoryForm) {
+        inventoryForm.addEventListener('submit', function(event) {
+            if (buffer.length === 0) {
+            event.preventDefault(); 
+            alert("Por favor, adicione pelo menos um item ao inventário antes de salvar."); 
+            }
+        }); 
+    
+        function renderPendingItems(){
+            if(buffer.length === 0){
+                pendentesDiv.innerHTML = '<div class="muted">Nenhum item adicionado para salvar.</div>'; 
+                hiddenInputsDiv.innerHTML = ''; 
+                return;
+            }
+            pendentesDiv.innerHTML = '<ul class="pending-items-grid">' + buffer.map((item, index) => (
+            `<li style="display:flex; align-items:center; gap:6px; margin-bottom: 4px;">
+                <code>${item.codigo}</code> — ${item.tipoNome}
+                <button type="button" class="icon-btn" title="Remover" onclick="removePendingItem(${index})"
+                        style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; padding:0; margin:0; border-radius: 50%;">
+                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/close.svg') }}); width:14px; height:14px;"></span> 
+                </button>
+            </li>`
+            )).join('') + '</ul>';
+            hiddenInputsDiv.innerHTML = buffer.map(item =>
+            `<input type="hidden" name="codigos" value="${item.codigo}"/>
+            <input type="hidden" name="tipos" value="${item.tipoId}"/>`
+            ).join(''); 
+        }
+        window.removePendingItem = (index) => {
+            buffer.splice(index, 1); 
+            renderPendingItems(); 
+        }
+        addBtn?.addEventListener('click', () => {
+            const codigo = (rfidInput.value || '').trim().toUpperCase();
+            if(!codigo){ rfidInput.focus(); return; }
+            if (buffer.some(item => item.codigo === codigo)) {
+                rfidInput.value = '';
+                rfidInput.focus();
+                return;
+            }
+            const tipoId = tipoSelect.value;
+            const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text; 
+            buffer.push({codigo: codigo, tipoId: tipoId, tipoNome: tipoNome});
+            rfidInput.value = ''; rfidInput.focus(); renderPendingItems();
+        });
+        rfidInput?.addEventListener('keydown', e => {
+            if(e.key === 'Enter'){ e.preventDefault(); addBtn.click(); } 
+        });
+        clearBtn?.addEventListener('click', () => { buffer = []; renderPendingItems(); }); 
+        renderPendingItems();
     }
-  }); 
-  function renderPendingItems(){
-    if(buffer.length === 0){
-      pendentesDiv.innerHTML = '<div class="muted">Nenhum item adicionado para salvar.</div>'; 
-      hiddenInputsDiv.innerHTML = ''; 
-      return;
+
+    /// --- Parte 2: Modal de Criação de Datacenter ---
+    const createModal = document.getElementById('datacenter-modal');
+    const addDcBtn = document.getElementById('add-datacenter-btn');
+    const createCloseBtn = document.getElementById('modal-close-btn');
+    const createCancelBtn = document.getElementById('modal-cancel-btn');
+    const newDcForm = document.getElementById('new-datacenter-form');
+    const newDcNameInput = document.getElementById('new_dc_name');
+    const mainDatacenterForm = document.getElementById('datacenter-form');
+    const mainDatacenterSelect = document.getElementById('datacenter-select');
+
+    if (createModal) {
+        const openCreateModal = () => { createModal.style.display = 'block'; newDcNameInput.focus(); };
+        const closeCreateModal = () => { createModal.style.display = 'none'; newDcNameInput.value = ''; };
+
+        addDcBtn.addEventListener('click', openCreateModal);
+        createCloseBtn.addEventListener('click', closeCreateModal);
+        createCancelBtn.addEventListener('click', closeCreateModal);
+        window.addEventListener('click', (event) => { if (event.target == createModal) closeCreateModal(); });
+
+        newDcForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const newName = newDcNameInput.value.trim();
+            if (!newName) return;
+            fetch("{{ url_for('create_datacenter_api') }}", {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ nome: newName })
+            })
+            .then(response => {
+                if (!response.ok) { return response.json().then(err => { throw new Error(err.detail); }); }
+                return response.json();
+            })
+            .then(newDc => {
+                const newOption = document.createElement('option');
+                newOption.value = newDc.id;
+                newOption.textContent = newDc.nome;
+                newOption.selected = true;
+                mainDatacenterSelect.appendChild(newOption);
+                closeCreateModal();
+                mainDatacenterForm.submit();
+            })
+            .catch(error => { alert('Erro: ' + error.message); });
+        });
     }
-    pendentesDiv.innerHTML = '<ul class="pending-items-grid">' + buffer.map((item, index) => (
-      `<li style="display:flex; align-items:center; gap:6px; margin-bottom: 4px;">
-        <code>${item.codigo}</code> — ${item.tipoNome}
-        <button type="button" class="icon-btn" title="Remover" onclick="removePendingItem(${index})"
-                style="display:inline-flex; align-items:center; justify-content:center;
-                       width:20px; height:20px; padding:0; margin:0; border-radius: 50%;">
-          <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/close.svg') }}); width:14px; height:14px;"></span> 
-        </button>
-      </li>`
-    )).join('') + '</ul>';
-    hiddenInputsDiv.innerHTML = buffer.map(item =>
-      `<input type="hidden" name="codigos" value="${item.codigo}"/>
-       <input type="hidden" name="tipos" value="${item.tipoId}"/>`
-    ).join(''); 
-  }
-  window.removePendingItem = (index) => {
-    buffer.splice(index, 1); 
-    renderPendingItems(); 
-  }
-  addBtn?.addEventListener('click', () => {
-    const codigo = (rfidInput.value || '').trim().toUpperCase();
-    if(!codigo){ rfidInput.focus(); return; }
-    if (buffer.some(item => item.codigo === codigo)) {
-        rfidInput.value = '';
-        rfidInput.focus();
-        return;
+
+    // --- Parte 3: Modal de Gerenciamento (CRUD) de Datacenters ---
+    const manageModal = document.getElementById('manage-modal');
+    const manageBtn = document.getElementById('manage-datacenters-btn');
+    const manageCloseBtn = document.getElementById('manage-modal-close-btn');
+    const manageList = document.getElementById('datacenter-manage-list');
+
+    if (manageModal) {
+        const openManageModal = () => { manageModal.style.display = 'block'; loadDatacentersIntoModal(); };
+        const closeManageModal = () => { manageModal.style.display = 'none'; };
+
+        manageBtn.addEventListener('click', openManageModal);
+        manageCloseBtn.addEventListener('click', closeManageModal);
+        window.addEventListener('click', (event) => { if (event.target == manageModal) closeManageModal(); });
+
+        async function loadDatacentersIntoModal() {
+            manageList.innerHTML = '<li>Carregando...</li>';
+            try {
+                const response = await fetch("{{ url_for('list_datacenters_api') }}");
+                const datacenters = await response.json();
+                manageList.innerHTML = '';
+                datacenters.forEach(dc => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <span class="dc-name">${dc.nome}</span>
+                        <div class="actions">
+                            <button class="btn-secondary btn-sm edit-dc-btn" data-id="${dc.id}" data-name="${dc.nome}">Editar</button>
+                            <button class="btn-danger btn-sm delete-dc-btn" data-id="${dc.id}" data-name="${dc.nome}" data-snapshots-count="${dc.snapshots_count}">Excluir</button>
+                        </div>
+                    `;
+                    manageList.appendChild(li);
+                });
+            } catch (error) { manageList.innerHTML = '<li>Erro ao carregar datacenters.</li>'; }
+        }
+
+        manageList.addEventListener('click', async function(event) {
+            const target = event.target;
+            const id = target.dataset.id;
+            const name = target.dataset.name;
+
+            // --- INÍCIO DO CÓDIGO DE EDIÇÃO CORRIGIDO ---
+            if (target.classList.contains('edit-dc-btn')) {
+                const newName = prompt(`Editar nome do datacenter:`, name);
+                if (newName && newName.trim() !== '' && newName !== name) {
+                    try {
+                        const response = await fetch(`/api/datacenters/${id}`, {
+                            method: 'PUT',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ nome: newName.trim() })
+                        });
+                        if (!response.ok) {
+                            throw new Error((await response.json()).detail || 'Não foi possível salvar.');
+                        }
+                        // Força o reload da página inteira para garantir que o dropdown e a lista sejam atualizados
+                        window.location.reload(); 
+                    } catch (error) {
+                        alert(`Erro ao editar: ${error.message}`);
+                    }
+                }
+            }
+            // --- FIM DO CÓDIGO DE EDIÇÃO CORRIGIDO ---
+
+            if (target.classList.contains('delete-dc-btn')) {
+                const snapshotsCount = parseInt(target.dataset.snapshotsCount, 10);
+                let confirmationMessage = `Tem certeza que deseja excluir o datacenter "${name}"?`;
+                if (snapshotsCount > 0) {
+                    const plural = snapshotsCount === 1 ? "inventário associado" : "inventários associados";
+                    confirmationMessage += `\n\nATENÇÃO: Este datacenter possui ${snapshotsCount} ${plural} que também serão APAGADOS PERMANENTEMENTE.`;
+                }
+                if (confirm(confirmationMessage)) {
+                    try {
+                        const response = await fetch(`/api/datacenters/${id}`, { method: 'DELETE' });
+                        if (!response.ok) throw new Error((await response.json()).detail);
+                        if (mainDatacenterSelect.value == id) {
+                            window.location.href = "{{ url_for('list_inventario') }}";
+                        } else {
+                            window.location.reload();
+                        }
+                    } catch (error) { alert(`Erro ao excluir: ${error.message}`); }
+                }
+            }
+        });
     }
-    const tipoId = tipoSelect.value;
-    const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text; 
-    buffer.push({codigo: codigo, tipoId: tipoId, tipoNome: tipoNome});
-    rfidInput.value = ''; rfidInput.focus(); renderPendingItems();
-  });
-  rfidInput?.addEventListener('keydown', e => {
-    if(e.key === 'Enter'){ e.preventDefault(); addBtn.click(); } 
-  });
-  clearBtn?.addEventListener('click', () => { buffer = []; renderPendingItems(); }); 
-  renderPendingItems();
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const startBtn = document.getElementById('start-scan-btn');
+    const stopBtn = document.getElementById('stop-scan-btn');
+    const statusDiv = document.getElementById('scan-status');
+    const tagsListDiv = document.getElementById('scanned-tags-list');
+    const dcSelect = document.getElementById('datacenter-select');
+
+    if (startBtn) { // Garante que este código só rode na página de inventário
+        
+        // --- INÍCIO DA CORREÇÃO ---
+        // 1. Criamos um WebSocket dedicado APENAS para esta página
+        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
+        // --- FIM DA CORREÇÃO ---
+        
+        rfidSocket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
+        rfidSocket.onclose = () => { 
+            statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
+            startBtn.disabled = true; 
+            stopBtn.disabled = true; 
+        };
+        
+        rfidSocket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'scan_status' || data.type === 'scan_error') {
+                statusDiv.textContent = `Status: ${data.message}`;
+                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro")) {
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
+            }
+            if (data.type === 'tag_scanned') {
+                if (tagsListDiv.querySelector('.muted')) {
+                    tagsListDiv.innerHTML = '';
+                }
+                const tagElement = document.createElement('code');
+                tagElement.textContent = data.tag_id;
+                tagsListDiv.appendChild(tagElement);
+            }
+        };
+
+        startBtn.addEventListener('click', () => {
+            const datacenterId = dcSelect.value;
+            if (!datacenterId) {
+                alert("Por favor, selecione um datacenter primeiro.");
+                return;
+            }
+
+            // --- INÍCIO DA CORREÇÃO ---
+            // 2. Usamos nossa variável 'rfidSocket' e verificamos seu estado
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({
+                    action: "start_scan",
+                    datacenter_id: parseInt(datacenterId)
+                }));
+
+                statusDiv.textContent = "Status: Iniciando...";
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
+            } else {
+                // Este alerta agora faz sentido, se a conexão dedicada falhar
+                alert("Erro: Conexão com o servidor de scan não está aberta.");
+            }
+            // --- FIM DA CORREÇÃO ---
+        });
+
+        stopBtn.addEventListener('click', () => {
+            const datacenterId = dcSelect.value;
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({
+                    action: "stop_scan",
+                    datacenter_id: parseInt(datacenterId)
+                }));
+            }
+        });
+    }
 });
 </script>
 {% endblock %}
@@ -1385,8 +1659,7 @@ ARQUIVO: app/web/templates/sidebar.html
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
             <span class="nav-text">Planta</span>
         </a>
-        <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventory' in request.url.path %}active{% endif %}" title="Inventario">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }})"></span>
+            <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}" title="Inventario">            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }})"></span>
             <span class="nav-text">Inventário</span>
         </a>
     </nav>
