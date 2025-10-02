@@ -60,6 +60,7 @@
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
+        <button id="cancel-scan-btn" class="btn-secondary" disabled>Cancelar</button>
     </div>
     <h4>Tags Lidas na Sessão: <span id="scanned-tags-count" style="font-weight: normal;">(0)</span></h4>
         <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
@@ -403,6 +404,7 @@ document.addEventListener('DOMContentLoaded', function () {
 document.addEventListener('DOMContentLoaded', function () {
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
+    const cancelBtn = document.getElementById('cancel-scan-btn'); 
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
@@ -412,24 +414,35 @@ document.addEventListener('DOMContentLoaded', function () {
     // NOVO: Criamos uma variável para guardar a contagem
     let scannedTagsCount = 0;
 
+    function resetScanUI() {
+        statusDiv.textContent = "Status: Conectado e pronto.";
+        tagsListDiv.innerHTML = '<div class="muted">Aguardando início da leitura...</div>';
+        scannedTagsCount = 0;
+        countSpan.textContent = `(0)`;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        cancelBtn.disabled = true;
+    }
+
+
     if (startBtn) { 
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
         
-        rfidSocket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
+        rfidSocket.onopen = () => { resetScanUI(); };
         rfidSocket.onclose = () => { 
             statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
             startBtn.disabled = true; 
             stopBtn.disabled = true; 
+            cancelBtn.disabled = true;
         };
         
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
-                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro")) {
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
+                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelada")) {
+                    resetScanUI();
                 }
             }
             if (data.type === 'tag_scanned') {
@@ -464,6 +477,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 statusDiv.textContent = "Status: Iniciando...";
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
+                cancelBtn.disabled = false; 
                 tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
             } else {
                 alert("Erro: Conexão com o servidor de scan não está aberta.");
@@ -477,6 +491,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     action: "stop_scan",
                     datacenter_id: parseInt(datacenterId)
                 }));
+            }
+        });
+
+        cancelBtn.addEventListener('click', () => {
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({ action: "cancel_scan" }));
             }
         });
     }

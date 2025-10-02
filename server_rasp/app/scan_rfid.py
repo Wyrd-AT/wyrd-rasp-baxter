@@ -16,7 +16,7 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     """
     Tarefa de fundo que coloca a pistola em modo de gatilho e ouve as tags lidas.
     """
-    PORTA_SERIAL = '/dev/rfcomm0' # Ou 'COM3', 'COM22' etc. no Windows
+    PORTA_SERIAL = 'COM4    ' # Ou 'COM3', 'COM22' etc. no Windows
     tags_lidas = set()
     reader, writer = None, None
 

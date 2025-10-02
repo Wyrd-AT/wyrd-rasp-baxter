@@ -423,6 +423,15 @@ async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(ge
                     # Remove a tarefa finalizada do dicionário de controle
                     del scanning_tasks[client_id]
 
+            elif action == "cancel_scan":
+                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
+                    logger.info(f"Scan para o cliente {client_id} foi cancelado via botão 'cancelar'.")
+                    task = scanning_tasks[client_id]
+                    task.cancel() # Apenas cancela a tarefa, sem salvar nada
+                    del scanning_tasks[client_id]
+                # Envia uma confirmação para o frontend resetar a UI
+                await websocket.send_text(json.dumps({"type": "scan_status", "message": "Leitura cancelada."}))
+
     except WebSocketDisconnect:
         # Se o usuário fechar a página, cancela e limpa a tarefa de scan associada
         if client_id in scanning_tasks and scanning_tasks[client_id]:
