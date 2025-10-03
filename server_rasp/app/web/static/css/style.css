@@ -519,20 +519,6 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
     height: 100%;
 }
 
-/* 3. NOVO: Container para CADA marcador completo (Nomes + Bolinha) */
-.ponto-quarto-container {
-    position: absolute;
-    display: flex;
-    flex-direction: column; /* Organiza os itens verticalmente */
-    align-items: center;    /* Centraliza os itens horizontalmente */
-    /* Centraliza o container inteiro no ponto exato das coordenadas */
-    transform: translate(-50%, -50%); 
-    cursor: pointer;
-    min-width: 150px; /* Largura mínima para evitar que os nomes quebrem linha */
-    text-align: center;
-}
-
-
 /* 5. A Bolinha de Status (ajustada) */
 .ponto-quarto-status {
     width: 30px;
@@ -551,31 +537,6 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 .ponto-quarto-container:hover .ponto-quarto-status {
     transform: scale(1.1);
 }
-
-
-.ponto-nome-quarto {
-    font-size: 16px; /* Aumentado de 14px para 16px */
-    font-weight: 600;
-    color: var(--primary-dark);
-    margin-bottom: 28px; /* Aumentado de 8px para 12px para mais espaço */
-    white-space: nowrap;
-}
-
-/* 6. Nome da Cama (embaixo) */
-.ponto-nome-cama {
-    font-size: 16px; /* Aumentado de 12px para 16px, para ficar igual ao nome do quarto */
-    color: var(--text-primary); /* Alterado para uma cor mais escura e legível */
-    margin-top: 65px; /* Aumentado de 8px para 12px para mais espaço */
-    white-space: nowrap;
-}
-
-/* Estilo especial para quando o quarto está livre */
-.ponto-nome-cama.cama-livre {
-    font-style: italic;
-    color: #6c757d;
-}
-
-/* --- Estilos para os Cards de Sumário da Planta Baixa --- */
 
 .planta-sumario {
     display: flex; /* Alinha os cards lado a lado */
@@ -1240,7 +1201,80 @@ body.login-page {
 
 .renderer-container.layout-lado-a-lado { display: flex; gap: 2rem; }
 .renderer-container.layout-lado-a-lado > .planta-container-dinamica { flex: 1; }
-.renderer-container.layout-empilhado { display: flex; flex-direction: column; gap: 2rem; }
+.renderer-container.layout-multi_planta {display: grid; grid-template-columns: repeat(auto-fit, minmax(600px, 1fr)); gap: 2rem;}
 .planta-container-dinamica { position: relative; width: 100%; height: 0; padding-top: 50%; background-size: contain; background-repeat: no-repeat; background-position: center; border: 1px solid var(--border-color); border-radius: 8px; }
 .planta-pontos-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 .ponto-quarto-status { width: 25px; height: 25px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5); transform: translate(-50%, -50%); cursor: help; }
+
+
+.layout-multi_planta {
+    display: grid;
+    /* Cria colunas que têm no mínimo 500px, mas se esticam para preencher. 
+       Isso cria o efeito de 2 colunas em telas largas. */
+    grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+    gap: 2rem;
+}
+
+/* Bloco que contém Título + Planta + Sumário */
+.planta-bloco {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.planta-bloco h3 {
+    font-size: 1.2rem;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+/* Container da imagem da planta (fundo) */
+.planta-container-dinamica {
+    position: relative;
+    width: 100%;
+    height: 0;
+    padding-top: 80%; /* Proporção da imagem, ajuste se necessário */
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+/* Container dos pontos (sobreposto à imagem) */
+.planta-pontos-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* Estilo do ponto de status */
+.ponto-quarto-status {
+    width: 25px;
+    height: 25px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+    transform: translate(-50%, -50%);
+    cursor: help;
+}
+
+.room-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.room-card-header .status-indicator {
+    /* Define um tamanho um pouco maior para a bolinha no card */
+    width: 12px;
+    height: 12px;
+    margin-right: 0; /* Remove a margem padrão para melhor alinhamento */
+}
+
+/* Define a cor para o novo status 'livre' (online mas sem ativos) */
+.status-indicator.livre {
+    background-color: #dc3545; /* Vermelho */
+}

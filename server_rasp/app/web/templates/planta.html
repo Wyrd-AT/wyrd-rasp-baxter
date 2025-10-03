@@ -3,13 +3,7 @@
 
 {% block content %}
 <div class="content-header">
-    <h1>
-        <select id="painel-selector" class="filter-dropdown-main" style="font-size: 1.5rem; border: none; font-family: 'Lexend', sans-serif;">
-            {% for painel in todos_paineis %}
-                <option value="{{ painel.slug }}" {% if painel.slug == painel_atual.slug %}selected{% endif %}>{{ painel.nome }}</option>
-            {% endfor %}
-        </select>
-    </h1>
+    <h1>{{ painel_atual.nome }}</h1>
 </div>
 
 <div id="renderer-container" class="renderer-container">
@@ -19,39 +13,107 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const selector = document.getElementById('painel-selector');
     const rendererContainer = document.getElementById('renderer-container');
+    // A variável 'painel_atual' é passada pelo backend (main.py)
+    const slugPainel = "{{ painel_atual.slug }}";
 
-    // Função para renderizar a GRADE DE QUARTOS (lógica da HSA original)
+    // --- RENDERIZADOR 1: Grade de Quartos (Estilo HSA) ---
     function renderizarGradeDeQuartos(data) {
         rendererContainer.innerHTML = '';
-        rendererContainer.className = 'renderer-container room-cards-container-fullwidth'; // Reutiliza a classe de grid de cards
-        
+        rendererContainer.className = 'renderer-container planta-grid-container';
+
         data.quartos.forEach(quarto => {
+            const statusCor = quarto.status_embarcado === 'Online' 
+                ? (quarto.numero_ativos > 0 ? '#28a745' : '#dc3545') 
+                : '#6c757d';
+            
             const textoStatus = quarto.status_embarcado === 'Online' 
                 ? (quarto.numero_ativos > 0 ? `${quarto.numero_ativos} ativo(s)` : 'Livre') 
                 : 'Offline';
 
-            const card = document.createElement('div');
-            card.className = 'room-card';
-            card.innerHTML = `
-                <div class="room-card-header"><h3>${quarto.nome_quarto}</h3></div>
-                <div class="room-block-body" style="text-align: center; padding-top: 1rem;">
-                    ${quarto.imagem_url ? `<img src="${quarto.imagem_url}" style="max-height: 150px; object-fit: contain; margin-bottom: 1rem;">` : ''}
-                    <p>${textoStatus}</p>
+            // Container principal para o card do quarto
+            const quartoContainer = document.createElement('div');
+            quartoContainer.className = 'quarto-container';
+
+            // Ponto de status que será sobreposto
+            const pontoDiv = document.createElement('div');
+            pontoDiv.className = 'ponto-status-overlay';
+            // AGORA USA AS COORDENADAS VINDAS DO BANCO DE DADOS
+            pontoDiv.style.top = `${quarto.pos_y}%`;
+            pontoDiv.style.left = `${quarto.pos_x}%`;
+            pontoDiv.style.backgroundColor = statusCor;
+            pontoDiv.style.transform = 'translate(-50%, -50%)';
+
+            // Monta o Tooltip (texto que aparece ao parar o mouse em cima do ponto)
+            let tooltipText = `${quarto.nome_quarto}`;
+            if (quarto.status_embarcado === 'Offline') {
+                tooltipText += `\n(Embarcado Offline)`;
+            } else if (quarto.numero_ativos > 0) {
+                quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome}`; });
+            } else {
+                tooltipText += `\nLivre`;
+            }
+            pontoDiv.title = tooltipText;
+
+            // Cria os elementos de texto e imagem
+            const tituloH3 = document.createElement('h3');
+            tituloH3.className = 'quarto-titulo';
+            tituloH3.textContent = quarto.nome_quarto;
+
+            const imgSvg = document.createElement('img');
+            // AGORA USA A URL DA IMAGEM VINDA DO BANCO DE DADOS
+            imgSvg.src = quarto.imagem_url;
+            imgSvg.alt = `Planta do ${quarto.nome_quarto}`;
+
+            const contagemP = document.createElement('p');
+            contagemP.className = 'quarto-asset-count';
+            contagemP.textContent = textoStatus;
+            
+            // Adiciona todos os elementos ao container do quarto na ordem correta
+            quartoContainer.appendChild(tituloH3);
+            quartoContainer.appendChild(imgSvg);
+            quartoContainer.appendChild(pontoDiv); // O ponto é adicionado por cima da imagem
+            quartoContainer.appendChild(contagemP);
+            
+            rendererContainer.appendChild(quartoContainer);
+        });
+        
+        // Adiciona o sumário geral no final, se ele existir
+        if (data.sumario_geral) {
+            const sumario = data.sumario_geral;
+            const sumarioHTML = `
+                <div class="planta-sumario" style="grid-column: 1 / -1; margin-top: 2rem; justify-content: center;">
+                    <div class="sumario-card card-quartos">
+                        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/quarto.svg)"></span></div>
+                        <div class="sumario-texto">
+                            <div class="sumario-numero">${sumario.quartos_online}</div>
+                            <div class="sumario-label">Quartos Online</div>
+                        </div>
+                    </div>
+                    <div class="sumario-card card-ativos">
+                        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/ativo.svg)"></span></div>
+                        <div class="sumario-texto">
+                            <div class="sumario-numero">${sumario.total_ativos}</div>
+                            <div class="sumario-label">Ativos no Total</div>
+                        </div>
+                    </div>
                 </div>
             `;
-            rendererContainer.appendChild(card);
-        });
+            rendererContainer.innerHTML += sumarioHTML;
+        }
     }
 
-    // Função para renderizar PLANTAS BAIXAS (lógica nova para FF e Bbraun)
+    // --- RENDERIZADOR 2: Plantas com Pontos (Estilo FF/Bbraun) ---
     function renderizarPlanta(data) {
         rendererContainer.innerHTML = '';
         rendererContainer.className = `renderer-container layout-${data.tipo_layout}`;
 
         data.andares.forEach(andar => {
             if (!andar.imagem_url) return;
+
+            // A lógica de criar o bloco do andar e o sumário continua a mesma
+            const blocoAndar = document.createElement('div');
+            blocoAndar.className = 'planta-bloco';
 
             const andarContainer = document.createElement('div');
             andarContainer.className = 'planta-container-dinamica';
@@ -60,67 +122,113 @@ document.addEventListener('DOMContentLoaded', function () {
             const pontosContainer = document.createElement('div');
             pontosContainer.className = 'planta-pontos-container';
             
+            // --- INÍCIO DA LÓGICA CORRIGIDA ---
             andar.quartos.forEach(quarto => {
                 if (quarto.pos_x != null && quarto.pos_y != null) {
-                    const statusColor = quarto.status_embarcado === 'Online' ? (quarto.numero_ativos > 0 ? '#28a745' : '#dc3545') : '#6c757d';
+                    // 1. Cria apenas a "bolinha" (o ponto de status)
                     const ponto = document.createElement('div');
                     ponto.className = 'ponto-quarto-status';
                     ponto.style.position = 'absolute';
                     ponto.style.left = `${quarto.pos_x}%`;
                     ponto.style.top = `${quarto.pos_y}%`;
-                    ponto.style.backgroundColor = statusColor;
                     
-                    let tooltip = `${quarto.nome_quarto}`;
-                    quarto.ativos.forEach(a => { tooltip += `\n- ${a.nome}`; });
-                    ponto.title = tooltip || `${quarto.nome_quarto}\nLivre`;
+                    // 2. Define a cor da bolinha (lógica inalterada)
+                    const statusColor = quarto.status_embarcado === 'Online' ? (quarto.numero_ativos > 0 ? '#28a745' : '#dc3545') : '#6c757d';
+                    ponto.style.backgroundColor = statusColor;
+
+                    // 3. Constrói o texto completo para o Tooltip
+                    let tooltipText = `${quarto.nome_quarto}`;
+                    if (quarto.status_embarcado === 'Offline') {
+                        tooltipText += '\n(Offline)';
+                    } else if (quarto.numero_ativos > 0) {
+                        quarto.ativos.forEach(ativo => {
+                            tooltipText += `\n- ${ativo.nome} (desde ${ativo.horario_entrada})`;
+                        });
+                    } else {
+                        tooltipText += '\nLivre';
+                    }
+                    ponto.title = tooltipText; // Atribui o texto completo ao tooltip
 
                     pontosContainer.appendChild(ponto);
                 }
             });
+            // --- FIM DA LÓGICA CORRIGIDA ---
+
             andarContainer.appendChild(pontosContainer);
-            rendererContainer.appendChild(andarContainer);
+
+            // 4. Cria o sumário
+            const sumario = andar.sumario;
+            const sumarioDiv = document.createElement('div');
+            sumarioDiv.className = 'planta-sumario';
+            sumarioDiv.innerHTML = `
+                <div class="sumario-card card-quartos">
+                    <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/quarto.svg)"></span></div>
+                    <div class="sumario-texto">
+                        <div class="sumario-numero">${sumario.quartos_online}</div>
+                        <div class="sumario-label">Quartos Online</div>
+                    </div>
+                </div>
+                <div class="sumario-card card-ativos">
+                    <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/ativo.svg)"></span></div>
+                    <div class="sumario-texto">
+                        <div class="sumario-numero">${sumario.total_ativos}</div>
+                        <div class="sumario-label">Ativos no Andar</div>
+                    </div>
+                </div>
+            `;
+            
+            // 5. Adiciona tudo (título, planta, sumário) ao bloco principal do andar, na ordem correta
+            blocoAndar.innerHTML = `<h3>${andar.nome_andar}</h3>`;
+            blocoAndar.appendChild(andarContainer);
+            blocoAndar.appendChild(sumarioDiv);
+
+            // 6. Adiciona o bloco completo do andar ao container principal
+            rendererContainer.appendChild(blocoAndar);
         });
     }
 
-    // Função principal que carrega o painel selecionado
+    // --- FUNÇÃO PRINCIPAL ---
     function carregarPainel(slug) {
-        if (!slug) {
-            rendererContainer.innerHTML = "<p>Por favor, selecione um painel de visualização.</p>";
-            return;
+        if (!slug) return;
+        
+        // Se a página for /plantas, redireciona para a url com slug. Se já tiver, só atualiza.
+        if (window.location.pathname === '/plantas') {
+             window.history.pushState({slug: slug}, '', `/plantas/${slug}`);
         }
-
-        // Atualiza a URL no navegador sem recarregar a página
-        window.history.pushState({slug: slug}, '', `/plantas/${slug}`);
 
         fetch(`/api/painel/${slug}`)
             .then(response => {
-                if (!response.ok) { throw new Error('Painel não encontrado'); }
+                if (!response.ok) { throw new Error('API retornou um erro'); }
                 return response.json();
             })
             .then(data => {
+                // Lógica para decidir qual função de renderização chamar
                 if (data.tipo_layout === 'grade_quartos') {
                     renderizarGradeDeQuartos(data);
-                } else {
+                } else if (data.tipo_layout === 'planta_unica' || data.tipo_layout === 'multi_planta') {
                     renderizarPlanta(data);
                 }
             })
             .catch(error => {
-                rendererContainer.innerHTML = `<p style="color: red;">Erro ao carregar o painel: ${error.message}</p>`;
+                rendererContainer.innerHTML = `<p style="color: red;">Erro ao carregar o painel: ${error.message}. Verifique o console para mais detalhes.</p>`;
+                console.error("Erro no fetch:", error);
             });
     }
 
-    // Evento para quando o usuário troca a opção no dropdown
-    selector.addEventListener('change', () => carregarPainel(selector.value));
+    // --- GATILHOS ---
+    const seletorPainel = document.getElementById('painel-selector');
+    if (seletorPainel) {
+        seletorPainel.addEventListener('change', () => carregarPainel(seletorPainel.value));
+    }
     
-    // Evento para atualizar a visualização quando o WebSocket avisar
     window.addEventListener('websocket_message', (event) => {
         if (event.detail === "ATUALIZAR_ESTADO") {
-            carregarPainel(selector.value);
+            carregarPainel(slugPainel);
         }
     });
 
-    // Carga inicial da página
-    carregarPainel(selector.value);
+    // Carga inicial ao abrir a página
+    carregarPainel(slugPainel);
 });
 </script>
 {% endblock %}

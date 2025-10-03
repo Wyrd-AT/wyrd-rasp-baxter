@@ -1,13 +1,24 @@
-# app/models.py (Versão Unificada e Final)
+import logging
 from sqlalchemy import (Column, Integer, String, DateTime, JSON, 
                         create_engine, ForeignKey, Table, Float)
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-import logging
+
+# 1. Importar as configurações do seu config.py
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite:///./base_rtls_unificado.db"
+# 2. Ler o nome do cliente do config.ini
+version_name = settings.get('version', 'default').lower() # 'default' é um fallback de segurança
+
+# 3. Montar o nome do arquivo do banco de dados dinamicamente
+db_filename = f"base_rtls_{version_name}.db"
+DATABASE_URL = f"sqlite:///./{db_filename}"
+
+logger.info(f"Iniciando conexão com o banco de dados: {db_filename}")
+
+# O resto do código continua igual, usando a DATABASE_URL que acabamos de criar
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False}

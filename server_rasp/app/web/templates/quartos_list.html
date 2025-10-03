@@ -7,35 +7,30 @@
     <h1>Status dos Quartos</h1>
 </div>
 
-{# Usamos o container de largura total da Baxter #}
 <div class="room-cards-container-fullwidth">
-
     {% for quarto in quartos %}
-    {# O estilo do card foi adaptado para se parecer com os da Baxter #}
-    <div class="form-card" style="width: 400px; min-width: 300px; margin: 0;">
-        <form class="room-card-header" action="{{ url_for('update_quarto', quarto_id=quarto.id) }}" method="post" style="padding-bottom: 10px; border-bottom: 1px solid #eee;">
+    <div class="room-card">
+        <form class="room-card-header" action="{{ url_for('update_quarto', quarto_id=quarto.id) }}" method="post">
             
-            <div style="display: flex; flex-direction: column;">
-                {# O nome do quarto continua editável #}
+            <div>
                 <h3 class="room-name-display">{{ quarto.nome }}</h3>
-                <input type="text" name="nome" value="{{ quarto.nome }}" class="room-name-input" hidden>
-                
-                {# A NOVA INFORMAÇÃO DO ANDAR É EXIBIDA AQUI #}
                 {% if quarto.andar %}
-                    <span style="font-size: 0.8rem; color: #666;">{{ quarto.andar.nome }}</span>
+                    <span style="font-size: 0.8rem; color: var(--text-secondary);">{{ quarto.andar.nome }}</span>
                 {% endif %}
             </div>
-
-            {# Botões de ação permanecem os mesmos #}
+            
+            <input type="text" name="nome" value="{{ quarto.nome }}" class="room-name-input" hidden>
+            
             <button type="button" class="icon-btn room-edit-btn" title="Editar nome">
                 <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span>
             </button>
+
             <button type="submit" class="icon-btn room-save-btn" title="Salvar" hidden>
                 <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/check.svg') }})"></span>
             </button>
         </form>
 
-        <div class="room-block-body" style="padding-top: 15px;">
+        <div class="room-block-body">
             {% if quarto.assets %}
                 <ul class="asset-list">
                     {% for asset in quarto.assets %}
@@ -54,22 +49,31 @@
 </div>
 {% endblock %}
 
-{# O JavaScript para edição inline do nome do quarto continua o mesmo #}
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const editButtons = document.querySelectorAll('.room-edit-btn');
+
     editButtons.forEach(btn => {
         btn.addEventListener('click', function() {
             const header = this.closest('.room-card-header');
-            const nameDisplay = header.querySelector('.room-name-display');
+            
+            // --- Lógica para encontrar os elementos ---
+            const nameWrapper = header.querySelector('div'); // O novo div que agrupa nome e andar
+            const nameDisplay = nameWrapper.querySelector('.room-name-display');
+            const andarDisplay = nameWrapper.querySelector('span');
             const nameInput = header.querySelector('.room-name-input');
             const saveBtn = header.querySelector('.room-save-btn');
 
-            nameDisplay.hidden = true;
+            // Esconde o wrapper do nome/andar e o botão de editar
+            nameWrapper.hidden = true;
             this.hidden = true;
+
+            // Mostra o campo de input e o botão de salvar
             nameInput.hidden = false;
             saveBtn.hidden = false;
+            
+            // Foca no campo de input
             nameInput.focus();
             nameInput.select();
         });

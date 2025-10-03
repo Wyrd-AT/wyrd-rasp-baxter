@@ -32,6 +32,11 @@ def load_configuration():
             'reading_timeout_sec': '10',
             'disappearance_tolerance_cycles': '10' # Novo parâmetro para a lógica de saída
         }
+
+        config['Deployment'] = {
+            'version': 'hsa'
+        }
+
         
         with open(CONFIG_FILE, 'w') as configfile:
             config.write(configfile)

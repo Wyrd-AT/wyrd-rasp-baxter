@@ -138,9 +138,9 @@ class PainelAdmin(ModelView, model=PainelVisualizacao):
         'tipo_layout': {
             'label': 'Tipo de Layout',
             'choices': [
-                ('planta_unica', 'Planta Única com Pontos (ex: FF)'),
-                ('grade_quartos', 'Grade de Quartos Individuais (ex: HSA)'),
-                ('empilhado', 'Múltiplas Plantas Empilhadas (ex: Bbraun)') # <-- OPÇÃO ADICIONADA AQUI
+                ('planta_unica', 'Planta Única com Pontos'),
+                ('grade_quartos', 'Grade de Quartos Individuais'),
+                ('multi_planta', 'Multi-Planta em Grid (ex: Bbraun)') # <-- NOME ATUALIZADO
             ]
         }
     }
@@ -673,8 +673,7 @@ def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: S
 @app.get("/api/painel/{slug_painel}", name="get_dados_painel")
 def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
     """
-    API Unificada: Retorna os dados para um painel específico,
-    formatando a resposta de acordo com o seu 'tipo_layout'.
+    API Unificada: AGORA TAMBÉM BUSCA O HORÁRIO DE ENTRADA DOS ATIVOS.
     """
     painel = db.query(PainelVisualizacao).options(
         joinedload(PainelVisualizacao.andares)
@@ -689,74 +688,97 @@ def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Painel não encontrado")
 
     now_utc = datetime.now(timezone.utc)
+    fuso_local = timezone(timedelta(hours=-3))
     ESP_TIMEOUT_SEC = 150
     
-    todos_os_quartos = []
+    sumario_geral = {"quartos_online": 0, "total_ativos": 0}
+    andares_data = []
+
     for andar in painel.andares:
-        todos_os_quartos.extend(andar.quartos)
-
-    quartos_data = []
-    for quarto in todos_os_quartos:
-        status_embarcado = "Offline"
-        if quarto.embarcados and quarto.embarcados[0].last_seen:
-            last_seen_utc = quarto.embarcados[0].last_seen.replace(tzinfo=timezone.utc)
-            if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
-                status_embarcado = "Online"
-        
-        ativos_detalhados = [{"nome": asset.nome_ativo} for asset in quarto.assets]
-        quartos_data.append({
-            "id_quarto": f"quarto-{quarto.id}",
-            "nome_quarto": quarto.nome,
-            "pos_x": quarto.pos_x,
-            "pos_y": quarto.pos_y,
-            "imagem_url": f"/static/plantas/{quarto.quarto_imagem_url}" if quarto.quarto_imagem_url else None,
-            "status_embarcado": status_embarcado,
-            "numero_ativos": len(ativos_detalhados),
-            "ativos": ativos_detalhados
-        })
-    
-    response_data = {
-        "nome_painel": painel.nome,
-        "tipo_layout": painel.tipo_layout,
-    }
-
-    if painel.tipo_layout == 'grade_quartos':
-        response_data['quartos'] = quartos_data
-    else:
-        andares_data = []
-        for andar in painel.andares:
-            andares_data.append({
-                "nome_andar": andar.nome,
-                "imagem_url": f"/static/plantas/{andar.planta_imagem_url}" if andar.planta_imagem_url else None,
-                "quartos": [q for q in quartos_data if q['id_quarto'] in [f"quarto-{aq.id}" for aq in andar.quartos]]
+        sumario_andar = {"quartos_online": 0, "total_ativos": 0}
+        quartos_data = []
+        for quarto in andar.quartos:
+            status_embarcado = "Offline"
+            if quarto.embarcados and quarto.embarcados[0].last_seen:
+                last_seen_utc = quarto.embarcados[0].last_seen.replace(tzinfo=timezone.utc)
+                if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
+                    status_embarcado = "Online"
+            
+            if status_embarcado == "Online":
+                sumario_andar["quartos_online"] += 1
+            
+            # --- LÓGICA ATUALIZADA PARA BUSCAR HORÁRIO ---
+            ativos_detalhados = []
+            for asset in quarto.assets:
+                ultimo_evento = db.query(ReceivedEvent).filter(
+                    ReceivedEvent.ativo == asset.mac_beacon,
+                    ReceivedEvent.action == 'GET'
+                ).order_by(desc(ReceivedEvent.data_on)).first()
+                
+                horario = "N/A"
+                if ultimo_evento and ultimo_evento.data_on:
+                    horario = ultimo_evento.data_on.astimezone(fuso_local).strftime("%H:%M")
+                
+                ativos_detalhados.append({"nome": asset.nome_ativo, "horario_entrada": horario})
+            
+            sumario_andar["total_ativos"] += len(ativos_detalhados)
+            # ----------------------------------------------
+            
+            quartos_data.append({
+                "id_quarto": f"quarto-{quarto.id}", "nome_quarto": quarto.nome,
+                "pos_x": quarto.pos_x, "pos_y": quarto.pos_y,
+                "imagem_url": f"/static/plantas/{quarto.quarto_imagem_url}" if quarto.quarto_imagem_url else None,
+                "status_embarcado": status_embarcado, "numero_ativos": len(ativos_detalhados), "ativos": ativos_detalhados
             })
-        response_data['andares'] = andares_data
         
+        andares_data.append({
+            "nome_andar": andar.nome,
+            "imagem_url": f"/static/plantas/{andar.planta_imagem_url}" if andar.planta_imagem_url else None,
+            "quartos": quartos_data,
+            "sumario": sumario_andar
+        })
+        
+        sumario_geral["quartos_online"] += sumario_andar["quartos_online"]
+        sumario_geral["total_ativos"] += sumario_andar["total_ativos"]
+
+    # --- O resto da função continua igual ---
+    response_data = { "nome_painel": painel.nome, "tipo_layout": painel.tipo_layout, }
+    if painel.tipo_layout == 'grade_quartos':
+        todos_os_quartos = []
+        for andar_data in andares_data:
+            todos_os_quartos.extend(andar_data["quartos"])
+        response_data['quartos'] = todos_os_quartos
+        response_data['sumario_geral'] = sumario_geral
+    else:
+        response_data['andares'] = andares_data
     return response_data
 
 @app.get("/plantas", name="list_paineis")
 def list_paineis(request: Request, db: Session = Depends(get_db)):
-    """Página 'Lobby' que lista todos os painéis de visualização disponíveis."""
-    paineis = db.query(PainelVisualizacao).order_by(PainelVisualizacao.ordem_exibicao).all()
-    return templates.TemplateResponse("plantas_index.html", {
-        "request": request,
-        "paineis": paineis
-    })
+    """
+    Esta rota agora lê a 'version' do config.ini e redireciona
+    diretamente para o painel com o slug correspondente.
+    """
+    # Lê a chave 'version' da seção [Deployment]
+    default_slug = settings.get("version", None)
+    
+    if not default_slug:
+        raise HTTPException(status_code=500, detail="A chave 'version' não está definida no config.ini")
+    
+    # Redireciona para a URL do painel correspondente (ex: /plantas/ff)
+    return RedirectResponse(url=request.url_for("view_painel", slug_painel=default_slug))
 
 @app.get("/plantas/{slug_painel}", name="view_painel")
 def view_painel(request: Request, slug_painel: str, db: Session = Depends(get_db)):
-    """Renderiza a página de planta baixa para um painel específico."""
+    """Renderiza a página de planta para um painel específico."""
     painel = db.query(PainelVisualizacao).filter(PainelVisualizacao.slug == slug_painel).first()
     if not painel:
-        # Se não encontrar o painel, redireciona para a lista de painéis
-        return RedirectResponse(url=request.url_for("list_paineis"))
+        raise HTTPException(status_code=404, detail="Painel não encontrado")
     
-    todos_paineis = db.query(PainelVisualizacao).order_by(PainelVisualizacao.ordem_exibicao).all()
-    
+    # Não precisamos mais passar todos os painéis, apenas o atual
     return templates.TemplateResponse("planta.html", {
         "request": request,
-        "painel_atual": painel,
-        "todos_paineis": todos_paineis
+        "painel_atual": painel
     })
 
 # ===================================================================
