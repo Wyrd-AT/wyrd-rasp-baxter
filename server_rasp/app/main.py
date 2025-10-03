@@ -1374,12 +1374,15 @@ def inventory_page(
                   .order_by(Product.codigo_rfid).all()
         inventario_atual_formatado = [{ "codigo_rfid": codigo, "tipo": tipo, "created_on": snapshot_atual.created_on } for codigo, tipo in itens]
 
+    rfid_serial_port = settings.get('serial_port', 'Não configurada')
+
     return templates.TemplateResponse("inventario_list.html", {
         "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
         "tipos": tipos, "tabela_unificada": tabela_unificada, "inventario_atual": inventario_atual_formatado,
         "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior, "current_view": view,
         "count_atual": count_atual,
-        "count_anterior": count_anterior
+        "count_anterior": count_anterior,
+        "rfid_serial_port": rfid_serial_port # NOVO: Envia a variável para o template
     })
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")

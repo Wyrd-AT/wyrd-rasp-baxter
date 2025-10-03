@@ -56,6 +56,10 @@
 
 <div class="form-card" style="margin-top: 1.5rem;">
     <h3>Leitura por Pistola RFID</h3>
+    <span style="font-size: 0.8rem; color: #6c757d; font-weight: 500; background-color: #f1f3f5; padding: 2px 6px; border-radius: 4px;"
+              title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
+            Porta: {{ rfid_serial_port }}
+        </span>
     <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>

@@ -3,6 +3,7 @@ import json
 import asyncio
 import serial_asyncio
 from typing import List
+from .config import settings
 
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
@@ -16,7 +17,7 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     """
     Tarefa de fundo que coloca a pistola em modo de gatilho e ouve as tags lidas.
     """
-    PORTA_SERIAL = 'COM4    ' # Ou 'COM3', 'COM22' etc. no Windows
+    PORTA_SERIAL = settings.get('serial_port', 'COM3')
     tags_lidas = set()
     reader, writer = None, None
 
