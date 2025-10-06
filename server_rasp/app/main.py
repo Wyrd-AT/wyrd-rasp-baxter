@@ -453,13 +453,15 @@ async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(ge
                 
                 datacenter_id = data.get("datacenter_id")
                 if not datacenter_id:
-                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Por favor, selecione um datacenter."}))
+                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Selecione um datacenter."}))
                     continue
-
-                # A chamada para a tarefa agora é mais simples, sem o 'scan_mode'
-                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id))
+                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, mode='multiple', datacenter_id=datacenter_id))
                 scanning_tasks[client_id] = task
 
+            elif action == "read_single_tag": # Leitura única
+                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, mode='single'))
+                scanning_tasks[client_id] = task
+                
             elif action == "stop_scan":
                 if client_id in scanning_tasks and not scanning_tasks[client_id].done():
                     task = scanning_tasks[client_id]

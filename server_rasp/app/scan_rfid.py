@@ -2,7 +2,7 @@ import logging
 import json
 import asyncio
 import serial_asyncio
-from typing import List
+from typing import List, Optional
 from .config import settings
 
 from fastapi import WebSocket
@@ -15,7 +15,7 @@ from .models import InventorySnapshot, InventoryItem, Product
 
 logger = logging.getLogger(__name__)
 
-async def rfid_scan_task(websocket: WebSocket, datacenter_id: int, mode: str) -> List[str]:
+async def rfid_scan_task(websocket: WebSocket, mode: str, datacenter_id: Optional[int] = None ) -> List[str]:
     """
     Tarefa de fundo que ouve as tags lidas.
     Suporta dois modos:

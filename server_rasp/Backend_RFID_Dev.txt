@@ -2222,8 +2222,14 @@ def create_localizacao(dc_in: DataCenterCreate, db: Session = Depends(get_db)):
 
 # --- API para Bastidores (Racks) ---
 @app.get("/api/bastidores", response_model=List[BastidorSchema])
-def list_bastidores(db: Session = Depends(get_db)):
-    return db.query(Bastidor).order_by(Bastidor.codigo_bast).all()
+def list_bastidores(
+    db: Session = Depends(get_db),
+    localizacao_id: Optional[int] = Query(None) # NOVO: Parâmetro de filtro
+):
+    query = db.query(Bastidor).order_by(Bastidor.codigo_bast)
+    if localizacao_id:
+        query = query.filter(Bastidor.localizacao_id == localizacao_id)
+    return query.all()
 
 @app.post("/api/bastidores", response_model=BastidorSchema, status_code=status.HTTP_201_CREATED)
 def create_bastidor(bastidor_in: BastidorCreate, db: Session = Depends(get_db)):
@@ -2354,15 +2360,16 @@ def list_equipamentos(
         joinedload(Equipamento.bastidor).joinedload(Bastidor.localizacao)
     )
 
-    # --- MUDANÇA 2: Lógica de filtro ajustada para validar os valores ---
-    if filter_localizacao_id and filter_localizacao_id.isdigit():
-        query = query.join(Equipamento.bastidor).filter(Bastidor.localizacao_id == int(filter_localizacao_id))
-    
-    if filter_modelo_id and filter_modelo_id.isdigit():
-        query = query.filter(Equipamento.equipamento_tipo_id == int(filter_modelo_id))
-        
-    if filter_bastidor_id and filter_bastidor_id.isdigit():
-        query = query.filter(Equipamento.bastidor_id == int(filter_bastidor_id))
+    localizacao_id_int = int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None
+    modelo_id_int = int(filter_modelo_id) if filter_modelo_id and filter_modelo_id.isdigit() else None
+    bastidor_id_int = int(filter_bastidor_id) if filter_bastidor_id and filter_bastidor_id.isdigit() else None
+
+    if localizacao_id_int:
+        query = query.join(Equipamento.bastidor).filter(Bastidor.localizacao_id == localizacao_id_int)
+    if modelo_id_int:
+        query = query.filter(Equipamento.equipamento_tipo_id == modelo_id_int)
+    if bastidor_id_int:
+        query = query.filter(Equipamento.bastidor_id == bastidor_id_int)
 
 
     # Lógica de busca atualizada
@@ -2403,13 +2410,18 @@ def list_equipamentos(
 
     all_localizacoes = db.query(DataCenter).order_by(DataCenter.nome).all()
     all_modelos = db.query(EquipamentoTipo).order_by(EquipamentoTipo.nome).all()
-    all_bastidores = db.query(Bastidor).order_by(Bastidor.codigo_bast).all()
+
+    # --- MUDANÇA IMPORTANTE AQUI ---
+    # A lista de bastidores agora é filtrada pela localização, se houver uma selecionada
+    bastidores_query = db.query(Bastidor).order_by(Bastidor.codigo_bast)
+    if localizacao_id_int:
+        bastidores_query = bastidores_query.filter(Bastidor.localizacao_id == localizacao_id_int)
+    all_bastidores = bastidores_query.all()
     
     current_filters = {
-        "search": search, "sort_by": sort_by, "order": order,
-        "localizacao_id": filter_localizacao_id,
-        "modelo_id": filter_modelo_id,
-        "bastidor_id": filter_bastidor_id
+        "localizacao_id": localizacao_id_int,
+        "modelo_id": modelo_id_int,
+        "bastidor_id": bastidor_id_int
     }
 
     return templates.TemplateResponse("equipamentos_list.html", {

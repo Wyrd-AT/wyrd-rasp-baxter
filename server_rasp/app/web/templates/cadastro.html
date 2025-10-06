@@ -38,17 +38,15 @@
             <div class="form-group"><label for="inst_bastidor_id">Bastidor (Rack)</label><select id="inst_bastidor_id" required><option value="">Selecione a localização</option></select></div>
         </div>
         <div id="tab-rfid" class="modal-tab-content">
-            <h4>Associação da Etiqueta RFID</h4>
+            <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Etiqueta RFID</h4>
             <div class="form-group">
-                <label>Código RFID</label>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <input type="text" name="codigo_rfid" id="codigo-rfid-input" required style="flex-grow: 1;">
-                    <button type="button" id="read-single-tag-btn" class="btn-secondary">Ler Tag Única</button>
+                <label for="inst_codigo_rfid">Código RFID</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="inst_codigo_rfid" required style="flex-grow: 1;">
+                    <button type="button" id="read-single-tag-btn" class="btn-secondary" style="white-space: nowrap;">Ler Tag</button>
                 </div>
-                <div id="single-read-status" class="muted" style="margin-top: 8px; min-height: 1.2em;">
-                    </div>
+                <small id="rfid-status-text" class="muted"></small> </div>
             </div>
-        </div>
         <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
             <button type="submit" class="btn-primary">Salvar Nova Instância</button>
         </div>
@@ -511,8 +509,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (data.type === 'tag_scanned') {
                 rfidInput.value = data.tag_id;
-                statusDiv.textContent = `SUCESSO! Tag encontrada: ${data.tag_id}`;
-                statusDiv.style.color = '#28a745'; // Verde
+                rfidStatusText.textContent = "Tag lida com sucesso!";
+                readTagBtn.disabled = false;
+                readTagBtn.textContent = "Ler Tag";
             } else if (data.type === 'scan_status' && data.message.toLowerCase().includes('finalizada')) {
                 // Se a sessão termina sem ler tag (ex: timeout no backend)
                 if (rfidInput.value === '') { // Só mostra erro se não encontrou nada
