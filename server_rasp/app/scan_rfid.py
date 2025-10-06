@@ -7,9 +7,11 @@ from .config import settings
 
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
+import serial # Adicionado para tratar a exceção corretamente
 
-# Importa os modelos necessários do seu arquivo de modelos
-from .models import InventorySnapshot, InventoryItem, Product, ProductType
+# --- MUDANÇA 1: Importações Atualizadas ---
+# Removemos 'ProductType'
+from .models import InventorySnapshot, InventoryItem, Product
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +29,10 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
             timeout=5.0
         )
 
-        # A lógica agora é fixa: sempre ativa o modo de gatilho
         writer.write(b'.sa -s inv\r\n')
         await writer.drain()
         await websocket.send_text(json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione o gatilho para ler."}))
         
-        # O loop de escuta continua o mesmo
         while True:
             linha_bytes = await asyncio.wait_for(reader.readline(), timeout=300.0)
             linha = linha_bytes.decode('ascii').strip()
@@ -55,7 +55,6 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     finally:
         logger.info("Finalizando tarefa de scan e limpando recursos.")
         if writer and not writer.is_closing():
-            # A limpeza agora é fixa: sempre desativa o modo de gatilho
             writer.write(b'.sa -s off\r\n')
             await writer.drain()
             writer.close()
@@ -72,16 +71,17 @@ def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):
     
     try:
         produtos_processados = []
-        # Para simplificar, vamos associar todas as novas tags ao primeiro tipo de produto que encontrarmos
-        default_tipo = db.query(ProductType).first()
-        if not default_tipo:
-            raise Exception("Nenhum tipo de produto encontrado no banco de dados para associar as tags.")
-        default_tipo_id = default_tipo.id
+        
+        # --- MUDANÇA 2: Lógica de 'default_tipo' Removida ---
+        # Não precisamos mais nos preocupar com o tipo do produto aqui.
 
         for codigo_rfid in tags:
             produto = db.query(Product).filter(Product.codigo_rfid == codigo_rfid).first()
             if not produto:
-                produto = Product(codigo_rfid=codigo_rfid, product_type_id=default_tipo_id)
+                # --- MUDANÇA 3: Criação do Produto Simplificada ---
+                # Apenas criamos o produto com o código. A associação com um equipamento
+                # será feita posteriormente na página de cadastro.
+                produto = Product(codigo_rfid=codigo_rfid)
                 db.add(produto)
             produtos_processados.append(produto)
         db.flush()

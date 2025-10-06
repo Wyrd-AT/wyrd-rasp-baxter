@@ -365,6 +365,10 @@ def load_configuration():
             'reading_timeout_sec': '10',
             'disappearance_tolerance_cycles': '10' # Novo parâmetro para a lógica de saída
         }
+
+        config['RFID'] = {
+            'SERIAL_PORT': 'COM3'  # Define um padrão razoável para Windows
+        }
         
         with open(CONFIG_FILE, 'w') as configfile:
             config.write(configfile)
@@ -970,6 +974,15 @@ async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(ge
                     
                     # Remove a tarefa finalizada do dicionário de controle
                     del scanning_tasks[client_id]
+
+            elif action == "cancel_scan":
+                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
+                    logger.info(f"Scan para o cliente {client_id} foi cancelado via botão 'cancelar'.")
+                    task = scanning_tasks[client_id]
+                    task.cancel() # Apenas cancela a tarefa, sem salvar nada
+                    del scanning_tasks[client_id]
+                # Envia uma confirmação para o frontend resetar a UI
+                await websocket.send_text(json.dumps({"type": "scan_status", "message": "Leitura cancelada."}))
 
     except WebSocketDisconnect:
         # Se o usuário fechar a página, cancela e limpa a tarefa de scan associada
@@ -1913,12 +1926,15 @@ def inventory_page(
                   .order_by(Product.codigo_rfid).all()
         inventario_atual_formatado = [{ "codigo_rfid": codigo, "tipo": tipo, "created_on": snapshot_atual.created_on } for codigo, tipo in itens]
 
+    rfid_serial_port = settings.get('serial_port', 'Não configurada')
+
     return templates.TemplateResponse("inventario_list.html", {
         "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
         "tipos": tipos, "tabela_unificada": tabela_unificada, "inventario_atual": inventario_atual_formatado,
         "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior, "current_view": view,
         "count_atual": count_atual,
-        "count_anterior": count_anterior
+        "count_anterior": count_anterior,
+        "rfid_serial_port": rfid_serial_port # NOVO: Envia a variável para o template
     })
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")
@@ -2321,6 +2337,7 @@ import json
 import asyncio
 import serial_asyncio
 from typing import List
+from .config import settings
 
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
@@ -2334,7 +2351,7 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     """
     Tarefa de fundo que coloca a pistola em modo de gatilho e ouve as tags lidas.
     """
-    PORTA_SERIAL = '/dev/rfcomm0' # Ou 'COM3', 'COM22' etc. no Windows
+    PORTA_SERIAL = settings.get('serial_port', 'COM3')
     tags_lidas = set()
     reader, writer = None, None
 
@@ -2363,7 +2380,7 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
     except asyncio.TimeoutError:
         await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão finalizada por inatividade."}))
     except (serial.SerialException, FileNotFoundError):
-        await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro: Porta serial '{PORTA_SERIAL}' indisponível."}))
+        await websocket.send_text(json.dumps({"type": "hardware_error", "message": f"ERRO DE HARDWARE: Verifique se a pistola RFID está conectada na porta '{PORTA_SERIAL}'."}))
     except asyncio.CancelledError:
         logger.info("Tarefa de scan foi cancelada pelo usuário.")
         raise

@@ -27,9 +27,13 @@
         <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
             <span class="nav-text">Planta</span>
+        <a href="{{ url_for('cadastro_page') }}" class="nav-item {% if 'cadastro' in request.url.path %}active{% endif %}" title="Cadastro e Gestão">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/catalogo.svg') }});"></span>
+            <span class="nav-text">Cadastro e Gestão</span>
         </a>
-            <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}" title="Inventario">            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }})"></span>
-            <span class="nav-text">Inventário</span>
+        <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}" title="Inventário e Auditoria">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }});"></span>
+            <span class="nav-text">Inventário e Auditoria</span>
         </a>
     </nav>
     <button id="sidebar-toggle-btn" title="Alternar menu">

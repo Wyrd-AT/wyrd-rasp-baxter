@@ -1,5 +1,5 @@
 # models.py
-from sqlalchemy import (Column, DateTime, ForeignKey, Integer, JSON, String,
+from sqlalchemy import (Column, DateTime, ForeignKey, Integer, Text, Float, JSON, String,
                         create_engine)
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from datetime import datetime, timezone
@@ -74,58 +74,111 @@ class ReceivedEvent(Base):
     raw = Column(JSON, nullable=False)
 
 # ====================================================
-#         MODELOS DE INVENTÁRIO CORRIGIDOS
+#         NOVOS MODELOS DE INVENTÁRIO E CATÁLOGO
 # ====================================================
 
+# --- ENTIDADES DE SUPORTE (AS OPÇÕES DOS DROPDOWNS) ---
+
+class Fabricante(Base):
+    __tablename__ = "fabricantes"
+    id = Column(Integer, primary_key=True)
+    nome = Column(String(100), unique=True, nullable=False)
+    equipamentos = relationship("Equipamento", back_populates="fabricante")
+
+class TipoPlaca(Base):
+    __tablename__ = "tipos_placa"
+    id = Column(Integer, primary_key=True)
+    nome = Column(String(100), unique=True, nullable=False)
+
+# --- NÍVEL 1: LOCALIZAÇÃO (DATACENTER) ---
 class DataCenter(Base):
-    __tablename__ = "datacenters" 
+    __tablename__ = "datacenters"
     id = Column(Integer, primary_key=True)
-    nome = Column(String(80), unique=True, nullable=False)
-    slug = Column(String(40), unique=True, nullable=False)
+    nome = Column(String(100), unique=True, nullable=False) # O nome que o usuário vê
+    uf_abrv = Column(String(2))
+    estacao_abrv = Column(String(20))
+    edf = Column(String(50))
+    piso = Column(String(20))
+    sala = Column(String(50))
+    municipio = Column(String(100))
+    endereco_completo = Column(Text)
+    latitude = Column(Float)
+    longitude = Column(Float)
     snapshots = relationship("InventorySnapshot", back_populates="datacenter")
+    bastidores = relationship("Bastidor", back_populates="localizacao")
 
-class ProductType(Base):
-    __tablename__ = 'product_types'
+# --- NÍVEL 2: BASTIDOR (RACK) ---
+class Bastidor(Base):
+    __tablename__ = "bastidores"
     id = Column(Integer, primary_key=True)
-    nome = Column(String(100), nullable=False, unique=True)
-    
-    # Relação para acessar todos os produtos de um certo tipo
-    products = relationship('Product', back_populates='product_type')
+    codigo_bast = Column(String(50), unique=True, nullable=False)
+    localizacao_id = Column(Integer, ForeignKey("datacenters.id"), nullable=False)
+    localizacao = relationship("DataCenter", back_populates="bastidores")
+    equipamentos = relationship("Equipamento", back_populates="bastidor")
 
-# #- NOVO: Product é o nosso "Catálogo" de itens físicos.
+# --- NÍVEL 3: EQUIPAMENTO (A ENTIDADE CENTRAL) ---
+class Equipamento(Base):
+    __tablename__ = "equipamentos"
+    id = Column(Integer, primary_key=True)
+    nome_equip = Column(String(100), unique=True) # Nome que o usuário escolhe no dropdown
+    tipo_equip = Column(String(50))
+    tecnologia_equip = Column(String(50))
+    modelo_equip = Column(String(50))
+    estado_cv_equip = Column(String(50))
+    estado_op_equip = Column(String(50))
+    gerencia_equip = Column(String(50))
+    fabricante_id = Column(Integer, ForeignKey("fabricantes.id"))
+    fabricante = relationship("Fabricante", back_populates="equipamentos")
+    bastidor_id = Column(Integer, ForeignKey("bastidores.id"))
+    bastidor = relationship("Bastidor", back_populates="equipamentos")
+    shelfs = relationship("Shelf", back_populates="equipamento")
+    portas = relationship("Porta", back_populates="equipamento")
+    product = relationship("Product", back_populates="equipamento", uselist=False, cascade="all, delete-orphan")
+
+# --- NÍVEL 4: SHELF (MÓDULO) ---
+class Shelf(Base):
+    __tablename__ = "shelfs"
+    id = Column(Integer, primary_key=True)
+    codigo_mod = Column(String(50), unique=True, nullable=False)
+    equipamento_id = Column(Integer, ForeignKey("equipamentos.id"), nullable=False)
+    equipamento = relationship("Equipamento", back_populates="shelfs")
+
+# --- NÍVEL 5: PORTA ---
+class Porta(Base):
+    __tablename__ = "portas"
+    id = Column(Integer, primary_key=True)
+    tipo_porta = Column(String(50))
+    estado_cv_porta = Column(String(50))
+    estado_op_porta = Column(String(50))
+    estado_pv_porta = Column(String(50))
+    equipamento_id = Column(Integer, ForeignKey("equipamentos.id"), nullable=False)
+    equipamento = relationship("Equipamento", back_populates="portas")
+
+# --- A ETIQUETA RFID (AGORA LIGADA AO EQUIPAMENTO) ---
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)
     codigo_rfid = Column(String, unique=True, nullable=False, index=True)
-    
-    product_type_id = Column(Integer, ForeignKey("product_types.id"), nullable=False)
-    product_type = relationship("ProductType", back_populates="products")
-
-    # Relação para ver em quais inventários este produto apareceu
+    equipamento_id = Column(Integer, ForeignKey("equipamentos.id"), unique=True, nullable=True)
+    equipamento = relationship("Equipamento", back_populates="product")
     inventory_entries = relationship("InventoryItem", back_populates="product")
 
+# --- MODELOS DO SISTEMA DE INVENTÁRIO (SNAPSHOTS) ---
 class InventorySnapshot(Base):
     __tablename__ = 'inventory_snapshots'
     id = Column(Integer, primary_key=True)
     created_on = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    
     datacenter_id = Column(Integer, ForeignKey("datacenters.id"), nullable=False)
     datacenter = relationship("DataCenter", back_populates="snapshots") 
-    
-    # Relação com os itens "vistos" neste snapshot
     items = relationship('InventoryItem', back_populates='snapshot', cascade="all, delete-orphan")
 
-# #- NOVO: InventoryItem agora é apenas a ligação entre um Snapshot e um Product.
 class InventoryItem(Base):
     __tablename__ = 'inventory_items'
     id = Column(Integer, primary_key=True)
-    
     snapshot_id = Column(Integer, ForeignKey('inventory_snapshots.id'), nullable=False)
-    product_id = Column(Integer, ForeignKey('products.id'), nullable=False) # <-- MUDANÇA
-    
-    # Relações bidirecionais
+    product_id = Column(Integer, ForeignKey('products.id'), nullable=False)
     snapshot = relationship('InventorySnapshot', back_populates='items')
-    product = relationship('Product', back_populates='inventory_entries') # <-- MUDANÇA
+    product = relationship('Product', back_populates='inventory_entries')
 
 def init_db():
     """Inicializa o banco de dados e cria as tabelas."""

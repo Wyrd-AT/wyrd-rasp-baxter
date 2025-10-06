@@ -893,13 +893,18 @@ ARQUIVO: app/web/templates/inventario_list.html
 
 <div class="form-card" style="margin-top: 1.5rem;">
     <h3>Leitura por Pistola RFID</h3>
+    <span style="font-size: 0.8rem; color: #6c757d; font-weight: 500; background-color: #f1f3f5; padding: 2px 6px; border-radius: 4px;"
+              title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
+            Porta: {{ rfid_serial_port }}
+        </span>
     <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
+        <button id="cancel-scan-btn" class="btn-secondary" disabled>Cancelar</button>
     </div>
-    <h4>Tags Lidas na Sessão:</h4>
-    <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
+    <h4>Tags Lidas na Sessão: <span id="scanned-tags-count" style="font-weight: normal;">(0)</span></h4>
+        <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
         <div class="muted">Aguardando início da leitura...</div>
     </div>
 </div>
@@ -922,8 +927,8 @@ ARQUIVO: app/web/templates/inventario_list.html
     <table class="data-table">
         <thead>
             <tr>
-                <th style="width: 40%;">INVENTÁRIO ATUAL</th> 
-                <th style="width: 40%;">INVENTÁRIO ANTERIOR</th> 
+                <th style="width: 40%;">INVENTÁRIO ATUAL ({{ count_atual }})</th> 
+                <th style="width: 40%;">INVENTÁRIO ANTERIOR ({{ count_anterior }})</th> 
                 <th>MUDANÇA</th> 
             </tr>
         </thead>
@@ -957,7 +962,7 @@ ARQUIVO: app/web/templates/inventario_list.html
 {% if current_view == 'current' %}
 <div class="list-container-full-width">
     <div class="list-header">
-        <h3>Inventário Atual</h3>
+        <h3>Inventário Atual ({{ count_atual }})</h3>
         <div class="muted">
             {% if not snapshot_atual %} 
                 Nenhum inventário foi salvo ainda para este datacenter. 
@@ -1240,32 +1245,59 @@ document.addEventListener('DOMContentLoaded', function () {
 document.addEventListener('DOMContentLoaded', function () {
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
+    const cancelBtn = document.getElementById('cancel-scan-btn'); 
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
+    
+    // NOVO: Pegamos o elemento do contador que criamos no HTML
+    const countSpan = document.getElementById('scanned-tags-count');
+    // NOVO: Criamos uma variável para guardar a contagem
+    let scannedTagsCount = 0;
 
-    if (startBtn) { // Garante que este código só rode na página de inventário
-        
-        // --- INÍCIO DA CORREÇÃO ---
-        // 1. Criamos um WebSocket dedicado APENAS para esta página
+    function resetScanUI() {
+        statusDiv.textContent = "Status: Conectado e pronto.";
+        tagsListDiv.innerHTML = '<div class="muted">Aguardando início da leitura...</div>';
+        scannedTagsCount = 0;
+        countSpan.textContent = `(0)`;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        cancelBtn.disabled = true;
+    }
+
+
+    if (startBtn) { 
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
-        // --- FIM DA CORREÇÃO ---
         
-        rfidSocket.onopen = () => { statusDiv.textContent = "Status: Conectado e pronto."; };
+        rfidSocket.onopen = () => { resetScanUI(); };
         rfidSocket.onclose = () => { 
             statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
             startBtn.disabled = true; 
             stopBtn.disabled = true; 
+            cancelBtn.disabled = true;
         };
         
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            
+            // NOVO: Bloco para tratar o erro de hardware de forma especial
+            if (data.type === 'hardware_error') {
+                statusDiv.textContent = data.message;
+                statusDiv.style.color = '#dc3545'; // Deixa o texto vermelho
+                statusDiv.style.fontWeight = 'bold';
+                // Desabilita todos os botões permanentemente até a página ser recarregada
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                cancelBtn.disabled = true;
+                return; // Interrompe o processamento para não executar outras lógicas
+            }
+            
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
-                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro")) {
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
+                if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelada")) {
+                    resetScanUI();
+                    statusDiv.textContent = "Status: Conectado e pronto.";
                 }
             }
             if (data.type === 'tag_scanned') {
@@ -1275,6 +1307,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 const tagElement = document.createElement('code');
                 tagElement.textContent = data.tag_id;
                 tagsListDiv.appendChild(tagElement);
+
+                // NOVO: Incrementamos o contador e atualizamos o texto na tela
+                scannedTagsCount++;
+                countSpan.textContent = `(${scannedTagsCount})`;
             }
         };
 
@@ -1284,24 +1320,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 alert("Por favor, selecione um datacenter primeiro.");
                 return;
             }
-
-            // --- INÍCIO DA CORREÇÃO ---
-            // 2. Usamos nossa variável 'rfidSocket' e verificamos seu estado
             if (rfidSocket.readyState === WebSocket.OPEN) {
+                // NOVO: Zeramos o contador ao iniciar uma nova leitura
+                scannedTagsCount = 0;
+                countSpan.textContent = `(0)`;
+                
                 rfidSocket.send(JSON.stringify({
                     action: "start_scan",
                     datacenter_id: parseInt(datacenterId)
                 }));
-
                 statusDiv.textContent = "Status: Iniciando...";
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
+                cancelBtn.disabled = false; 
                 tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
             } else {
-                // Este alerta agora faz sentido, se a conexão dedicada falhar
                 alert("Erro: Conexão com o servidor de scan não está aberta.");
             }
-            // --- FIM DA CORREÇÃO ---
         });
 
         stopBtn.addEventListener('click', () => {
@@ -1311,6 +1346,12 @@ document.addEventListener('DOMContentLoaded', function () {
                     action: "stop_scan",
                     datacenter_id: parseInt(datacenterId)
                 }));
+            }
+        });
+
+        cancelBtn.addEventListener('click', () => {
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({ action: "cancel_scan" }));
             }
         });
     }

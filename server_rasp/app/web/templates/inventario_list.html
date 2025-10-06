@@ -1,21 +1,18 @@
 {% extends "base.html" %}
 
-{% block title %}Inventário{% endblock %}
+{% block title %}Inventário e Auditoria{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Inventário</h1>
+    <h1>Inventário e Auditoria</h1>
     <div class="header-actions">
-        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
         <a href="{{ url_for('download_inventory_csv') }}?datacenter_id={{ current_dc_id }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
 
 <div class="top-controls-container">
-    
-    <div class="filters-toolbar" style="margin-bottom: 0;">
-        <div class="filter-group-left" style="display: flex; align-items: center; gap: 8px;">
-            
+    <div class="filters-toolbar">
+        <div class="filter-group-left">
             <form id="datacenter-form" method="get" action="{{ url_for('list_inventario') }}">
                 <select name="datacenter_id" id="datacenter-select" class="filter-dropdown-main" onchange="this.form.submit()">
                     {% for dc in all_datacenters %}
@@ -25,41 +22,20 @@
                     {% endfor %}
                 </select>
             </form>
-
-            <button id="add-datacenter-btn" type="button" class="icon-btn" title="Adicionar Novo Datacenter" style="font-size: 20px; line-height: 1;">+</button>
-
-            <button id="manage-datacenters-btn" type="button" class="icon-btn" title="Gerenciar Datacenters">
-                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/settings.svg') }});"></span>
-            </button>
-
         </div>
     </div>
-
     <div class="view-toggle">
-        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=comparison"
-           class="btn-toggle {% if current_view == 'comparison' %}active{% endif %}">
-           Comparativo
-        </a>
-        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=current"
-           class="btn-toggle {% if current_view == 'current' %}active{% endif %}">
-           Inventário Atual
-        </a>
-    </div>
-
-</div>
-
-<div class="forms-container-vertical" id="forms-container"> 
-    <div class="form-card"> 
-        {% include 'inventario_form.html' with context %} 
+        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=comparison" class="btn-toggle {% if current_view == 'comparison' %}active{% endif %}">Comparativo</a>
+        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=current" class="btn-toggle {% if current_view == 'current' %}active{% endif %}">Inventário Atual</a>
     </div>
 </div>
 
 <div class="form-card" style="margin-top: 1.5rem;">
     <h3>Leitura por Pistola RFID</h3>
     <span style="font-size: 0.8rem; color: #6c757d; font-weight: 500; background-color: #f1f3f5; padding: 2px 6px; border-radius: 4px;"
-              title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
-            Porta: {{ rfid_serial_port }}
-        </span>
+          title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
+        Porta: {{ rfid_serial_port }}
+    </span>
     <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
@@ -67,76 +43,27 @@
         <button id="cancel-scan-btn" class="btn-secondary" disabled>Cancelar</button>
     </div>
     <h4>Tags Lidas na Sessão: <span id="scanned-tags-count" style="font-weight: normal;">(0)</span></h4>
-        <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
+    <div id="scanned-tags-list" class="pending-items-grid" style="min-height: 50px; max-height: 200px; overflow-y: auto; padding: 10px; border: 1px solid #eee; border-radius: 4px;">
         <div class="muted">Aguardando início da leitura...</div>
     </div>
 </div>
 
-
 {% if current_view == 'comparison' %}
 <div class="list-container-full-width">
-    <div class="list-header">
-        <h3>Comparativo de Inventário</h3>
-        <div class="muted">
-            {% if snapshot_atual and snapshot_anterior %} 
-                Comparando de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>. 
-            {% elif snapshot_atual %} 
-                Exibindo o primeiro inventário salvo em <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>. 
-            {% else %} 
-                Nenhum inventário foi salvo ainda para este datacenter. 
-            {% endif %} 
-        </div>
     </div>
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th style="width: 40%;">INVENTÁRIO ATUAL ({{ count_atual }})</th> 
-                <th style="width: 40%;">INVENTÁRIO ANTERIOR ({{ count_anterior }})</th> 
-                <th>MUDANÇA</th> 
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in tabela_unificada %} 
-            <tr>
-                <td>
-                    {% if row.tipo_atual != '---' %} 
-                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_atual }}) 
-                    {% else %}<span class="muted">---</span>{% endif %} 
-                </td>
-                <td>
-                    {% if row.tipo_anterior != '---' %} 
-                        <code>{{ row.codigo_rfid }}</code> ({{ row.tipo_anterior }}) 
-                    {% else %}<span class="muted">---</span>{% endif %} 
-                </td>
-                <td style="font-weight: 500;">
-                    {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span> 
-                    {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span> 
-                    {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %} 
-                </td>
-            </tr>
-            {% else %} 
-            <tr><td colspan="3" class="muted">Nenhum item de inventário encontrado para comparar.</td></tr> 
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
 {% endif %} 
 
 {% if current_view == 'current' %}
 <div class="list-container-full-width">
     <div class="list-header">
         <h3>Inventário Atual ({{ count_atual }})</h3>
-        <div class="muted">
-            {% if not snapshot_atual %} 
-                Nenhum inventário foi salvo ainda para este datacenter. 
-            {% endif %} 
-        </div>
+        {% if snapshot_atual %}<div class="muted">Realizado em {{ snapshot_atual.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") }}</div>{% endif %}
     </div>
     <table class="data-table">
         <thead>
             <tr>
-                <th>CÓDIGO RFID</th> 
-                <th>TIPO DE PRODUTO</th> 
+                <th>CÓDIGO RFID</th>
+                <th>EQUIPAMENTO ASSOCIADO</th>
                 <th>DATA DE CRIAÇÃO</th> 
             </tr>
         </thead>
@@ -144,8 +71,7 @@
             {% for row in inventario_atual %}
             <tr>
                 <td><code>{{ row.codigo_rfid }}</code></td> 
-                <td>{{ row.tipo }}</td> 
-                <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td> 
+                <td>{{ row.tipo }}</td> <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td> 
             </tr>
             {% else %}
             <tr><td colspan="3" class="muted">Nenhum item no inventário atual.</td></tr>
@@ -155,255 +81,11 @@
 </div>
 {% endif %}
 
-<div id="datacenter-modal" class="modal">
-    <div class="modal-content" style="max-width: 400px;">
-        <div class="modal-header">
-            <h3>Novo Datacenter</h3>
-            <span class="close-btn" id="modal-close-btn">&times;</span>
-        </div>
-        <div class="modal-body">
-            <form id="new-datacenter-form">
-                <div class="form-group">
-                    <label for="new_dc_name">Nome do Datacenter</label>
-                    <input type="text" id="new_dc_name" required autocomplete="off" placeholder="Ex: Datacenter Campinas">
-                </div>
-                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-                    <button type="button" id="modal-cancel-btn" class="btn-secondary">Cancelar</button>
-                    <button type="submit" class="btn-primary">Salvar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<div id="manage-modal" class="modal">
-    <div class="modal-content" style="max-width: 600px;">
-        <div class="modal-header">
-            <h3>Gerenciar Datacenters</h3>
-            <span class="close-btn" id="manage-modal-close-btn">&times;</span>
-        </div>
-        <div class="modal-body">
-            <ul id="datacenter-manage-list" class="manage-list">
-                </ul>
-        </div>
-    </div>
-</div>
 {% endblock %}
+
 
 {% block scripts %}
 {{ super() }}
-<style>
-/* Estilos que já tínhamos */
-.top-controls-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.view-toggle { display: inline-flex; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; margin: 0; }
-.btn-toggle { padding: 8px 16px; text-decoration: none; color: #495057; background-color: #fff; border-right: 1px solid #dee2e6; font-size: 0.9rem; transition: background-color 0.2s ease; }
-.btn-toggle:last-child { border-right: none; }
-.btn-toggle.active { background-color: #0466C8; color: #fff; font-weight: 500; }
-.btn-toggle:not(.active):hover { background-color: #f8f9fa; }
-.pending-items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px 16px; padding-left: 0; list-style-type: none; }
-
-/* Estilos para o novo modal de gerenciamento */
-.manage-list { list-style: none; padding: 0; margin: 0; }
-.manage-list li { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #eee; }
-.manage-list li:last-child { border-bottom: none; }
-.manage-list .dc-name { font-weight: 500; }
-.manage-list .actions { display: flex; gap: 8px; }
-</style>
-
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    // --- LÓGICA 1: GERENCIAR LISTA DE ITENS PENDENTES ---
-    const inventoryForm = document.getElementById('inventory-form'); 
-    const rfidInput = document.getElementById('codigo_rfid'); 
-    const tipoSelect = document.getElementById('product_type_id'); 
-    const addBtn = document.getElementById('add-inventory-btn'); 
-    const pendentesDiv = document.getElementById('pendentes'); 
-    const hiddenInputsDiv = document.getElementById('hidden-inputs'); 
-    const clearBtn = document.getElementById('clear-inventory-btn'); 
-    let buffer = [];
-
-    if (inventoryForm) {
-        inventoryForm.addEventListener('submit', function(event) {
-            if (buffer.length === 0) {
-            event.preventDefault(); 
-            alert("Por favor, adicione pelo menos um item ao inventário antes de salvar."); 
-            }
-        }); 
-    
-        function renderPendingItems(){
-            if(buffer.length === 0){
-                pendentesDiv.innerHTML = '<div class="muted">Nenhum item adicionado para salvar.</div>'; 
-                hiddenInputsDiv.innerHTML = ''; 
-                return;
-            }
-            pendentesDiv.innerHTML = '<ul class="pending-items-grid">' + buffer.map((item, index) => (
-            `<li style="display:flex; align-items:center; gap:6px; margin-bottom: 4px;">
-                <code>${item.codigo}</code> — ${item.tipoNome}
-                <button type="button" class="icon-btn" title="Remover" onclick="removePendingItem(${index})"
-                        style="display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; padding:0; margin:0; border-radius: 50%;">
-                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/close.svg') }}); width:14px; height:14px;"></span> 
-                </button>
-            </li>`
-            )).join('') + '</ul>';
-            hiddenInputsDiv.innerHTML = buffer.map(item =>
-            `<input type="hidden" name="codigos" value="${item.codigo}"/>
-            <input type="hidden" name="tipos" value="${item.tipoId}"/>`
-            ).join(''); 
-        }
-        window.removePendingItem = (index) => {
-            buffer.splice(index, 1); 
-            renderPendingItems(); 
-        }
-        addBtn?.addEventListener('click', () => {
-            const codigo = (rfidInput.value || '').trim().toUpperCase();
-            if(!codigo){ rfidInput.focus(); return; }
-            if (buffer.some(item => item.codigo === codigo)) {
-                rfidInput.value = '';
-                rfidInput.focus();
-                return;
-            }
-            const tipoId = tipoSelect.value;
-            const tipoNome = tipoSelect.options[tipoSelect.selectedIndex].text; 
-            buffer.push({codigo: codigo, tipoId: tipoId, tipoNome: tipoNome});
-            rfidInput.value = ''; rfidInput.focus(); renderPendingItems();
-        });
-        rfidInput?.addEventListener('keydown', e => {
-            if(e.key === 'Enter'){ e.preventDefault(); addBtn.click(); } 
-        });
-        clearBtn?.addEventListener('click', () => { buffer = []; renderPendingItems(); }); 
-        renderPendingItems();
-    }
-
-    /// --- Parte 2: Modal de Criação de Datacenter ---
-    const createModal = document.getElementById('datacenter-modal');
-    const addDcBtn = document.getElementById('add-datacenter-btn');
-    const createCloseBtn = document.getElementById('modal-close-btn');
-    const createCancelBtn = document.getElementById('modal-cancel-btn');
-    const newDcForm = document.getElementById('new-datacenter-form');
-    const newDcNameInput = document.getElementById('new_dc_name');
-    const mainDatacenterForm = document.getElementById('datacenter-form');
-    const mainDatacenterSelect = document.getElementById('datacenter-select');
-
-    if (createModal) {
-        const openCreateModal = () => { createModal.style.display = 'block'; newDcNameInput.focus(); };
-        const closeCreateModal = () => { createModal.style.display = 'none'; newDcNameInput.value = ''; };
-
-        addDcBtn.addEventListener('click', openCreateModal);
-        createCloseBtn.addEventListener('click', closeCreateModal);
-        createCancelBtn.addEventListener('click', closeCreateModal);
-        window.addEventListener('click', (event) => { if (event.target == createModal) closeCreateModal(); });
-
-        newDcForm.addEventListener('submit', function (event) {
-            event.preventDefault();
-            const newName = newDcNameInput.value.trim();
-            if (!newName) return;
-            fetch("{{ url_for('create_datacenter_api') }}", {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ nome: newName })
-            })
-            .then(response => {
-                if (!response.ok) { return response.json().then(err => { throw new Error(err.detail); }); }
-                return response.json();
-            })
-            .then(newDc => {
-                const newOption = document.createElement('option');
-                newOption.value = newDc.id;
-                newOption.textContent = newDc.nome;
-                newOption.selected = true;
-                mainDatacenterSelect.appendChild(newOption);
-                closeCreateModal();
-                mainDatacenterForm.submit();
-            })
-            .catch(error => { alert('Erro: ' + error.message); });
-        });
-    }
-
-    // --- Parte 3: Modal de Gerenciamento (CRUD) de Datacenters ---
-    const manageModal = document.getElementById('manage-modal');
-    const manageBtn = document.getElementById('manage-datacenters-btn');
-    const manageCloseBtn = document.getElementById('manage-modal-close-btn');
-    const manageList = document.getElementById('datacenter-manage-list');
-
-    if (manageModal) {
-        const openManageModal = () => { manageModal.style.display = 'block'; loadDatacentersIntoModal(); };
-        const closeManageModal = () => { manageModal.style.display = 'none'; };
-
-        manageBtn.addEventListener('click', openManageModal);
-        manageCloseBtn.addEventListener('click', closeManageModal);
-        window.addEventListener('click', (event) => { if (event.target == manageModal) closeManageModal(); });
-
-        async function loadDatacentersIntoModal() {
-            manageList.innerHTML = '<li>Carregando...</li>';
-            try {
-                const response = await fetch("{{ url_for('list_datacenters_api') }}");
-                const datacenters = await response.json();
-                manageList.innerHTML = '';
-                datacenters.forEach(dc => {
-                    const li = document.createElement('li');
-                    li.innerHTML = `
-                        <span class="dc-name">${dc.nome}</span>
-                        <div class="actions">
-                            <button class="btn-secondary btn-sm edit-dc-btn" data-id="${dc.id}" data-name="${dc.nome}">Editar</button>
-                            <button class="btn-danger btn-sm delete-dc-btn" data-id="${dc.id}" data-name="${dc.nome}" data-snapshots-count="${dc.snapshots_count}">Excluir</button>
-                        </div>
-                    `;
-                    manageList.appendChild(li);
-                });
-            } catch (error) { manageList.innerHTML = '<li>Erro ao carregar datacenters.</li>'; }
-        }
-
-        manageList.addEventListener('click', async function(event) {
-            const target = event.target;
-            const id = target.dataset.id;
-            const name = target.dataset.name;
-
-            // --- INÍCIO DO CÓDIGO DE EDIÇÃO CORRIGIDO ---
-            if (target.classList.contains('edit-dc-btn')) {
-                const newName = prompt(`Editar nome do datacenter:`, name);
-                if (newName && newName.trim() !== '' && newName !== name) {
-                    try {
-                        const response = await fetch(`/api/datacenters/${id}`, {
-                            method: 'PUT',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ nome: newName.trim() })
-                        });
-                        if (!response.ok) {
-                            throw new Error((await response.json()).detail || 'Não foi possível salvar.');
-                        }
-                        // Força o reload da página inteira para garantir que o dropdown e a lista sejam atualizados
-                        window.location.reload(); 
-                    } catch (error) {
-                        alert(`Erro ao editar: ${error.message}`);
-                    }
-                }
-            }
-            // --- FIM DO CÓDIGO DE EDIÇÃO CORRIGIDO ---
-
-            if (target.classList.contains('delete-dc-btn')) {
-                const snapshotsCount = parseInt(target.dataset.snapshotsCount, 10);
-                let confirmationMessage = `Tem certeza que deseja excluir o datacenter "${name}"?`;
-                if (snapshotsCount > 0) {
-                    const plural = snapshotsCount === 1 ? "inventário associado" : "inventários associados";
-                    confirmationMessage += `\n\nATENÇÃO: Este datacenter possui ${snapshotsCount} ${plural} que também serão APAGADOS PERMANENTEMENTE.`;
-                }
-                if (confirm(confirmationMessage)) {
-                    try {
-                        const response = await fetch(`/api/datacenters/${id}`, { method: 'DELETE' });
-                        if (!response.ok) throw new Error((await response.json()).detail);
-                        if (mainDatacenterSelect.value == id) {
-                            window.location.href = "{{ url_for('list_inventario') }}";
-                        } else {
-                            window.location.reload();
-                        }
-                    } catch (error) { alert(`Erro ao excluir: ${error.message}`); }
-                }
-            }
-        });
-    }
-});
-</script>
-
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const startBtn = document.getElementById('start-scan-btn');
@@ -412,10 +94,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
-    
-    // NOVO: Pegamos o elemento do contador que criamos no HTML
     const countSpan = document.getElementById('scanned-tags-count');
-    // NOVO: Criamos uma variável para guardar a contagem
     let scannedTagsCount = 0;
 
     function resetScanUI() {
@@ -428,34 +107,26 @@ document.addEventListener('DOMContentLoaded', function () {
         cancelBtn.disabled = true;
     }
 
-
     if (startBtn) { 
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
         
         rfidSocket.onopen = () => { resetScanUI(); };
         rfidSocket.onclose = () => { 
-            statusDiv.textContent = "Status: Desconectado. Recarregue a página."; 
+            statusDiv.textContent = "Status: Desconectado. Recarregue a página.";
             startBtn.disabled = true; 
             stopBtn.disabled = true; 
             cancelBtn.disabled = true;
         };
-        
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            
-            // NOVO: Bloco para tratar o erro de hardware de forma especial
             if (data.type === 'hardware_error') {
                 statusDiv.textContent = data.message;
-                statusDiv.style.color = '#dc3545'; // Deixa o texto vermelho
+                statusDiv.style.color = '#dc3545';
                 statusDiv.style.fontWeight = 'bold';
-                // Desabilita todos os botões permanentemente até a página ser recarregada
-                startBtn.disabled = true;
-                stopBtn.disabled = true;
-                cancelBtn.disabled = true;
-                return; // Interrompe o processamento para não executar outras lógicas
+                startBtn.disabled = true; stopBtn.disabled = true; cancelBtn.disabled = true;
+                return;
             }
-            
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
                 if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelada")) {
@@ -464,14 +135,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             }
             if (data.type === 'tag_scanned') {
-                if (tagsListDiv.querySelector('.muted')) {
-                    tagsListDiv.innerHTML = '';
-                }
+                if (tagsListDiv.querySelector('.muted')) { tagsListDiv.innerHTML = ''; }
                 const tagElement = document.createElement('code');
                 tagElement.textContent = data.tag_id;
                 tagsListDiv.appendChild(tagElement);
-
-                // NOVO: Incrementamos o contador e atualizamos o texto na tela
                 scannedTagsCount++;
                 countSpan.textContent = `(${scannedTagsCount})`;
             }
@@ -479,39 +146,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
         startBtn.addEventListener('click', () => {
             const datacenterId = dcSelect.value;
-            if (!datacenterId) {
-                alert("Por favor, selecione um datacenter primeiro.");
-                return;
-            }
+            if (!datacenterId) { alert("Por favor, selecione um datacenter primeiro."); return; }
             if (rfidSocket.readyState === WebSocket.OPEN) {
-                // NOVO: Zeramos o contador ao iniciar uma nova leitura
                 scannedTagsCount = 0;
                 countSpan.textContent = `(0)`;
-                
-                rfidSocket.send(JSON.stringify({
-                    action: "start_scan",
-                    datacenter_id: parseInt(datacenterId)
-                }));
+                rfidSocket.send(JSON.stringify({ action: "start_scan", datacenter_id: parseInt(datacenterId) }));
                 statusDiv.textContent = "Status: Iniciando...";
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
                 cancelBtn.disabled = false; 
                 tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
-            } else {
-                alert("Erro: Conexão com o servidor de scan não está aberta.");
-            }
+            } else { alert("Erro: Conexão com o servidor de scan não está aberta."); }
         });
 
         stopBtn.addEventListener('click', () => {
-            const datacenterId = dcSelect.value;
             if (rfidSocket.readyState === WebSocket.OPEN) {
-                rfidSocket.send(JSON.stringify({
-                    action: "stop_scan",
-                    datacenter_id: parseInt(datacenterId)
-                }));
+                rfidSocket.send(JSON.stringify({ action: "stop_scan", datacenter_id: parseInt(dcSelect.value) }));
             }
         });
-
         cancelBtn.addEventListener('click', () => {
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 rfidSocket.send(JSON.stringify({ action: "cancel_scan" }));

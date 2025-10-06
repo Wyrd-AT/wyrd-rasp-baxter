@@ -1,0 +1,426 @@
+{% extends "base.html" %}
+
+{% block title %}Cadastro e Gestão de Ativos{% endblock %}
+
+{% block content %}
+<style>
+    /* === NOVOS ESTILOS PARA O GERENCIAMENTO DE ENTIDADES === */
+    .management-container {
+        display: grid;
+        grid-template-columns: 200px 1fr; /* Coluna de navegação à esquerda, conteúdo à direita */
+        gap: 1.5rem;
+        align-items: start;
+        margin-top: 1rem;
+    }
+    .management-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .nav-button {
+        width: 100%;
+        padding: 10px 15px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        text-align: left;
+        border: 1px solid #dee2e6;
+        background-color: #f8f9fa;
+        color: #495057;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease-in-out;
+    }
+    .nav-button:hover {
+        background-color: #e9ecef;
+        border-color: #adb5bd;
+    }
+    .nav-button.active {
+        background-color: #0466C8;
+        color: #fff;
+        border-color: #0466C8;
+    }
+    .tab-pane {
+        display: none; /* Esconde todas as abas por padrão */
+    }
+    .tab-pane.active {
+        display: block; /* Mostra apenas a aba ativa */
+    }
+    .actions-cell { width: 120px; text-align: right; }
+
+    /* === ADICIONE ESTA REGRA PARA CRIAR O ESPAÇAMENTO === */
+    .form-card hr {
+        margin-top: 2rem;      /* Espaço acima da linha */
+        margin-bottom: 1.5rem;   /* Espaço abaixo da linha */
+        border: none;
+        border-top: 1px solid #dee2e6; /* Deixa a linha mais sutil */
+    }
+</style>
+
+<div class="content-header">
+    <h1>Cadastro e Gestão de Ativos</h1>
+</div>
+
+<div class="form-card">
+    <form id="new-equipamento-form">
+        <h3>Cadastrar Novo Equipamento</h3>
+        <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Detalhes do Equipamento</h4>
+        <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="form-group"><label for="equip_nome_equip">Nome (Hostname)</label><input type="text" id="equip_nome_equip" required placeholder="Ex: SP-RACK01-SRV01"></div>
+            <div class="form-group"><label for="equip_fabricante_id">Fabricante</label><select id="equip_fabricante_id" required><option value="">Carregando...</option></select></div>
+            <div class="form-group"><label for="equip_modelo_equip">Modelo</label><input type="text" id="equip_modelo_equip" placeholder="Ex: PowerEdge R740"></div>
+        </div>
+        <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Localização</h4>
+        <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
+            <div class="form-group"><label for="equip_localizacao_id">Localização</label><select id="equip_localizacao_id" required><option value="">Carregando...</option></select></div>
+            <div class="form-group"><label for="equip_bastidor_id">Bastidor (Rack)</label><select id="equip_bastidor_id" required><option value="">Selecione a localização</option></select></div>
+        </div>
+        <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Etiqueta RFID</h4>
+        <div class="form-fields-grid" style="grid-template-columns: 1fr;">
+            <div class="form-group"><label for="equip_codigo_rfid">Código RFID</label><input type="text" id="equip_codigo_rfid" required placeholder="Leia ou digite o código"></div>
+        </div>
+        <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn-primary">Salvar Novo Equipamento</button>
+        </div>
+    </form>
+</div>
+
+<hr style="margin: 2rem 0; border-top: 2px solid #eee;">
+
+<div class="content-header">
+    <h2>Gerenciamento de Entidades</h2>
+</div>
+
+<div class="management-container">
+    <div class="management-nav">
+        <button class="nav-button active" data-bs-target="#localizacoes-pane">Localizações</button>
+        <button class="nav-button" data-bs-target="#fabricantes-pane">Fabricantes</button>
+        <button class="nav-button" data-bs-target="#bastidores-pane">Bastidores (Racks)</button>
+        <button class="nav-button" data-bs-target="#placas-pane">Tipos de Placa</button>
+    </div>
+
+    <div class="management-content">
+        <div class="tab-pane active" id="localizacoes-pane">
+            <div class="form-card">
+                <form id="form-localizacao">
+                    <h3>Adicionar Nova Localização</h3>
+                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <div class="form-group"><label for="loc-nome">Nome</label><input type="text" id="loc-nome" name="nome" required></div>
+                        <div class="form-group"><label for="loc-municipio">Município</label><input type="text" id="loc-municipio" name="municipio"></div>
+                        <div class="form-group"><label for="loc-uf">UF</label><input type="text" id="loc-uf" name="uf_abrv" maxlength="2"></div>
+                        <div class="form-group"><label for="loc-edf">EDF</label><input type="text" id="loc-edf" name="edf"></div>
+                        <div class="form-group"><label for="loc-piso">Piso</label><input type="text" id="loc-piso" name="piso"></div>
+                        <div class="form-group"><label for="loc-sala">Sala</label><input type="text" id="loc-sala" name="sala"></div>
+                    </div>
+                    <div class="form-group"><label for="loc-endereco">Endereço Completo</label><input type="text" id="loc-endereco" name="endereco_completo"></div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end;"><button type="submit" class="btn-primary">Adicionar</button></div>
+                </form>
+                <hr>
+                <h3>Localizações Cadastradas</h3>
+                <table class="data-table">
+                    <thead><tr><th>Nome</th><th>Município</th><th>UF</th><th class="actions-cell">Ações</th></tr></thead>
+                    <tbody id="table-body-localizacao"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="tab-pane" id="fabricantes-pane">
+            <div class="form-card">
+                <form id="form-fabricante" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: flex-end;">
+                    <div class="form-group" style="margin:0;"><label>Nome do Novo Fabricante</label><input type="text" class="form-control" name="nome" required></div>
+                    <button type="submit" class="btn-primary">Adicionar</button>
+                </form>
+                <hr>
+                <h3>Fabricantes Cadastrados</h3>
+                <table class="data-table"><thead><tr><th>Nome do Fabricante</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-fabricante"></tbody></table>
+            </div>
+        </div>
+        
+        <div class="tab-pane" id="bastidores-pane">
+            <div class="form-card">
+                 <form id="form-bastidor" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: flex-end;">
+                    <div class="form-group" style="margin:0;"><label>Código do Bastidor</label><input type="text" class="form-control" name="codigo_bast" required></div>
+                    <div class="form-group" style="margin:0;"><label>Localização</label><select class="form-control" name="localizacao_id" required></select></div>
+                    <button type="submit" class="btn-primary">Adicionar</button>
+                </form>
+                <hr>
+                <h3>Bastidores Cadastrados</h3>
+                <table class="data-table"><thead><tr><th>Código</th><th>Localização</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-bastidor"></tbody></table>
+            </div>
+        </div>
+
+        <div class="tab-pane" id="placas-pane">
+            <div class="form-card">
+                <form id="form-placa" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: flex-end;">
+                    <div class="form-group" style="margin:0;"><label>Nome do Novo Tipo de Placa</label><input type="text" class="form-control" name="nome" required></div>
+                    <button type="submit" class="btn-primary">Adicionar</button>
+                </form>
+                <hr>
+                <h3>Tipos de Placa Cadastrados</h3>
+                <table class="data-table"><thead><tr><th>Nome</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-placa"></tbody></table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    // ==========================================================
+    // PARTE 1: LÓGICA DO FORMULÁRIO PRINCIPAL DE CADASTRO
+    // ==========================================================
+    const newEquipForm = document.getElementById('new-equipamento-form');
+    if (newEquipForm) {
+        const fabricanteSelect = document.getElementById('equip_fabricante_id');
+        const localizacaoSelect = document.getElementById('equip_localizacao_id');
+        const bastidorSelect = document.getElementById('equip_bastidor_id');
+        
+        async function populateSelect(url, selectElement, valueField, textField, prompt) {
+            selectElement.innerHTML = `<option value="">Carregando...</option>`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                selectElement.innerHTML = `<option value="">${prompt}</option>`;
+                data.forEach(item => {
+                    selectElement.innerHTML += `<option value="${item[valueField]}">${item[textField]}</option>`;
+                });
+            } catch (error) { selectElement.innerHTML = `<option value="">Erro ao carregar</option>`; }
+        }
+
+        populateSelect('/api/fabricantes', fabricanteSelect, 'id', 'nome', 'Selecione um fabricante');
+        populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma localização');
+
+        localizacaoSelect.addEventListener('change', () => {
+            bastidorSelect.innerHTML = '<option value="">Carregando...</option>';
+            populateSelect('/api/bastidores', bastidorSelect, 'id', 'codigo_bast', 'Selecione um bastidor');
+        });
+
+        newEquipForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = {
+                nome_equip: document.getElementById('equip_nome_equip').value,
+                modelo_equip: document.getElementById('equip_modelo_equip').value,
+                fabricante_id: parseInt(fabricanteSelect.value),
+                bastidor_id: parseInt(bastidorSelect.value),
+                codigo_rfid: document.getElementById('equip_codigo_rfid').value,
+            };
+
+            try {
+                const response = await fetch('/api/equipamentos/full', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+                if (response.status !== 201) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Ocorreu um erro.');
+                }
+                alert('Equipamento cadastrado com sucesso!');
+                newEquipForm.reset();
+                bastidorSelect.innerHTML = '<option value="">Selecione a localização</option>';
+            } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
+        });
+    }
+
+    // ==========================================================
+    // PARTE 2: LÓGICA DAS ABAS DE GERENCIAMENTO
+    // ==========================================================
+    const navButtons = document.querySelectorAll('.management-nav .nav-button');
+    const tabPanes = document.querySelectorAll('.management-content .tab-pane');
+
+    navButtons.forEach(button => {
+        button.addEventListener('click', (event) => {
+            navButtons.forEach(btn => btn.classList.remove('active'));
+            tabPanes.forEach(pane => pane.classList.remove('active')); // Apenas 'active', sem 'show'
+            
+            event.currentTarget.classList.add('active');
+            const targetPaneId = event.currentTarget.getAttribute('data-bs-target');
+            document.querySelector(targetPaneId).classList.add('active');
+        });
+    });
+
+    // Função genérica para CRUDs simples (Fabricante, Tipo de Placa)
+    async function createSimpleCrudManager(config) {
+        const { entityName, apiUrl, tableBodyId, formId, renderRow } = config;
+        const tableBody = document.getElementById(tableBodyId);
+        const form = document.getElementById(formId);
+        const loadItems = async () => {
+            tableBody.innerHTML = `<tr><td colspan="10">Carregando...</td></tr>`;
+            try {
+                const response = await fetch(apiUrl);
+                const items = await response.json();
+                tableBody.innerHTML = '';
+                if (items.length === 0) { tableBody.innerHTML = `<tr><td colspan="10">Nenhum item.</td></tr>`; }
+                else { items.forEach(item => tableBody.appendChild(renderRow(item))); }
+            } catch (error) { tableBody.innerHTML = `<tr><td colspan="10">Erro ao carregar.</td></tr>`; }
+        };
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form).entries());
+            try {
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                form.reset();
+                await loadItems();
+            } catch (error) { alert(`Erro ao salvar ${entityName}: ${error.message}`); }
+        });
+        tableBody.addEventListener('click', async (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+            if (target.classList.contains('btn-delete')) {
+                if (confirm(`Excluir este ${entityName}?`)) {
+                    try {
+                        const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
+                        if (!response.ok) throw new Error((await response.json()).detail);
+                        await loadItems();
+                    } catch (error) { alert(`Erro: ${error.message}`); }
+                }
+            }
+            if (target.classList.contains('btn-edit')) {
+                const newName = prompt(`Novo nome:`, target.dataset.name);
+                if (newName && newName.trim()) {
+                     try {
+                        const response = await fetch(`${apiUrl}/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome: newName.trim() }) });
+                        if (!response.ok) throw new Error((await response.json()).detail);
+                        await loadItems();
+                    } catch (error) { alert(`Erro: ${error.message}`); }
+                }
+            }
+        });
+        await loadItems();
+    }
+    
+    // Função dedicada para gerenciar Localizações (formulário complexo)
+    async function manageLocalizacoes() {
+        const tableBody = document.getElementById('table-body-localizacao');
+        const form = document.getElementById('form-localizacao');
+        const apiUrl = '/api/localizacoes';
+
+        const loadItems = async () => {
+            tableBody.innerHTML = `<tr><td colspan="4">Carregando...</td></tr>`;
+            try {
+                const response = await fetch(apiUrl);
+                const items = await response.json();
+                tableBody.innerHTML = '';
+                if (items.length === 0) { tableBody.innerHTML = `<tr><td colspan="4">Nenhuma localização cadastrada.</td></tr>`; }
+                else {
+                    items.forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${item.nome}</td>
+                            <td>${item.municipio || '---'}</td>
+                            <td>${item.uf_abrv || '---'}</td>
+                            <td class="actions-cell">
+                                <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
+                            </td>
+                        `;
+                        tableBody.appendChild(tr);
+                    });
+                }
+            } catch (error) { tableBody.innerHTML = `<tr><td colspan="4">Erro ao carregar.</td></tr>`; }
+        };
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form).entries());
+            try {
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                form.reset();
+                await loadItems();
+                // Recarrega os dropdowns em toda a página que usam localizações
+                populateSelect('/api/localizacoes', document.getElementById('equip_localizacao_id'), 'id', 'nome', 'Selecione');
+                populateSelect('/api/localizacoes', document.querySelector('#form-bastidor select'), 'id', 'nome', 'Selecione');
+            } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
+        });
+        
+        tableBody.addEventListener('click', async (e) => {
+            const target = e.target.closest('button.btn-delete');
+            if (target) {
+                if (confirm('Excluir esta localização?')) {
+                    const id = target.dataset.id;
+                    try {
+                        const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
+                        if (!response.ok) throw new Error((await response.json()).detail);
+                        await loadItems();
+                    } catch (error) { alert(`Erro: ${error.message}`); }
+                }
+            }
+        });
+        await loadItems();
+    }
+
+    // Função para gerenciar Bastidores
+    async function manageBastidores() {
+        const tableBody = document.getElementById('table-body-bastidor');
+        const form = document.getElementById('form-bastidor');
+        const localizacaoSelect = form.querySelector('select[name="localizacao_id"]');
+        let localizacoes = [];
+        try {
+            const response = await fetch('/api/localizacoes');
+            localizacoes = await response.json();
+            localizacaoSelect.innerHTML = '<option value="">Selecione...</option>';
+            localizacoes.forEach(loc => { localizacaoSelect.innerHTML += `<option value="${loc.id}">${loc.nome}</option>`; });
+        } catch (e) { localizacaoSelect.innerHTML = '<option value="">Erro</option>'; }
+
+        const loadBastidores = async () => {
+            tableBody.innerHTML = `<tr><td colspan="3">Carregando...</td></tr>`;
+            const response = await fetch('/api/bastidores');
+            const items = await response.json();
+            tableBody.innerHTML = '';
+            items.forEach(item => {
+                const loc = localizacoes.find(l => l.id === item.localizacao_id);
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${item.codigo_bast}</td><td>${loc ? loc.nome : 'N/A'}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
+                tableBody.appendChild(tr);
+            });
+        };
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                codigo_bast: form.querySelector('input[name="codigo_bast"]').value,
+                localizacao_id: parseInt(localizacaoSelect.value)
+            };
+            const response = await fetch('/api/bastidores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+            if (response.ok) { form.reset(); await loadBastidores(); } 
+            else { alert(`Erro: ${(await response.json()).detail}`); }
+        });
+        tableBody.addEventListener('click', async (e) => {
+             if (e.target.closest('button.btn-delete')) {
+                if (confirm('Excluir este bastidor?')) {
+                    const id = e.target.closest('button.btn-delete').dataset.id;
+                    const response = await fetch(`/api/bastidores/${id}`, { method: 'DELETE' });
+                    if(response.ok) { await loadBastidores(); }
+                    else { alert(`Erro: ${(await response.json()).detail}`); }
+                }
+            }
+        });
+        await loadBastidores();
+    }
+    
+    // --- INICIALIZAÇÃO DE TODOS OS GERENCIADORES ---
+    manageLocalizacoes();
+    createSimpleCrudManager({
+        entityName: 'fabricante', apiUrl: '/api/fabricantes', tableBodyId: 'table-body-fabricante', formId: 'form-fabricante',
+        renderRow: (item) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item.nome}</td><td class="actions-cell"><button class="btn-secondary btn-sm btn-edit" data-id="${item.id}" data-name="${item.nome}">Editar</button> <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
+            return tr;
+        }
+    });
+    createSimpleCrudManager({
+        entityName: 'tipo de placa', apiUrl: '/api/tipos-placa', tableBodyId: 'table-body-placa', formId: 'form-placa',
+        renderRow: (item) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item.nome}</td><td class="actions-cell"></td>`;
+            return tr;
+        }
+    });
+    manageBastidores();
+});
+</script>
+{% endblock %}
