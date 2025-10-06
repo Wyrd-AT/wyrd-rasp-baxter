@@ -50,8 +50,57 @@
 
 {% if current_view == 'comparison' %}
 <div class="list-container-full-width">
+    <div class="list-header">
+        <h3>Relatório de Reconciliação</h3>
+        <div class="muted">
+            {% if snapshot_atual %}
+                Comparando o Catálogo Mestre com o último scan de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m/%Y %H:%M") }}</strong>.
+            {% else %}
+                Nenhum scan foi realizado neste datacenter para comparação.
+            {% endif %}
+        </div>
     </div>
-{% endif %} 
+
+    <h4 style="margin-top: 2rem; color: #dc3545;">✖ Itens Faltando ({{ itens_faltando|length }})</h4>
+    <p class="muted" style="margin-top: -0.5rem;">Estes itens estão no catálogo para este local, mas não foram encontrados no último scan.</p>
+    <table class="data-table">
+        <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
+        <tbody>
+            {% for item in itens_faltando %}
+            <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
+            {% else %}
+            <tr><td colspan="2" class="muted">Nenhum item faltando.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h4 style="margin-top: 2rem; color: #0d6efd;">? Itens Novos / Não Catalogados ({{ itens_novos|length }})</h4>
+    <p class="muted" style="margin-top: -0.5rem;">Estes itens foram encontrados no scan, mas não constam no catálogo mestre para este local.</p>
+    <table class="data-table">
+        <thead><tr><th>NOME (SE ASSOCIADO)</th><th>CÓDIGO RFID</th></tr></thead>
+        <tbody>
+            {% for item in itens_novos %}
+            <tr><td>{{ item.nome_equip }}</td><td><code>{{ item.codigo_rfid }}</code></td></tr>
+            {% else %}
+            <tr><td colspan="2" class="muted">Nenhum item novo ou não catalogado encontrado.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h4 style="margin-top: 2rem; color: #198754;">✔ Itens Encontrados ({{ itens_encontrados|length }})</h4>
+    <p class="muted" style="margin-top: -0.5rem;">Estes itens constam no catálogo e foram corretamente identificados no último scan.</p>
+    <table class="data-table">
+        <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
+        <tbody>
+            {% for item in itens_encontrados %}
+            <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
+            {% else %}
+            <tr><td colspan="2" class="muted">Nenhum item esperado foi encontrado.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
 
 {% if current_view == 'current' %}
 <div class="list-container-full-width">

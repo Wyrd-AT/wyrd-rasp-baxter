@@ -45,7 +45,7 @@ from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
     ReceivedEvent, GlobalSetting, Andar, 
     Product, InventorySnapshot, InventoryItem, 
-    DataCenter, Fabricante, Bastidor, Equipamento, Shelf, Porta, TipoPlaca,
+    DataCenter, Fabricante, Bastidor, Equipamento, EquipamentoTipo,
     init_db
 )
 from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
@@ -79,17 +79,6 @@ class FabricanteCreate(FabricanteBase):
     pass
 
 class FabricanteSchema(FabricanteBase):
-    id: int
-    class Config:
-        from_attributes = True
-
-class TipoPlacaBase(BaseModel):
-    nome: str
-
-class TipoPlacaCreate(TipoPlacaBase):
-    pass
-
-class TipoPlacaSchema(TipoPlacaBase):
     id: int
     class Config:
         from_attributes = True
@@ -130,15 +119,27 @@ class BastidorSchema(BastidorBase):
     class Config:
         from_attributes = True
 
-# --- SCHEMAS PARA EQUIPAMENTO (O CADASTRO PRINCIPAL) ---
-
-class EquipamentoFullCreate(BaseModel):
-    nome_equip: str
+# --- NOVO: Schemas para "Modelo de Equipamento" (EquipamentoTipo) ---
+class EquipamentoTipoBase(BaseModel):
+    nome: str
+    modelo: Optional[str] = None
+    tecnologia_equip: Optional[str] = None
+    tipo_equip: Optional[str] = None
+    estado_cv_equip: Optional[str] = None
+    estado_op_equip: Optional[str] = None
     fabricante_id: int
+
+class EquipamentoTipoCreate(EquipamentoTipoBase): pass
+class EquipamentoTipoSchema(EquipamentoTipoBase):
+    id: int
+    class Config: from_attributes = True
+
+# --- ATUALIZADO: Schema para criar uma "Instância de Equipamento" ---
+class EquipamentoInstanciaCreate(BaseModel):
+    nome_equip: str # Hostname
+    equipamento_tipo_id: int
     bastidor_id: int
     codigo_rfid: str
-    modelo_equip: Optional[str] = None
-    # Adicione outros campos de Equipamento aqui se necessário
 
 class AdminAuth(AuthenticationBackend):
     async def login(self, request: StarletteRequest) -> bool:
@@ -270,12 +271,18 @@ class BastidorAdmin(ModelView, model=Bastidor):
     icon = "fa-solid fa-server"
     column_list = [Bastidor.id, Bastidor.codigo_bast, Bastidor.localizacao]
 
+# --- NOVO: View para gerenciar os Modelos de Equipamento ---
+class EquipamentoTipoAdmin(ModelView, model=EquipamentoTipo):
+    column_list = [EquipamentoTipo.id, EquipamentoTipo.nome, EquipamentoTipo.fabricante, EquipamentoTipo.modelo]
+    name = "Modelo de Equipamento"
+    name_plural = "Modelos de Equipamento"
+    icon = "fa-solid fa-box-archive"
+
 class EquipamentoAdmin(ModelView, model=Equipamento):
-    name = "Equipamento"
-    name_plural = "Equipamentos"
+    name = "Instância de Equipamento"
+    name_plural = "Instâncias de Equipamentos"
     icon = "fa-solid fa-hdd"
-    column_list = [Equipamento.id, Equipamento.nome_equip, Equipamento.fabricante, Equipamento.bastidor, Equipamento.product]
-    column_searchable_list = [Equipamento.nome_equip]
+    column_list = [Equipamento.id, Equipamento.nome_equip, Equipamento.equipamento_tipo, Equipamento.bastidor, Equipamento.product]
 
 class ProductAdmin(ModelView, model=Product):
     name = "Etiqueta RFID"
@@ -309,6 +316,7 @@ admin.add_view(DataCenterAdmin)
 admin.add_view(FabricanteAdmin)
 admin.add_view(BastidorAdmin)
 admin.add_view(EquipamentoAdmin)
+admin.add_view(EquipamentoTipoAdmin)
 admin.add_view(ProductAdmin)
 admin.add_view(InventorySnapshotAdmin)
 
@@ -1365,76 +1373,82 @@ def inventory_page(
 ):
     all_datacenters = db.query(DataCenter).order_by(DataCenter.id).all()
 
-    if datacenter_id is None:
-        if all_datacenters:
-            primeiro_dc_id = all_datacenters[0].id
-            params = dict(request.query_params)
-            params['datacenter_id'] = primeiro_dc_id
-            redirect_url = request.url.replace(query=urlencode(params))
-            return RedirectResponse(url=str(redirect_url))
+    if not datacenter_id and all_datacenters:
+        # Lógica de redirect (sem alterações)
+        primeiro_dc_id = all_datacenters[0].id
+        params = dict(request.query_params)
+        params['datacenter_id'] = primeiro_dc_id
+        redirect_url = request.url.replace(query=urlencode(params))
+        return RedirectResponse(url=str(redirect_url))
 
-    snapshot_query = db.query(InventorySnapshot)
-    if datacenter_id:
-        snapshot_query = snapshot_query.filter(InventorySnapshot.datacenter_id == datacenter_id)
-    
-    snapshots = snapshot_query.order_by(InventorySnapshot.created_on.desc()).limit(2).all()
-    
-    snapshot_atual = snapshots[0] if len(snapshots) > 0 else None
-    snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
+    # Busca o snapshot mais recente para o datacenter selecionado
+    snapshot_atual = db.query(InventorySnapshot)\
+        .filter(InventorySnapshot.datacenter_id == datacenter_id)\
+        .order_by(InventorySnapshot.created_on.desc()).first()
 
-    count_atual = len(snapshot_atual.items) if snapshot_atual else 0
-    count_anterior = len(snapshot_anterior.items) if snapshot_anterior else 0
-    
-    tabela_unificada = []
+    # Variáveis para passar ao template
+    itens_encontrados, itens_faltando, itens_novos = [], [], []
     inventario_atual_formatado = []
-
-    if view == "comparison" and snapshot_atual:
-        # Função interna atualizada para buscar o nome do Equipamento
-        def get_data_from_snapshot(snapshot_id):
-            items = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                      .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                      .outerjoin(Equipamento, Product.equipamento_id == Equipamento.id)\
-                      .filter(InventoryItem.snapshot_id == snapshot_id).all()
-            # Retorna o nome do equipamento ou "Não associado" se não houver
-            return {codigo: (nome_equip or "Não associado") for codigo, nome_equip in items}
-
-        map_codigo_para_tipo_atual = get_data_from_snapshot(snapshot_atual.id)
-        map_codigo_para_tipo_anterior = get_data_from_snapshot(snapshot_anterior.id) if snapshot_anterior else {}
-
-        codigos_atuais_set = set(map_codigo_para_tipo_atual.keys())
-        codigos_anteriores_set = set(map_codigo_para_tipo_anterior.keys())
-        todos_os_codigos = sorted(list(codigos_atuais_set | codigos_anteriores_set))
-        
-        for codigo in todos_os_codigos:
-            status = "Mantido"
-            if codigo in codigos_atuais_set and codigo not in codigos_anteriores_set: status = "Adicionado"
-            elif codigo not in codigos_atuais_set and codigo in codigos_anteriores_set: status = "Deletado"
-            tabela_unificada.append({ "codigo_rfid": codigo, "tipo_atual": map_codigo_para_tipo_atual.get(codigo, "---"), "tipo_anterior": map_codigo_para_tipo_anterior.get(codigo, "---"), "status": status })
     
-    elif view == "current" and snapshot_atual:
-        # Query principal atualizada para buscar o nome do Equipamento
-        itens = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                  .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                  .outerjoin(Equipamento, Product.equipamento_id == Equipamento.id)\
-                  .filter(InventoryItem.snapshot_id == snapshot_atual.id)\
-                  .order_by(Product.codigo_rfid).all()
+    # --- LÓGICA DA VISÃO "CURRENT" (Inventário Atual) ---
+    if view == "current" and snapshot_atual:
+        itens_query = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
+                        .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                        .outerjoin(Product.equipamento)\
+                        .filter(InventoryItem.snapshot_id == snapshot_atual.id)\
+                        .order_by(Product.codigo_rfid).all()
         
-        inventario_atual_formatado = [{
-            "codigo_rfid": codigo,
-            "tipo": (nome_equip or "Não associado"), # Mantive a chave 'tipo' para o template funcionar
-            "created_on": snapshot_atual.created_on
-        } for codigo, nome_equip in itens]
+        for codigo, nome_equip in itens_query:
+            inventario_atual_formatado.append({
+                "codigo_rfid": codigo,
+                "nome_equip": nome_equip or "Não associado",
+                "created_on": snapshot_atual.created_on
+            })
+
+    # --- NOVA LÓGICA DA VISÃO "COMPARISON" (Reconciliação Mestra) ---
+    elif view == "comparison" and datacenter_id:
+        # 1. Busca a "Verdade Absoluta": O que DEVERIA estar neste datacenter?
+        query_catalogo = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
+                           .join(Equipamento, Product.equipamento_id == Equipamento.id)\
+                           .join(Bastidor, Equipamento.bastidor_id == Bastidor.id)\
+                           .filter(Bastidor.localizacao_id == datacenter_id).all()
+        
+        mapa_catalogo = {codigo: nome for codigo, nome in query_catalogo}
+        set_catalogo = set(mapa_catalogo.keys())
+
+        # 2. Busca a "Realidade": O que foi VISTO no último scan?
+        mapa_snapshot = {}
+        if snapshot_atual:
+            query_snapshot = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
+                               .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                               .outerjoin(Product.equipamento)\
+                               .filter(InventoryItem.snapshot_id == snapshot_atual.id).all()
+            mapa_snapshot = {codigo: (nome or "Não associado") for codigo, nome in query_snapshot}
+        
+        set_snapshot = set(mapa_snapshot.keys())
+
+        # 3. Compara os dois conjuntos
+        codigos_encontrados = set_catalogo.intersection(set_snapshot)
+        codigos_faltando = set_catalogo.difference(set_snapshot)
+        codigos_novos = set_snapshot.difference(set_catalogo)
+
+        # 4. Formata as listas para o template
+        itens_encontrados = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_encontrados))]
+        itens_faltando = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_faltando))]
+        itens_novos = [{"codigo_rfid": c, "nome_equip": mapa_snapshot[c]} for c in sorted(list(codigos_novos))]
+
 
     rfid_serial_port = settings.get('serial_port', 'Não configurada')
 
     return templates.TemplateResponse("inventario_list.html", {
         "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
-        "tabela_unificada": tabela_unificada, "inventario_atual": inventario_atual_formatado,
-        "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior, "current_view": view,
-        "count_atual": count_atual,
-        "count_anterior": count_anterior,
-        "rfid_serial_port": rfid_serial_port
-        # A variável 'tipos' foi removida daqui
+        "inventario_atual": inventario_atual_formatado,
+        "snapshot_atual": snapshot_atual,
+        "current_view": view,
+        "rfid_serial_port": rfid_serial_port,
+        "itens_encontrados": itens_encontrados,
+        "itens_faltando": itens_faltando,
+        "itens_novos": itens_novos,
     })
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")
@@ -1665,59 +1679,150 @@ def delete_bastidor(b_id: int, db: Session = Depends(get_db)):
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
     
-# --- API para Tipos de Placa ---
-@app.get("/api/tipos-placa", response_model=List[TipoPlacaSchema])
-def list_tipos_placa(db: Session = Depends(get_db)):
-    return db.query(TipoPlaca).order_by(TipoPlaca.nome).all()
+@app.get("/api/equipamento-tipos", response_model=List[EquipamentoTipoSchema])
+def list_equipamento_tipos(db: Session = Depends(get_db)):
+    return db.query(EquipamentoTipo).order_by(EquipamentoTipo.nome).all()
 
-@app.post("/api/tipos-placa", response_model=TipoPlacaSchema, status_code=status.HTTP_201_CREATED)
-def create_tipo_placa(placa_in: TipoPlacaCreate, db: Session = Depends(get_db)):
-    if db.query(TipoPlaca).filter(TipoPlaca.nome == placa_in.nome).first():
-        raise HTTPException(status_code=409, detail="Um tipo de placa com este nome já existe.")
-    nova_placa = TipoPlaca(**placa_in.model_dump())
-    db.add(nova_placa)
-    db.commit()
-    db.refresh(nova_placa)
-    return nova_placa
-
-# --- API PRINCIPAL PARA CRIAR UM EQUIPAMENTO COMPLETO ---
-@app.post("/api/equipamentos/full", status_code=status.HTTP_201_CREATED)
-def create_full_equipamento(equip_in: EquipamentoFullCreate, db: Session = Depends(get_db)):
-    if db.query(Equipamento).filter(Equipamento.nome_equip == equip_in.nome_equip).first():
-        raise HTTPException(status_code=409, detail="Um equipamento com este nome (hostname) já existe.")
-    if db.query(Product).filter(Product.codigo_rfid == equip_in.codigo_rfid).first():
-        raise HTTPException(status_code=409, detail="Este código RFID já está em uso por outro equipamento.")
-    if not db.query(Fabricante).get(equip_in.fabricante_id):
+@app.post("/api/equipamento-tipos", response_model=EquipamentoTipoSchema, status_code=status.HTTP_201_CREATED)
+def create_equipamento_tipo(tipo_in: EquipamentoTipoCreate, db: Session = Depends(get_db)):
+    if not db.query(Fabricante).get(tipo_in.fabricante_id):
         raise HTTPException(status_code=404, detail="Fabricante não encontrado.")
-    if not db.query(Bastidor).get(equip_in.bastidor_id):
-        raise HTTPException(status_code=404, detail="Bastidor não encontrado.")
+    if db.query(EquipamentoTipo).filter(EquipamentoTipo.nome == tipo_in.nome).first():
+        raise HTTPException(status_code=409, detail="Já existe um modelo de equipamento com este nome.")
+    
+    novo_tipo = EquipamentoTipo(**tipo_in.model_dump())
+    db.add(novo_tipo)
+    db.commit()
+    db.refresh(novo_tipo)
+    return novo_tipo
+
+# --- ADICIONADO: Rota para Editar (Update) um Modelo de Equipamento ---
+@app.put("/api/equipamento-tipos/{tipo_id}", response_model=EquipamentoTipoSchema)
+def update_equipamento_tipo(tipo_id: int, tipo_in: EquipamentoTipoCreate, db: Session = Depends(get_db)):
+    """ Atualiza um modelo de equipamento existente. """
+    tipo_db = db.query(EquipamentoTipo).get(tipo_id)
+    if not tipo_db:
+        raise HTTPException(status_code=404, detail="Modelo de equipamento não encontrado.")
+    if not db.query(Fabricante).get(tipo_in.fabricante_id):
+        raise HTTPException(status_code=404, detail="Fabricante não encontrado.")
+
+    # Atualiza todos os campos com os dados recebidos
+    for key, value in tipo_in.model_dump().items():
+        setattr(tipo_db, key, value)
+    
+    db.commit()
+    db.refresh(tipo_db)
+    return tipo_db
+
+# --- ADICIONADO: Rota para Excluir (Delete) um Modelo de Equipamento ---
+@app.delete("/api/equipamento-tipos/{tipo_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_equipamento_tipo(tipo_id: int, db: Session = Depends(get_db)):
+    """ Exclui um modelo de equipamento. """
+    tipo_db = db.query(EquipamentoTipo).get(tipo_id)
+    if not tipo_db:
+        raise HTTPException(status_code=404, detail="Modelo de equipamento não encontrado.")
+    
+    # Verificação de segurança: não permite excluir se o modelo estiver em uso
+    if tipo_db.instancias:
+        raise HTTPException(status_code=400, detail="Não é possível excluir. Este modelo já está sendo utilizado por instâncias de equipamentos.")
+        
+    db.delete(tipo_db)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+# --- ATUALIZADO: API Principal para criar uma "Instância de Equipamento" ---
+@app.post("/api/equipamentos/instancia", status_code=status.HTTP_201_CREATED)
+def create_equipamento_instancia(instancia_in: EquipamentoInstanciaCreate, db: Session = Depends(get_db)):
+    # Validações
+    if db.query(Equipamento).filter(Equipamento.nome_equip == instancia_in.nome_equip).first():
+        raise HTTPException(status_code=409, detail="Já existe um equipamento com este nome (hostname).")
+    if db.query(Product).filter(Product.codigo_rfid == instancia_in.codigo_rfid).first():
+        raise HTTPException(status_code=409, detail="Este código RFID já está em uso.")
+    if not db.query(EquipamentoTipo).get(instancia_in.equipamento_tipo_id):
+        raise HTTPException(status_code=404, detail="O modelo de equipamento selecionado não foi encontrado.")
+    if not db.query(Bastidor).get(instancia_in.bastidor_id):
+        raise HTTPException(status_code=404, detail="O bastidor selecionado não foi encontrado.")
 
     try:
-        # 1. Cria o Equipamento
-        novo_equipamento = Equipamento(
-            nome_equip=equip_in.nome_equip,
-            modelo_equip=equip_in.modelo_equip,
-            fabricante_id=equip_in.fabricante_id,
-            bastidor_id=equip_in.bastidor_id
+        # 1. Cria a Instância do Equipamento
+        nova_instancia = Equipamento(
+            nome_equip=instancia_in.nome_equip,
+            equipamento_tipo_id=instancia_in.equipamento_tipo_id,
+            bastidor_id=instancia_in.bastidor_id
         )
-        db.add(novo_equipamento)
+        db.add(nova_instancia)
 
-        # 2. Cria a etiqueta RFID (Product)
-        novo_produto = Product(codigo_rfid=equip_in.codigo_rfid)
+        # 2. Cria a etiqueta RFID e a associa à instância
+        novo_produto = Product(codigo_rfid=instancia_in.codigo_rfid, equipamento=nova_instancia)
         db.add(novo_produto)
         
-        # 3. Associa um ao outro
-        novo_equipamento.product = novo_produto
-        
         db.commit()
-        db.refresh(novo_equipamento)
+        db.refresh(nova_instancia)
         
-        logger.info(f"Equipamento completo '{novo_equipamento.nome_equip}' criado e associado ao RFID '{novo_produto.codigo_rfid}'.")
-        return {"detail": "Equipamento criado com sucesso!"}
+        logger.info(f"Instância de equipamento '{nova_instancia.nome_equip}' criada e associada ao RFID '{novo_produto.codigo_rfid}'.")
+        return {"detail": "Equipamento cadastrado com sucesso!"}
     except Exception as e:
         db.rollback()
-        logger.error(f"Erro ao criar equipamento completo: {e}", exc_info=True)
+        logger.error(f"Erro ao criar instância de equipamento: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao salvar o equipamento.")
+
+
+@app.get("/equipamentos", name="list_equipamentos")
+def list_equipamentos(
+    request: Request,
+    db: Session = Depends(get_db),
+    search: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("nome_equip"),
+    order: Optional[str] = Query("asc")
+):
+    """ Exibe a lista completa e detalhada de todos os equipamentos cadastrados. """
+    query = db.query(Equipamento).options(
+        joinedload(Equipamento.product),
+        joinedload(Equipamento.equipamento_tipo).joinedload(EquipamentoTipo.fabricante), # Join corrigido
+        joinedload(Equipamento.bastidor).joinedload(Bastidor.localizacao)
+    )
+
+    # Lógica de busca atualizada
+    if search:
+        search_term = f"%{search}%"
+        query = query.join(Equipamento.product).join(Equipamento.equipamento_tipo).join(EquipamentoTipo.fabricante).join(Equipamento.bastidor).join(Bastidor.localizacao).filter(
+            or_(
+                Equipamento.nome_equip.ilike(search_term),
+                EquipamentoTipo.nome.ilike(search_term),
+                EquipamentoTipo.modelo.ilike(search_term),
+                Product.codigo_rfid.ilike(search_term),
+                Fabricante.nome.ilike(search_term),
+                Bastidor.codigo_bast.ilike(search_term),
+                DataCenter.nome.ilike(search_term)
+            )
+        )
+
+    # Lógica de ordenação atualizada
+    sortable_columns = {
+        "nome_equip": Equipamento.nome_equip,
+        "rfid": Product.codigo_rfid,
+        "modelo_nome": EquipamentoTipo.nome,
+        "fabricante": Fabricante.nome,
+        "modelo_pn": EquipamentoTipo.modelo,
+        "bastidor": Bastidor.codigo_bast,
+        "localizacao": DataCenter.nome,
+    }
+
+    # Garante que os joins necessários para a ordenação existam
+    if sort_by in ["rfid"]: query = query.join(Product)
+    if sort_by in ["modelo_nome", "fabricante", "modelo_pn"]: query = query.join(Equipamento.equipamento_tipo).join(EquipamentoTipo.fabricante)
+    if sort_by in ["bastidor", "localizacao"]: query = query.join(Equipamento.bastidor).join(Bastidor.localizacao)
+
+    sort_column = sortable_columns.get(sort_by, Equipamento.nome_equip)
+    query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
+
+    equipamentos = query.all()
+
+    return templates.TemplateResponse("equipamentos_list.html", {
+        "request": request,
+        "equipamentos": equipamentos,
+        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
+    })
 
 @app.on_event("startup")
 async def on_startup():

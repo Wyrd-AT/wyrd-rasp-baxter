@@ -15,53 +15,94 @@ from .models import InventorySnapshot, InventoryItem, Product
 
 logger = logging.getLogger(__name__)
 
-async def rfid_scan_task(websocket: WebSocket, datacenter_id: int) -> List[str]:
+async def rfid_scan_task(websocket: WebSocket, datacenter_id: int, mode: str) -> List[str]:
     """
-    Tarefa de fundo que coloca a pistola em modo de gatilho e ouve as tags lidas.
+    Tarefa de fundo que ouve as tags lidas.
+    Suporta dois modos:
+    - 'multiple': Configura o gatilho para leitura contínua.
+    - 'single': Executa um único inventário e retorna a tag mais forte.
     """
-    PORTA_SERIAL = settings.get('serial_port', 'COM3')
+    PORTA_SERIAL = settings.get('serial_port', 'COM3') 
     tags_lidas = set()
     reader, writer = None, None
 
     try:
+        # A conexão é a mesma para ambos os modos
         reader, writer = await asyncio.wait_for(
             serial_asyncio.open_serial_connection(url=PORTA_SERIAL, baudrate=115200),
             timeout=5.0
-        )
+        ) 
 
-        writer.write(b'.sa -s inv\r\n')
-        await writer.drain()
-        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione o gatilho para ler."}))
+        # --- A LÓGICA AGORA SE DIVIDE BASEADO NO MODO ---
+
+        if mode == 'single':
+            # --- MODO DE LEITURA ÚNICA ---
+            await websocket.send_text(json.dumps({"type": "scan_status", "message": "Executando leitura única..."}))
+            
+            # Comando .iv -fs on: Inventory, Find Strongest only
+            # Executa o inventário uma vez e retorna apenas a tag com o sinal mais forte.
+            writer.write(b'.iv -fs on\r\n')
+            await writer.drain()
+
+            # Loop para ler a resposta do comando, que é finita
+            while True:
+                linha_bytes = await asyncio.wait_for(reader.readline(), timeout=10.0) # Timeout de 10s para a resposta
+                linha = linha_bytes.decode('ascii').strip()
+
+                if linha.startswith('EP:'): # Encontrou a tag
+                    tag_id = linha[4:]
+                    if tag_id not in tags_lidas:
+                        tags_lidas.add(tag_id)
+                        await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id})) 
+                
+                # O comando finalizou, podemos sair do loop
+                if linha.startswith('OK:') or linha.startswith('ER:'):
+                    break
+            
+            # A tarefa termina aqui para o modo 'single'
+
+        elif mode == 'multiple':
+            # --- MODO DE LEITURA MÚLTIPLA (O CÓDIGO QUE JÁ TÍNHAMOS) ---
+            # Comando .sa -s inv: Switch Action, Simple press, Inventory
+            # Configura o gatilho físico para iniciar/parar o inventário
+            writer.write(b'.sa -s inv\r\n') 
+            await writer.drain() 
+            await websocket.send_text(json.dumps({"type": "scan_status", "message": "Modo de gatilho ativado. Pressione para ler."})) 
+            
+            # Loop infinito que só é interrompido pelo cancelamento (botão 'parar' ou 'cancelar')
+            while True:
+                linha_bytes = await asyncio.wait_for(reader.readline(), timeout=300.0) 
+                linha = linha_bytes.decode('ascii').strip()
+
+                if linha.startswith('EP:'): 
+                    tag_id = linha[4:]
+                    if tag_id not in tags_lidas:
+                        tags_lidas.add(tag_id)
+                        await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id})) 
         
-        while True:
-            linha_bytes = await asyncio.wait_for(reader.readline(), timeout=300.0)
-            linha = linha_bytes.decode('ascii').strip()
+        else:
+            await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro: Modo de scan '{mode}' desconhecido."}))
 
-            if linha.startswith('EP:'):
-                tag_id = linha[4:]
-                if tag_id not in tags_lidas:
-                    tags_lidas.add(tag_id)
-                    await websocket.send_text(json.dumps({"type": "tag_scanned", "tag_id": tag_id}))
-    
     except asyncio.TimeoutError:
-        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão finalizada por inatividade."}))
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão finalizada por inatividade."})) 
     except (serial.SerialException, FileNotFoundError):
-        await websocket.send_text(json.dumps({"type": "hardware_error", "message": f"ERRO DE HARDWARE: Verifique se a pistola RFID está conectada na porta '{PORTA_SERIAL}'."}))
+        await websocket.send_text(json.dumps({"type": "hardware_error", "message": f"ERRO DE HARDWARE: Verifique se a pistola RFID está conectada na porta '{PORTA_SERIAL}'."})) 
     except asyncio.CancelledError:
-        logger.info("Tarefa de scan foi cancelada pelo usuário.")
+        logger.info("Tarefa de scan foi cancelada pelo usuário.") 
         raise
     except Exception as e:
-        await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro inesperado: {e}"}))
+        await websocket.send_text(json.dumps({"type": "scan_error", "message": f"Erro inesperado: {e}"})) 
     finally:
-        logger.info("Finalizando tarefa de scan e limpando recursos.")
+        logger.info("Finalizando tarefa de scan e limpando recursos.") 
         if writer and not writer.is_closing():
-            writer.write(b'.sa -s off\r\n')
+            # Envia o comando Abort para garantir que qualquer operação pare
+            writer.write(b'.ab\r\n')
             await writer.drain()
             writer.close()
             logger.info(f"Porta serial {PORTA_SERIAL} fechada.")
         
-        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão de leitura finalizada."}))
-        return list(tags_lidas)
+        await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão de leitura finalizada."})) 
+        return list(tags_lidas) 
 
 def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):
     """Pega uma lista de tags e salva como um novo snapshot de inventário."""

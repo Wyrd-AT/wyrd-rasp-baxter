@@ -4,56 +4,15 @@
 
 {% block content %}
 <style>
-    /* === NOVOS ESTILOS PARA O GERENCIAMENTO DE ENTIDADES === */
-    .management-container {
-        display: grid;
-        grid-template-columns: 200px 1fr; /* Coluna de navegação à esquerda, conteúdo à direita */
-        gap: 1.5rem;
-        align-items: start;
-        margin-top: 1rem;
-    }
-    .management-nav {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-    .nav-button {
-        width: 100%;
-        padding: 10px 15px;
-        font-size: 0.9rem;
-        font-weight: 500;
-        text-align: left;
-        border: 1px solid #dee2e6;
-        background-color: #f8f9fa;
-        color: #495057;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: all 0.2s ease-in-out;
-    }
-    .nav-button:hover {
-        background-color: #e9ecef;
-        border-color: #adb5bd;
-    }
-    .nav-button.active {
-        background-color: #0466C8;
-        color: #fff;
-        border-color: #0466C8;
-    }
-    .tab-pane {
-        display: none; /* Esconde todas as abas por padrão */
-    }
-    .tab-pane.active {
-        display: block; /* Mostra apenas a aba ativa */
-    }
+    .management-container { display: grid; grid-template-columns: 200px 1fr; gap: 1.5rem; align-items: start; margin-top: 1rem; }
+    .management-nav { display: flex; flex-direction: column; gap: 8px; }
+    .nav-button { width: 100%; padding: 10px 15px; font-size: 0.9rem; font-weight: 500; text-align: left; border: 1px solid #dee2e6; background-color: #f8f9fa; color: #495057; border-radius: 6px; cursor: pointer; transition: all 0.2s ease-in-out; }
+    .nav-button:hover { background-color: #e9ecef; border-color: #adb5bd; }
+    .nav-button.active { background-color: #0466C8; color: #fff; border-color: #0466C8; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
     .actions-cell { width: 120px; text-align: right; }
-
-    /* === ADICIONE ESTA REGRA PARA CRIAR O ESPAÇAMENTO === */
-    .form-card hr {
-        margin-top: 2rem;      /* Espaço acima da linha */
-        margin-bottom: 1.5rem;   /* Espaço abaixo da linha */
-        border: none;
-        border-top: 1px solid #dee2e6; /* Deixa a linha mais sutil */
-    }
+    .form-card hr { margin-top: 2rem; margin-bottom: 1.5rem; border: none; border-top: 1px solid #dee2e6; }
 </style>
 
 <div class="content-header">
@@ -61,58 +20,88 @@
 </div>
 
 <div class="form-card">
-    <form id="new-equipamento-form">
-        <h3>Cadastrar Novo Equipamento</h3>
-        <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Detalhes do Equipamento</h4>
+    <form id="new-instance-form">
+        <h3>Cadastrar Nova Instância de Equipamento</h3>
         <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="form-group"><label for="equip_nome_equip">Nome (Hostname)</label><input type="text" id="equip_nome_equip" required placeholder="Ex: SP-RACK01-SRV01"></div>
-            <div class="form-group"><label for="equip_fabricante_id">Fabricante</label><select id="equip_fabricante_id" required><option value="">Carregando...</option></select></div>
-            <div class="form-group"><label for="equip_modelo_equip">Modelo</label><input type="text" id="equip_modelo_equip" placeholder="Ex: PowerEdge R740"></div>
+            <div class="form-group">
+                <label for="inst_equipamento_tipo_id">Modelo do Equipamento</label>
+                <select id="inst_equipamento_tipo_id" required><option value="">Carregando...</option></select>
+            </div>
+            <div class="form-group">
+                <label for="inst_nome_equip">Hostname</label>
+                <input type="text" id="inst_nome_equip" required placeholder="Ex: SRV-DB01-SP">
+            </div>
         </div>
-        <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Localização</h4>
+        <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Localização Física</h4>
         <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="form-group"><label for="equip_localizacao_id">Localização</label><select id="equip_localizacao_id" required><option value="">Carregando...</option></select></div>
-            <div class="form-group"><label for="equip_bastidor_id">Bastidor (Rack)</label><select id="equip_bastidor_id" required><option value="">Selecione a localização</option></select></div>
+            <div class="form-group"><label for="inst_localizacao_id">Localização</label><select id="inst_localizacao_id" required><option value="">Carregando...</option></select></div>
+            <div class="form-group"><label for="inst_bastidor_id">Bastidor (Rack)</label><select id="inst_bastidor_id" required><option value="">Selecione a localização</option></select></div>
         </div>
         <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Etiqueta RFID</h4>
         <div class="form-fields-grid" style="grid-template-columns: 1fr;">
-            <div class="form-group"><label for="equip_codigo_rfid">Código RFID</label><input type="text" id="equip_codigo_rfid" required placeholder="Leia ou digite o código"></div>
+            <div class="form-group"><label for="inst_codigo_rfid">Código RFID</label><input type="text" id="inst_codigo_rfid" required></div>
         </div>
         <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
-            <button type="submit" class="btn-primary">Salvar Novo Equipamento</button>
+            <button type="submit" class="btn-primary">Salvar Nova Instância</button>
         </div>
     </form>
 </div>
 
 <hr style="margin: 2rem 0; border-top: 2px solid #eee;">
 
-<div class="content-header">
-    <h2>Gerenciamento de Entidades</h2>
-</div>
-
+<div class="content-header"><h2>Gerenciamento de Entidades</h2></div>
 <div class="management-container">
     <div class="management-nav">
-        <button class="nav-button active" data-bs-target="#localizacoes-pane">Localizações</button>
         <button class="nav-button" data-bs-target="#fabricantes-pane">Fabricantes</button>
+        <button class="nav-button active" data-bs-target="#modelos-pane">Modelos de Equipamento</button>
+        <button class="nav-button" data-bs-target="#localizacoes-pane">Localizações</button>
         <button class="nav-button" data-bs-target="#bastidores-pane">Bastidores (Racks)</button>
-        <button class="nav-button" data-bs-target="#placas-pane">Tipos de Placa</button>
     </div>
-
     <div class="management-content">
-        <div class="tab-pane active" id="localizacoes-pane">
+        <div class="tab-pane active" id="modelos-pane">
+            <div class="form-card">
+                <form id="form-equipamento-tipo">
+                    <h3>Adicionar Novo Modelo de Equipamento</h3>
+                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div class="form-group"><label>Nome do Modelo (Ex: Roteador ASR-9006)</label><input type="text" name="nome" class="form-control" required></div>
+                        <div class="form-group"><label>Fabricante</label><select name="fabricante_id" class="form-control" required><option value="">Carregando...</option></select></div>
+                    </div>
+                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
+                        <div class="form-group"><label>Modelo (Part Number)</label><input type="text" name="modelo" class="form-control" placeholder="Ex: ASR-9006"></div>
+                        <div class="form-group"><label>Tecnologia</label><input type="text" name="tecnologia_equip" class="form-control" placeholder="Ex: Roteamento"></div>
+                    </div>
+                     <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <div class="form-group"><label>Tipo</label><input type="text" name="tipo_equip" class="form-control"></div>
+                        <div class="form-group"><label>Estado CV</label><input type="text" name="estado_cv_equip" class="form-control"></div>
+                        <div class="form-group"><label>Estado OP</label><input type="text" name="estado_op_equip" class="form-control"></div>
+                    </div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end;"><button type="submit" class="btn-primary">Adicionar Modelo</button></div>
+                </form>
+                <hr>
+                <h3>Modelos Cadastrados</h3>
+                <table class="data-table">
+                    <thead><tr><th>Nome</th><th>Fabricante</th><th>Modelo (Part No.)</th><th class="actions-cell">Ações</th></tr></thead>
+                    <tbody id="table-body-equipamento-tipo"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="tab-pane" id="localizacoes-pane">
             <div class="form-card">
                 <form id="form-localizacao">
                     <h3>Adicionar Nova Localização</h3>
                     <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-                        <div class="form-group"><label for="loc-nome">Nome</label><input type="text" id="loc-nome" name="nome" required></div>
+                        <div class="form-group"><label for="loc-nome">Nome da Localização</label><input type="text" id="loc-nome" name="nome" required placeholder="Ex: Datacenter RJ"></div>
                         <div class="form-group"><label for="loc-municipio">Município</label><input type="text" id="loc-municipio" name="municipio"></div>
                         <div class="form-group"><label for="loc-uf">UF</label><input type="text" id="loc-uf" name="uf_abrv" maxlength="2"></div>
+                    </div>
+                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                         <div class="form-group"><label for="loc-edf">EDF</label><input type="text" id="loc-edf" name="edf"></div>
                         <div class="form-group"><label for="loc-piso">Piso</label><input type="text" id="loc-piso" name="piso"></div>
                         <div class="form-group"><label for="loc-sala">Sala</label><input type="text" id="loc-sala" name="sala"></div>
                     </div>
                     <div class="form-group"><label for="loc-endereco">Endereço Completo</label><input type="text" id="loc-endereco" name="endereco_completo"></div>
-                    <div class="form-group" style="display: flex; justify-content: flex-end;"><button type="submit" class="btn-primary">Adicionar</button></div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end;"><button type="submit" class="btn-primary">Adicionar Localização</button></div>
                 </form>
                 <hr>
                 <h3>Localizações Cadastradas</h3>
@@ -126,12 +115,12 @@
         <div class="tab-pane" id="fabricantes-pane">
             <div class="form-card">
                 <form id="form-fabricante" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: flex-end;">
-                    <div class="form-group" style="margin:0;"><label>Nome do Novo Fabricante</label><input type="text" class="form-control" name="nome" required></div>
+                    <div class="form-group" style="margin:0;"><label>Nome do Fabricante</label><input type="text" class="form-control" name="nome" required></div>
                     <button type="submit" class="btn-primary">Adicionar</button>
                 </form>
                 <hr>
                 <h3>Fabricantes Cadastrados</h3>
-                <table class="data-table"><thead><tr><th>Nome do Fabricante</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-fabricante"></tbody></table>
+                <table class="data-table"><thead><tr><th>Nome</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-fabricante"></tbody></table>
             </div>
         </div>
         
@@ -147,18 +136,6 @@
                 <table class="data-table"><thead><tr><th>Código</th><th>Localização</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-bastidor"></tbody></table>
             </div>
         </div>
-
-        <div class="tab-pane" id="placas-pane">
-            <div class="form-card">
-                <form id="form-placa" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: flex-end;">
-                    <div class="form-group" style="margin:0;"><label>Nome do Novo Tipo de Placa</label><input type="text" class="form-control" name="nome" required></div>
-                    <button type="submit" class="btn-primary">Adicionar</button>
-                </form>
-                <hr>
-                <h3>Tipos de Placa Cadastrados</h3>
-                <table class="data-table"><thead><tr><th>Nome</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-placa"></tbody></table>
-            </div>
-        </div>
     </div>
 </div>
 {% endblock %}
@@ -169,57 +146,59 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
 
-    // ==========================================================
-    // PARTE 1: LÓGICA DO FORMULÁRIO PRINCIPAL DE CADASTRO
-    // ==========================================================
-    const newEquipForm = document.getElementById('new-equipamento-form');
-    if (newEquipForm) {
-        const fabricanteSelect = document.getElementById('equip_fabricante_id');
-        const localizacaoSelect = document.getElementById('equip_localizacao_id');
-        const bastidorSelect = document.getElementById('equip_bastidor_id');
-        
-        async function populateSelect(url, selectElement, valueField, textField, prompt) {
-            selectElement.innerHTML = `<option value="">Carregando...</option>`;
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-                selectElement.innerHTML = `<option value="">${prompt}</option>`;
-                data.forEach(item => {
-                    selectElement.innerHTML += `<option value="${item[valueField]}">${item[textField]}</option>`;
-                });
-            } catch (error) { selectElement.innerHTML = `<option value="">Erro ao carregar</option>`; }
+    // Função utilitária global para popular dropdowns
+    async function populateSelect(url, selectElement, valueField, textField, prompt) {
+        selectElement.innerHTML = `<option value="">Carregando...</option>`;
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('A resposta da rede não foi OK');
+            const data = await response.json();
+            selectElement.innerHTML = `<option value="">${prompt}</option>`;
+            data.forEach(item => {
+                const option = document.createElement('option');
+                option.value = item[valueField];
+                option.textContent = item[textField];
+                selectElement.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Erro ao popular o select:', error);
+            selectElement.innerHTML = `<option value="">Erro ao carregar</option>`;
         }
+    }
 
-        populateSelect('/api/fabricantes', fabricanteSelect, 'id', 'nome', 'Selecione um fabricante');
-        populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma localização');
+    // ==========================================================
+    // PARTE 1: LÓGICA DO FORMULÁRIO DE CADASTRO DE INSTÂNCIA
+    // ==========================================================
+    const newInstanceForm = document.getElementById('new-instance-form');
+    if (newInstanceForm) {
+        const tipoSelect = document.getElementById('inst_equipamento_tipo_id');
+        const localizacaoSelect = document.getElementById('inst_localizacao_id');
+        const bastidorSelect = document.getElementById('inst_bastidor_id');
+
+        populateSelect('/api/equipamento-tipos', tipoSelect, 'id', 'nome', 'Selecione um Modelo');
+        populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma Localização');
 
         localizacaoSelect.addEventListener('change', () => {
-            bastidorSelect.innerHTML = '<option value="">Carregando...</option>';
-            populateSelect('/api/bastidores', bastidorSelect, 'id', 'codigo_bast', 'Selecione um bastidor');
+            populateSelect('/api/bastidores', bastidorSelect, 'id', 'codigo_bast', 'Selecione um Bastidor');
         });
 
-        newEquipForm.addEventListener('submit', async (event) => {
+        newInstanceForm.addEventListener('submit', async (event) => {
             event.preventDefault();
             const formData = {
-                nome_equip: document.getElementById('equip_nome_equip').value,
-                modelo_equip: document.getElementById('equip_modelo_equip').value,
-                fabricante_id: parseInt(fabricanteSelect.value),
+                equipamento_tipo_id: parseInt(tipoSelect.value),
+                nome_equip: document.getElementById('inst_nome_equip').value,
                 bastidor_id: parseInt(bastidorSelect.value),
-                codigo_rfid: document.getElementById('equip_codigo_rfid').value,
+                codigo_rfid: document.getElementById('inst_codigo_rfid').value,
             };
-
             try {
-                const response = await fetch('/api/equipamentos/full', {
+                const response = await fetch('/api/equipamentos/instancia', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(formData)
                 });
-                if (response.status !== 201) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || 'Ocorreu um erro.');
-                }
-                alert('Equipamento cadastrado com sucesso!');
-                newEquipForm.reset();
+                if (!response.ok) throw new Error((await response.json()).detail);
+                alert('Instância de equipamento cadastrada com sucesso!');
+                newInstanceForm.reset();
                 bastidorSelect.innerHTML = '<option value="">Selecione a localização</option>';
             } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
         });
@@ -230,72 +209,97 @@ document.addEventListener('DOMContentLoaded', function () {
     // ==========================================================
     const navButtons = document.querySelectorAll('.management-nav .nav-button');
     const tabPanes = document.querySelectorAll('.management-content .tab-pane');
-
     navButtons.forEach(button => {
         button.addEventListener('click', (event) => {
             navButtons.forEach(btn => btn.classList.remove('active'));
-            tabPanes.forEach(pane => pane.classList.remove('active')); // Apenas 'active', sem 'show'
-            
+            tabPanes.forEach(pane => pane.classList.remove('active'));
             event.currentTarget.classList.add('active');
             const targetPaneId = event.currentTarget.getAttribute('data-bs-target');
             document.querySelector(targetPaneId).classList.add('active');
         });
     });
 
-    // Função genérica para CRUDs simples (Fabricante, Tipo de Placa)
+    // Função genérica para CRUDs simples (Fabricante)
     async function createSimpleCrudManager(config) {
-        const { entityName, apiUrl, tableBodyId, formId, renderRow } = config;
+        const { entityName, apiUrl, tableBodyId, formId, renderRow, onUpdate } = config;
         const tableBody = document.getElementById(tableBodyId);
         const form = document.getElementById(formId);
         const loadItems = async () => {
-            tableBody.innerHTML = `<tr><td colspan="10">Carregando...</td></tr>`;
-            try {
-                const response = await fetch(apiUrl);
-                const items = await response.json();
-                tableBody.innerHTML = '';
-                if (items.length === 0) { tableBody.innerHTML = `<tr><td colspan="10">Nenhum item.</td></tr>`; }
-                else { items.forEach(item => tableBody.appendChild(renderRow(item))); }
-            } catch (error) { tableBody.innerHTML = `<tr><td colspan="10">Erro ao carregar.</td></tr>`; }
+            tableBody.innerHTML = `<tr><td colspan="2">Carregando...</td></tr>`;
+            const response = await fetch(apiUrl); const items = await response.json(); tableBody.innerHTML = '';
+            if (items.length === 0) { tableBody.innerHTML = `<tr><td colspan="2">Nenhum item.</td></tr>`; }
+            else { items.forEach(item => tableBody.appendChild(renderRow(item))); }
         };
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = Object.fromEntries(new FormData(form).entries());
-            try {
-                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-                if (!response.ok) throw new Error((await response.json()).detail);
-                form.reset();
-                await loadItems();
-            } catch (error) { alert(`Erro ao salvar ${entityName}: ${error.message}`); }
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+            if (response.ok) { form.reset(); await loadItems(); if(onUpdate) onUpdate(); }
+            else { alert(`Erro: ${(await response.json()).detail}`); }
         });
         tableBody.addEventListener('click', async (e) => {
-            const target = e.target.closest('button');
-            if (!target) return;
+            const target = e.target.closest('button'); if (!target) return;
             const id = target.dataset.id;
             if (target.classList.contains('btn-delete')) {
-                if (confirm(`Excluir este ${entityName}?`)) {
-                    try {
-                        const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
-                        if (!response.ok) throw new Error((await response.json()).detail);
-                        await loadItems();
-                    } catch (error) { alert(`Erro: ${error.message}`); }
+                if (confirm(`Excluir ${entityName}?`)) {
+                    const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
+                    if (response.ok) { await loadItems(); if(onUpdate) onUpdate(); }
+                    else { alert(`Erro: ${(await response.json()).detail}`); }
                 }
             }
-            if (target.classList.contains('btn-edit')) {
-                const newName = prompt(`Novo nome:`, target.dataset.name);
-                if (newName && newName.trim()) {
-                     try {
-                        const response = await fetch(`${apiUrl}/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nome: newName.trim() }) });
-                        if (!response.ok) throw new Error((await response.json()).detail);
-                        await loadItems();
-                    } catch (error) { alert(`Erro: ${error.message}`); }
-                }
-            }
+            if (target.classList.contains('btn-edit')) { /* Lógica de Edição para CRUDs simples */ }
         });
         await loadItems();
     }
-    
-    // Função dedicada para gerenciar Localizações (formulário complexo)
-    async function manageLocalizacoes() {
+
+    // Gerenciador para "Modelos de Equipamento"
+    async function manageEquipamentoTipos() {
+        const tableBody = document.getElementById('table-body-equipamento-tipo');
+        const form = document.getElementById('form-equipamento-tipo');
+        const fabricanteSelect = form.querySelector('select[name="fabricante_id"]');
+        let fabricantes = [];
+
+        const updateFabricanteDropdown = async () => {
+            await populateSelect('/api/fabricantes', fabricanteSelect, 'id', 'nome', 'Selecione');
+            const response = await fetch('/api/fabricantes'); fabricantes = await response.json();
+        };
+
+        const loadItems = async () => {
+            tableBody.innerHTML = `<tr><td colspan="4">Carregando...</td></tr>`;
+            const response = await fetch('/api/equipamento-tipos'); const items = await response.json(); tableBody.innerHTML = '';
+            items.forEach(item => {
+                const fab = fabricantes.find(f => f.id === item.fabricante_id);
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${item.nome}</td><td>${fab ? fab.nome : 'N/A'}</td><td>${item.modelo || '---'}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
+                tableBody.appendChild(tr);
+            });
+        };
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form).entries());
+            data.fabricante_id = parseInt(data.fabricante_id);
+            const response = await fetch('/api/equipamento-tipos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+            if (response.ok) { form.reset(); await loadItems(); populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo'); }
+            else { alert(`Erro: ${(await response.json()).detail}`); }
+        });
+        tableBody.addEventListener('click', async (e) => {
+             const target = e.target.closest('button.btn-delete');
+             if (target && confirm('Excluir este modelo?')) {
+                const id = target.dataset.id;
+                const response = await fetch(`/api/equipamento-tipos/${id}`, { method: 'DELETE' });
+                if(response.ok) { await loadItems(); populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo'); } else { alert(`Erro: ${(await response.json()).detail}`); }
+            }
+        });
+        await updateFabricanteDropdown();
+        await loadItems();
+        return { updateFabricanteDropdown, loadItems }; // Retorna funções para serem chamadas por outros gerenciadores
+    }
+
+    // ==========================================================
+    // === FUNÇÃO DE GERENCIAMENTO DE LOCALIZAÇÕES (CORRIGIDA) ===
+    // ==========================================================
+    async function manageLocalizacoes(config) {
+        const { onUpdate } = config || {};
         const tableBody = document.getElementById('table-body-localizacao');
         const form = document.getElementById('form-localizacao');
         const apiUrl = '/api/localizacoes';
@@ -316,8 +320,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             <td>${item.uf_abrv || '---'}</td>
                             <td class="actions-cell">
                                 <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
-                            </td>
-                        `;
+                            </td>`;
                         tableBody.appendChild(tr);
                     });
                 }
@@ -332,42 +335,41 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (!response.ok) throw new Error((await response.json()).detail);
                 form.reset();
                 await loadItems();
-                // Recarrega os dropdowns em toda a página que usam localizações
-                populateSelect('/api/localizacoes', document.getElementById('equip_localizacao_id'), 'id', 'nome', 'Selecione');
-                populateSelect('/api/localizacoes', document.querySelector('#form-bastidor select'), 'id', 'nome', 'Selecione');
+                if (onUpdate) onUpdate(); // Chama a função de callback para atualizar outros forms
             } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
         });
         
         tableBody.addEventListener('click', async (e) => {
             const target = e.target.closest('button.btn-delete');
-            if (target) {
-                if (confirm('Excluir esta localização?')) {
-                    const id = target.dataset.id;
-                    try {
-                        const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
-                        if (!response.ok) throw new Error((await response.json()).detail);
-                        await loadItems();
-                    } catch (error) { alert(`Erro: ${error.message}`); }
-                }
+            if (target && confirm('Excluir esta localização?')) {
+                const id = target.dataset.id;
+                try {
+                    const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
+                    if (!response.ok) throw new Error((await response.json()).detail);
+                    await loadItems();
+                    if (onUpdate) onUpdate();
+                } catch (error) { alert(`Erro: ${error.message}`); }
             }
         });
         await loadItems();
     }
-
-    // Função para gerenciar Bastidores
+    
+    // Gerenciador para Bastidores
     async function manageBastidores() {
         const tableBody = document.getElementById('table-body-bastidor');
         const form = document.getElementById('form-bastidor');
         const localizacaoSelect = form.querySelector('select[name="localizacao_id"]');
         let localizacoes = [];
-        try {
+
+        // Função interna para atualizar o dropdown, usando nossa função segura
+        const updateLocalizacaoDropdown = async () => {
+            await populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione...');
+            // Guarda a lista de localizações para usar na tabela
             const response = await fetch('/api/localizacoes');
             localizacoes = await response.json();
-            localizacaoSelect.innerHTML = '<option value="">Selecione...</option>';
-            localizacoes.forEach(loc => { localizacaoSelect.innerHTML += `<option value="${loc.id}">${loc.nome}</option>`; });
-        } catch (e) { localizacaoSelect.innerHTML = '<option value="">Erro</option>'; }
+        };
 
-        const loadBastidores = async () => {
+        const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="3">Carregando...</td></tr>`;
             const response = await fetch('/api/bastidores');
             const items = await response.json();
@@ -379,6 +381,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 tableBody.appendChild(tr);
             });
         };
+        
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = {
@@ -386,41 +389,56 @@ document.addEventListener('DOMContentLoaded', function () {
                 localizacao_id: parseInt(localizacaoSelect.value)
             };
             const response = await fetch('/api/bastidores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-            if (response.ok) { form.reset(); await loadBastidores(); } 
+            if (response.ok) { form.reset(); await loadItems(); } 
             else { alert(`Erro: ${(await response.json()).detail}`); }
         });
+
         tableBody.addEventListener('click', async (e) => {
-             if (e.target.closest('button.btn-delete')) {
-                if (confirm('Excluir este bastidor?')) {
-                    const id = e.target.closest('button.btn-delete').dataset.id;
-                    const response = await fetch(`/api/bastidores/${id}`, { method: 'DELETE' });
-                    if(response.ok) { await loadBastidores(); }
-                    else { alert(`Erro: ${(await response.json()).detail}`); }
-                }
+            const target = e.target.closest('button.btn-delete');
+            if (target && confirm('Excluir este bastidor?')) {
+                const id = target.dataset.id;
+                const response = await fetch(`/api/bastidores/${id}`, { method: 'DELETE' });
+                if(response.ok) { await loadItems(); }
+                else { alert(`Erro: ${(await response.json()).detail}`); }
             }
         });
-        await loadBastidores();
+
+        await updateLocalizacaoDropdown();
+        await loadItems();
+
+        // Retorna a função de atualização para que outros possam chamá-la
+        return { updateLocalizacaoDropdown };
     }
     
     // --- INICIALIZAÇÃO DE TODOS OS GERENCIADORES ---
-    manageLocalizacoes();
-    createSimpleCrudManager({
-        entityName: 'fabricante', apiUrl: '/api/fabricantes', tableBodyId: 'table-body-fabricante', formId: 'form-fabricante',
-        renderRow: (item) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${item.nome}</td><td class="actions-cell"><button class="btn-secondary btn-sm btn-edit" data-id="${item.id}" data-name="${item.nome}">Editar</button> <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
-            return tr;
-        }
-    });
-    createSimpleCrudManager({
-        entityName: 'tipo de placa', apiUrl: '/api/tipos-placa', tableBodyId: 'table-body-placa', formId: 'form-placa',
-        renderRow: (item) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${item.nome}</td><td class="actions-cell"></td>`;
-            return tr;
-        }
-    });
-    manageBastidores();
+    (async () => {
+        const bastidorManager = await manageBastidores();
+        const tipoManager = await manageEquipamentoTipos();
+        
+        await manageLocalizacoes({
+            onUpdate: async () => {
+                // Quando uma localização for criada/excluída, esta função será chamada
+                await bastidorManager.updateLocalizacaoDropdown();
+            }
+        });
+
+        await createSimpleCrudManager({
+            entityName: 'fabricante',
+            apiUrl: '/api/fabricantes',
+            tableBodyId: 'table-body-fabricante',
+            formId: 'form-fabricante',
+            renderRow: (item) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${item.nome}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
+                return tr;
+            },
+            onUpdate: async () => {
+                // Quando um fabricante for criado/excluído, atualiza o dropdown de modelos
+                await tipoManager.updateFabricanteDropdown();
+                await tipoManager.loadItems();
+            }
+        });
+    })();
 });
 </script>
 {% endblock %}

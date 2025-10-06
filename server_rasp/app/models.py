@@ -83,7 +83,10 @@ class Fabricante(Base):
     __tablename__ = "fabricantes"
     id = Column(Integer, primary_key=True)
     nome = Column(String(100), unique=True, nullable=False)
-    equipamentos = relationship("Equipamento", back_populates="fabricante")
+    
+    # --- CORREÇÃO AQUI ---
+    # A relação agora é com os "Modelos de Equipamento", e não com as instâncias.
+    equipamento_tipos = relationship("EquipamentoTipo", back_populates="fabricante")
 
 class TipoPlaca(Base):
     __tablename__ = "tipos_placa"
@@ -107,60 +110,65 @@ class DataCenter(Base):
     snapshots = relationship("InventorySnapshot", back_populates="datacenter")
     bastidores = relationship("Bastidor", back_populates="localizacao")
 
-# --- NÍVEL 2: BASTIDOR (RACK) ---
-class Bastidor(Base):
+class Bastidor(Base): # Rack
     __tablename__ = "bastidores"
     id = Column(Integer, primary_key=True)
     codigo_bast = Column(String(50), unique=True, nullable=False)
     localizacao_id = Column(Integer, ForeignKey("datacenters.id"), nullable=False)
     localizacao = relationship("DataCenter", back_populates="bastidores")
-    equipamentos = relationship("Equipamento", back_populates="bastidor")
+    # Relação com as instâncias de equipamento
+    equipamento_instancias = relationship("Equipamento", back_populates="bastidor")
 
-# --- NÍVEL 3: EQUIPAMENTO (A ENTIDADE CENTRAL) ---
+
+# --- NOVA TABELA: O "MOLDE" / MODELO DO EQUIPAMENTO ---
+class EquipamentoTipo(Base):
+    __tablename__ = "equipamento_tipos"
+    id = Column(Integer, primary_key=True)
+    nome = Column(String(100), unique=True, nullable=False) # Ex: "Roteador ASR-9006"
+    
+    # Propriedades fixas do modelo
+    modelo = Column(String(100))
+    tecnologia_equip = Column(String(50))
+    tipo_equip = Column(String(50))
+    estado_cv_equip = Column(String(50))
+    estado_op_equip = Column(String(50))
+
+    # Relação com Fabricante
+    fabricante_id = Column(Integer, ForeignKey("fabricantes.id"))
+    fabricante = relationship("Fabricante", back_populates="equipamento_tipos")
+    
+    # Relação com as instâncias criadas a partir deste tipo
+    instancias = relationship("Equipamento", back_populates="equipamento_tipo")
+
+
+# --- TABELA EQUIPAMENTO (AGORA REPRESENTA A INSTÂNCIA FÍSICA) ---
 class Equipamento(Base):
     __tablename__ = "equipamentos"
     id = Column(Integer, primary_key=True)
-    nome_equip = Column(String(100), unique=True) # Nome que o usuário escolhe no dropdown
-    tipo_equip = Column(String(50))
-    tecnologia_equip = Column(String(50))
-    modelo_equip = Column(String(50))
-    estado_cv_equip = Column(String(50))
-    estado_op_equip = Column(String(50))
-    gerencia_equip = Column(String(50))
-    fabricante_id = Column(Integer, ForeignKey("fabricantes.id"))
-    fabricante = relationship("Fabricante", back_populates="equipamentos")
+    nome_equip = Column(String(100), unique=True) # Hostname único da instância, ex: "RB1.SP.SAO.EDF01-RT01"
+    
+    # --- RELAÇÕES ---
+    # A qual "molde" esta instância pertence?
+    equipamento_tipo_id = Column(Integer, ForeignKey("equipamento_tipos.id"), nullable=False)
+    equipamento_tipo = relationship("EquipamentoTipo", back_populates="instancias")
+    
+    # Onde esta instância está fisicamente?
     bastidor_id = Column(Integer, ForeignKey("bastidores.id"))
-    bastidor = relationship("Bastidor", back_populates="equipamentos")
-    shelfs = relationship("Shelf", back_populates="equipamento")
-    portas = relationship("Porta", back_populates="equipamento")
+    bastidor = relationship("Bastidor", back_populates="equipamento_instancias")
+    
+    # Qual etiqueta RFID está colada nesta instância? (Relação 1-para-1)
     product = relationship("Product", back_populates="equipamento", uselist=False, cascade="all, delete-orphan")
 
-# --- NÍVEL 4: SHELF (MÓDULO) ---
-class Shelf(Base):
-    __tablename__ = "shelfs"
-    id = Column(Integer, primary_key=True)
-    codigo_mod = Column(String(50), unique=True, nullable=False)
-    equipamento_id = Column(Integer, ForeignKey("equipamentos.id"), nullable=False)
-    equipamento = relationship("Equipamento", back_populates="shelfs")
 
-# --- NÍVEL 5: PORTA ---
-class Porta(Base):
-    __tablename__ = "portas"
-    id = Column(Integer, primary_key=True)
-    tipo_porta = Column(String(50))
-    estado_cv_porta = Column(String(50))
-    estado_op_porta = Column(String(50))
-    estado_pv_porta = Column(String(50))
-    equipamento_id = Column(Integer, ForeignKey("equipamentos.id"), nullable=False)
-    equipamento = relationship("Equipamento", back_populates="portas")
-
-# --- A ETIQUETA RFID (AGORA LIGADA AO EQUIPAMENTO) ---
+# --- A ETIQUETA RFID (AGORA LIGADA À INSTÂNCIA DO EQUIPAMENTO) ---
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)
     codigo_rfid = Column(String, unique=True, nullable=False, index=True)
+    
     equipamento_id = Column(Integer, ForeignKey("equipamentos.id"), unique=True, nullable=True)
     equipamento = relationship("Equipamento", back_populates="product")
+    
     inventory_entries = relationship("InventoryItem", back_populates="product")
 
 # --- MODELOS DO SISTEMA DE INVENTÁRIO (SNAPSHOTS) ---

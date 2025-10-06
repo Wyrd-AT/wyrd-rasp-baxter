@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Catálogo de Equipamentos{% endblock %}
+
+{% block content %}
+
+<style>
+  /* Garante scroll horizontal e largura guiada pelo conteúdo */
+  .list-container-full-width { overflow-x: auto; }
+
+  .list-container-full-width .data-table{
+    width: max-content;        /* deixa a tabela crescer além do container */
+    table-layout: auto;        /* colunas dimensionadas pelo conteúdo */
+    border-collapse: separate; /* evita “apertar” padding */
+  }
+
+  /* Células legíveis e sem quebra */
+  .data-table th, .data-table td{
+    white-space: nowrap;
+    padding: 12px 30px;
+    vertical-align: middle;
+  }
+
+  /* Evita cabeçalho com link estourar */
+  .data-table th a{ display:inline-block; text-decoration:none; color:inherit; }
+</style>
+
+<div class="content-header">
+    <h1>Catálogo de Equipamentos</h1>
+    <div class="header-actions">
+        <form method="get" action="{{ url_for('list_equipamentos') }}" class="search-bar">
+            <input type="text" name="search" placeholder="Pesquisar em todo o catálogo..." value="{{ current_filters.search or '' }}">
+            <button type="submit" class="icon-btn" title="Pesquisar">
+                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="list-container-full-width" style="overflow-x: auto;">
+    <table class="data-table">
+        <thead>
+            <tr>
+                {% set sort_order = 'asc' if current_filters.sort_by == 'nome_equip' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='nome_equip', order=sort_order) }}">HOSTNAME{% if current_filters.sort_by == 'nome_equip' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
+                
+                {% set sort_order = 'asc' if current_filters.sort_by == 'rfid' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='rfid', order=sort_order) }}">CÓDIGO RFID{% if current_filters.sort_by == 'rfid' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
+
+                {% set sort_order = 'asc' if current_filters.sort_by == 'modelo_nome' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='modelo_nome', order=sort_order) }}">NOME DO MODELO{% if current_filters.sort_by == 'modelo_nome' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
+
+                {% set sort_order = 'asc' if current_filters.sort_by == 'fabricante' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='fabricante', order=sort_order) }}">FABRICANTE{% if current_filters.sort_by == 'fabricante' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
+
+                {% set sort_order = 'asc' if current_filters.sort_by == 'modelo_pn' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='modelo_pn', order=sort_order) }}">MODELO (PART NO.){% if current_filters.sort_by == 'modelo_pn' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
+
+                <th>TECNOLOGIA</th>
+                <th>TIPO</th>
+                <th>ESTADO CV</th>
+                <th>ESTADO OP</th>
+
+                {% set sort_order = 'asc' if current_filters.sort_by == 'bastidor' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='bastidor', order=sort_order) }}">BASTIDOR (RACK){% if current_filters.sort_by == 'bastidor' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
+
+                {% set sort_order = 'asc' if current_filters.sort_by == 'localizacao' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='localizacao', order=sort_order) }}">LOCALIZAÇÃO{% if current_filters.sort_by == 'localizacao' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
+                
+                <th>MUNICÍPIO</th>
+                <th>UF</th>
+                <th>PISO</th>
+                <th>SALA</th>
+                <th>ENDEREÇO</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for equip in equipamentos %}
+            <tr>
+                <td><strong>{{ equip.nome_equip or '---' }}</strong></td>
+                <td><code>{{ equip.product.codigo_rfid if equip.product else '---' }}</code></td>
+                <td>{{ equip.equipamento_tipo.nome if equip.equipamento_tipo else '---' }}</td>
+                <td>{{ equip.equipamento_tipo.fabricante.nome if equip.equipamento_tipo and equip.equipamento_tipo.fabricante else '---' }}</td>
+                <td>{{ equip.equipamento_tipo.modelo if equip.equipamento_tipo else '---' }}</td>
+                <td>{{ equip.equipamento_tipo.tecnologia_equip if equip.equipamento_tipo else '---' }}</td>
+                <td>{{ equip.equipamento_tipo.tipo_equip if equip.equipamento_tipo else '---' }}</td>
+                <td>{{ equip.equipamento_tipo.estado_cv_equip if equip.equipamento_tipo else '---' }}</td>
+                <td>{{ equip.equipamento_tipo.estado_op_equip if equip.equipamento_tipo else '---' }}</td>
+                <td>{{ equip.bastidor.codigo_bast if equip.bastidor else '---' }}</td>
+                <td>{{ equip.bastidor.localizacao.nome if equip.bastidor and equip.bastidor.localizacao else '---' }}</td>
+                <td>{{ equip.bastidor.localizacao.municipio if equip.bastidor and equip.bastidor.localizacao else '---' }}</td>
+                <td>{{ equip.bastidor.localizacao.uf_abrv if equip.bastidor and equip.bastidor.localizacao else '---' }}</td>
+                <td>{{ equip.bastidor.localizacao.piso if equip.bastidor and equip.bastidor.localizacao else '---' }}</td>
+                <td>{{ equip.bastidor.localizacao.sala if equip.bastidor and equip.bastidor.localizacao else '---' }}</td>
+                <td>{{ equip.bastidor.localizacao.endereco_completo if equip.bastidor and equip.bastidor.localizacao else '---' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="16" class="muted">Nenhum equipamento encontrado.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% endblock %}
