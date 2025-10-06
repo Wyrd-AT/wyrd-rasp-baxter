@@ -1374,81 +1374,98 @@ def inventory_page(
     all_datacenters = db.query(DataCenter).order_by(DataCenter.id).all()
 
     if not datacenter_id and all_datacenters:
-        # Lógica de redirect (sem alterações)
         primeiro_dc_id = all_datacenters[0].id
         params = dict(request.query_params)
         params['datacenter_id'] = primeiro_dc_id
         redirect_url = request.url.replace(query=urlencode(params))
         return RedirectResponse(url=str(redirect_url))
 
-    # Busca o snapshot mais recente para o datacenter selecionado
-    snapshot_atual = db.query(InventorySnapshot)\
-        .filter(InventorySnapshot.datacenter_id == datacenter_id)\
-        .order_by(InventorySnapshot.created_on.desc()).first()
-
-    # Variáveis para passar ao template
-    itens_encontrados, itens_faltando, itens_novos = [], [], []
-    inventario_atual_formatado = []
+    # --- NOVA LÓGICA DE DECISÃO ---
+    snapshot_query = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == datacenter_id)
+    snapshot_count = snapshot_query.count()
     
-    # --- LÓGICA DA VISÃO "CURRENT" (Inventário Atual) ---
+    snapshots = snapshot_query.order_by(InventorySnapshot.created_on.desc()).limit(2).all()
+    snapshot_atual = snapshots[0] if snapshots else None
+    snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
+
+    # Variáveis para o template
+    inventario_atual_formatado = []
+    tabela_unificada = []
+    itens_encontrados, itens_faltando, itens_novos = [], [], []
+    comparison_mode = None # Informa ao template qual relatório mostrar
+
+    # --- Lógica da Visão "CURRENT" ---
     if view == "current" and snapshot_atual:
+        # (Esta parte não muda)
         itens_query = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
                         .join(InventoryItem, InventoryItem.product_id == Product.id)\
                         .outerjoin(Product.equipamento)\
                         .filter(InventoryItem.snapshot_id == snapshot_atual.id)\
                         .order_by(Product.codigo_rfid).all()
-        
         for codigo, nome_equip in itens_query:
-            inventario_atual_formatado.append({
-                "codigo_rfid": codigo,
-                "nome_equip": nome_equip or "Não associado",
-                "created_on": snapshot_atual.created_on
-            })
+            inventario_atual_formatado.append({ "codigo_rfid": codigo, "nome_equip": nome_equip or "Não associado", "created_on": snapshot_atual.created_on })
 
-    # --- NOVA LÓGICA DA VISÃO "COMPARISON" (Reconciliação Mestra) ---
-    elif view == "comparison" and datacenter_id:
-        # 1. Busca a "Verdade Absoluta": O que DEVERIA estar neste datacenter?
-        query_catalogo = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                           .join(Equipamento, Product.equipamento_id == Equipamento.id)\
-                           .join(Bastidor, Equipamento.bastidor_id == Bastidor.id)\
-                           .filter(Bastidor.localizacao_id == datacenter_id).all()
-        
-        mapa_catalogo = {codigo: nome for codigo, nome in query_catalogo}
-        set_catalogo = set(mapa_catalogo.keys())
+    # --- Lógica da Visão "COMPARISON" ---
+    elif view == "comparison":
+        # Cenário 1: Primeiro inventário -> Compara com o Catálogo Mestre
+        if snapshot_count <= 1 and snapshot_atual:
+            comparison_mode = "master"
+            # (Lógica de Reconciliação Mestra que já fizemos)
+            query_catalogo = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
+                               .join(Equipamento, Product.equipamento_id == Equipamento.id)\
+                               .join(Bastidor, Equipamento.bastidor_id == Bastidor.id)\
+                               .filter(Bastidor.localizacao_id == datacenter_id).all()
+            mapa_catalogo = {codigo: nome for codigo, nome in query_catalogo}
+            set_catalogo = set(mapa_catalogo.keys())
 
-        # 2. Busca a "Realidade": O que foi VISTO no último scan?
-        mapa_snapshot = {}
-        if snapshot_atual:
             query_snapshot = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
                                .join(InventoryItem, InventoryItem.product_id == Product.id)\
                                .outerjoin(Product.equipamento)\
                                .filter(InventoryItem.snapshot_id == snapshot_atual.id).all()
             mapa_snapshot = {codigo: (nome or "Não associado") for codigo, nome in query_snapshot}
-        
-        set_snapshot = set(mapa_snapshot.keys())
+            set_snapshot = set(mapa_snapshot.keys())
 
-        # 3. Compara os dois conjuntos
-        codigos_encontrados = set_catalogo.intersection(set_snapshot)
-        codigos_faltando = set_catalogo.difference(set_snapshot)
-        codigos_novos = set_snapshot.difference(set_catalogo)
+            codigos_encontrados = set_catalogo.intersection(set_snapshot)
+            codigos_faltando = set_catalogo.difference(set_snapshot)
+            codigos_novos = set_snapshot.difference(set_catalogo)
 
-        # 4. Formata as listas para o template
-        itens_encontrados = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_encontrados))]
-        itens_faltando = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_faltando))]
-        itens_novos = [{"codigo_rfid": c, "nome_equip": mapa_snapshot[c]} for c in sorted(list(codigos_novos))]
+            itens_encontrados = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_encontrados))]
+            itens_faltando = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_faltando))]
+            itens_novos = [{"codigo_rfid": c, "nome_equip": mapa_snapshot[c]} for c in sorted(list(codigos_novos))]
 
+        # Cenário 2: Inventários seguintes -> Compara com o Snapshot Anterior
+        elif snapshot_count > 1 and snapshot_atual and snapshot_anterior:
+            comparison_mode = "snapshot"
+            # (Esta é a lógica original de comparação entre dois snapshots)
+            def get_data_from_snapshot(snapshot_id):
+                items = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
+                          .join(InventoryItem, InventoryItem.product_id == Product.id)\
+                          .outerjoin(Product.equipamento)\
+                          .filter(InventoryItem.snapshot_id == snapshot_id).all()
+                return {codigo: (nome or "Não associado") for codigo, nome in items}
+
+            map_atual = get_data_from_snapshot(snapshot_atual.id)
+            map_anterior = get_data_from_snapshot(snapshot_anterior.id)
+            
+            set_atual = set(map_atual.keys())
+            set_anterior = set(map_anterior.keys())
+            todos_codigos = sorted(list(set_atual | set_anterior))
+            
+            for codigo in todos_codigos:
+                status = "Mantido"
+                if codigo in set_atual and codigo not in set_anterior: status = "Adicionado"
+                elif codigo not in set_atual and codigo in set_anterior: status = "Deletado"
+                tabela_unificada.append({ "codigo_rfid": codigo, "item_atual": map_atual.get(codigo, "---"), "item_anterior": map_anterior.get(codigo, "---"), "status": status })
 
     rfid_serial_port = settings.get('serial_port', 'Não configurada')
 
     return templates.TemplateResponse("inventario_list.html", {
         "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
-        "inventario_atual": inventario_atual_formatado,
-        "snapshot_atual": snapshot_atual,
-        "current_view": view,
-        "rfid_serial_port": rfid_serial_port,
-        "itens_encontrados": itens_encontrados,
-        "itens_faltando": itens_faltando,
-        "itens_novos": itens_novos,
+        "inventario_atual": inventario_atual_formatado, "tabela_unificada": tabela_unificada,
+        "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior,
+        "current_view": view, "rfid_serial_port": rfid_serial_port,
+        "itens_encontrados": itens_encontrados, "itens_faltando": itens_faltando,
+        "itens_novos": itens_novos, "comparison_mode": comparison_mode
     })
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")
@@ -1653,8 +1670,14 @@ def create_localizacao(dc_in: DataCenterCreate, db: Session = Depends(get_db)):
 
 # --- API para Bastidores (Racks) ---
 @app.get("/api/bastidores", response_model=List[BastidorSchema])
-def list_bastidores(db: Session = Depends(get_db)):
-    return db.query(Bastidor).order_by(Bastidor.codigo_bast).all()
+def list_bastidores(
+    db: Session = Depends(get_db),
+    localizacao_id: Optional[int] = Query(None) # NOVO: Parâmetro de filtro
+):
+    query = db.query(Bastidor).order_by(Bastidor.codigo_bast)
+    if localizacao_id:
+        query = query.filter(Bastidor.localizacao_id == localizacao_id)
+    return query.all()
 
 @app.post("/api/bastidores", response_model=BastidorSchema, status_code=status.HTTP_201_CREATED)
 def create_bastidor(bastidor_in: BastidorCreate, db: Session = Depends(get_db)):
@@ -1773,14 +1796,29 @@ def list_equipamentos(
     db: Session = Depends(get_db),
     search: Optional[str] = Query(None),
     sort_by: Optional[str] = Query("nome_equip"),
-    order: Optional[str] = Query("asc")
+    order: Optional[str] = Query("asc"),
+    # --- MUDANÇA 1: Alterado o tipo de 'int' para 'str' para aceitar valores vazios ---
+    filter_localizacao_id: Optional[str] = Query(None),
+    filter_modelo_id: Optional[str] = Query(None),
+    filter_bastidor_id: Optional[str] = Query(None)
 ):
-    """ Exibe a lista completa e detalhada de todos os equipamentos cadastrados. """
     query = db.query(Equipamento).options(
         joinedload(Equipamento.product),
-        joinedload(Equipamento.equipamento_tipo).joinedload(EquipamentoTipo.fabricante), # Join corrigido
+        joinedload(Equipamento.equipamento_tipo).joinedload(EquipamentoTipo.fabricante),
         joinedload(Equipamento.bastidor).joinedload(Bastidor.localizacao)
     )
+
+    localizacao_id_int = int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None
+    modelo_id_int = int(filter_modelo_id) if filter_modelo_id and filter_modelo_id.isdigit() else None
+    bastidor_id_int = int(filter_bastidor_id) if filter_bastidor_id and filter_bastidor_id.isdigit() else None
+
+    if localizacao_id_int:
+        query = query.join(Equipamento.bastidor).filter(Bastidor.localizacao_id == localizacao_id_int)
+    if modelo_id_int:
+        query = query.filter(Equipamento.equipamento_tipo_id == modelo_id_int)
+    if bastidor_id_int:
+        query = query.filter(Equipamento.bastidor_id == bastidor_id_int)
+
 
     # Lógica de busca atualizada
     if search:
@@ -1818,10 +1856,29 @@ def list_equipamentos(
 
     equipamentos = query.all()
 
+    all_localizacoes = db.query(DataCenter).order_by(DataCenter.nome).all()
+    all_modelos = db.query(EquipamentoTipo).order_by(EquipamentoTipo.nome).all()
+
+    # --- MUDANÇA IMPORTANTE AQUI ---
+    # A lista de bastidores agora é filtrada pela localização, se houver uma selecionada
+    bastidores_query = db.query(Bastidor).order_by(Bastidor.codigo_bast)
+    if localizacao_id_int:
+        bastidores_query = bastidores_query.filter(Bastidor.localizacao_id == localizacao_id_int)
+    all_bastidores = bastidores_query.all()
+    
+    current_filters = {
+        "localizacao_id": localizacao_id_int,
+        "modelo_id": modelo_id_int,
+        "bastidor_id": bastidor_id_int
+    }
+
     return templates.TemplateResponse("equipamentos_list.html", {
         "request": request,
         "equipamentos": equipamentos,
-        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
+        "current_filters": current_filters,
+        "all_localizacoes": all_localizacoes,
+        "all_modelos": all_modelos,
+        "all_bastidores": all_bastidores,
     })
 
 @app.on_event("startup")

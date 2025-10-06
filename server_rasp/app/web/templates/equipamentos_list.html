@@ -21,6 +21,12 @@
     vertical-align: middle;
   }
 
+  .data-table th:first-child,
+    .data-table td:first-child{
+    padding-inline: 30px;   /* antes era 20px */
+    padding-block: 12px;    /* antes era 12px (se quiser) */
+    }
+
   /* Evita cabeçalho com link estourar */
   .data-table th a{ display:inline-block; text-decoration:none; color:inherit; }
 </style>
@@ -29,13 +35,39 @@
     <h1>Catálogo de Equipamentos</h1>
     <div class="header-actions">
         <form method="get" action="{{ url_for('list_equipamentos') }}" class="search-bar">
-            <input type="text" name="search" placeholder="Pesquisar em todo o catálogo..." value="{{ current_filters.search or '' }}">
-            <button type="submit" class="icon-btn" title="Pesquisar">
-                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
-            </button>
+            <input type="text" name="search" placeholder="Pesquisar..." value="{{ current_filters.search or '' }}">
+            <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
     </div>
 </div>
+
+<form class="filters-toolbar" id="filters-form" method="get" action="{{ url_for('list_equipamentos') }}">
+    <div class="filter-group-left">
+        <select name="filter_localizacao_id" id="filter_localizacao" class="filter-dropdown-main">
+            <option value="">Todas as Localizações</option>
+            {% for loc in all_localizacoes %}
+            <option value="{{ loc.id }}" {% if current_filters.localizacao_id == loc.id %}selected{% endif %}>{{ loc.nome }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group-right">
+        <select name="filter_modelo_id" class="filter-btn" onchange="this.form.submit()">
+            <option value="">Todos os Modelos</option>
+             {% for mod in all_modelos %}
+            <option value="{{ mod.id }}" {% if current_filters.modelo_id == mod.id %}selected{% endif %}>{{ mod.nome }}</option>
+            {% endfor %}
+        </select>
+        <select name="filter_bastidor_id" id="filter_bastidor" class="filter-btn" onchange="this.form.submit()">
+            <option value="">Todos os Bastidores</option>
+             {% for b in all_bastidores %}
+            <option value="{{ b.id }}" {% if current_filters.bastidor_id == b.id %}selected{% endif %}>{{ b.codigo_bast }}</option>
+            {% endfor %}
+        </select>
+        <a href="{{ url_for('list_equipamentos') }}" class="filter-reset-btn" title="Limpar Filtros">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/reiniciar.svg') }})"></span>
+        </a>
+    </div>
+</form>
 
 <div class="list-container-full-width" style="overflow-x: auto;">
     <table class="data-table">
@@ -106,4 +138,23 @@
 
 {% block scripts %}
 {{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const localizacaoFilter = document.getElementById('filter_localizacao');
+    const bastidorFilter = document.getElementById('filter_bastidor');
+    const filtersForm = document.getElementById('filters-form');
+
+    localizacaoFilter.addEventListener('change', async function() {
+        const localizacaoId = this.value;
+        
+        // Limpa o filtro de bastidor antes de submeter o formulário
+        // para evitar enviar um ID de bastidor que não pertence à nova localização
+        bastidorFilter.value = "";
+
+        // Submete o formulário para recarregar a página com a localização filtrada
+        // e a lista de bastidores correta.
+        filtersForm.submit();
+    });
+});
+</script>
 {% endblock %}

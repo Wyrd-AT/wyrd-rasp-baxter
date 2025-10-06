@@ -49,57 +49,95 @@
 </div>
 
 {% if current_view == 'comparison' %}
-<div class="list-container-full-width">
-    <div class="list-header">
-        <h3>Relatório de Reconciliação</h3>
-        <div class="muted">
-            {% if snapshot_atual %}
-                Comparando o Catálogo Mestre com o último scan de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m/%Y %H:%M") }}</strong>.
-            {% else %}
-                Nenhum scan foi realizado neste datacenter para comparação.
-            {% endif %}
+
+    {# --- NOVO: Lógica para decidir qual relatório mostrar --- #}
+
+    {# Relatório 1: Comparação Mestra (para o primeiro scan) #}
+    {% if comparison_mode == 'master' %}
+        <div class="list-container-full-width">
+            <div class="list-header">
+                <h3>Relatório de Auditoria Inicial (vs. Catálogo Mestre)</h3>
+                <div class="muted">
+                    {% if snapshot_atual %}
+                        Comparando o Catálogo Mestre com o primeiro scan de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m/%Y %H:%M") }}</strong>.
+                    {% else %}
+                        Nenhum scan foi realizado neste datacenter para comparação.
+                    {% endif %}
+                </div>
+            </div>
+            <h4 style="margin-top: 2rem; color: #dc3545;">✖ Itens Faltando ({{ itens_faltando|length }})</h4>
+            <table class="data-table">
+                <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
+                <tbody>
+                    {% for item in itens_faltando %}
+                    <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
+                    {% else %}
+                    <tr><td colspan="2" class="muted">Nenhum item faltando.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <h4 style="margin-top: 2rem; color: #0d6efd;">? Itens Novos / Não Catalogados ({{ itens_novos|length }})</h4>
+            <table class="data-table">
+                <thead><tr><th>NOME (SE ASSOCIADO)</th><th>CÓDIGO RFID</th></tr></thead>
+                <tbody>
+                    {% for item in itens_novos %}
+                    <tr><td>{{ item.nome_equip }}</td><td><code>{{ item.codigo_rfid }}</code></td></tr>
+                    {% else %}
+                    <tr><td colspan="2" class="muted">Nenhum item novo encontrado.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <h4 style="margin-top: 2rem; color: #198754;">✔ Itens Encontrados ({{ itens_encontrados|length }})</h4>
+            <table class="data-table">
+                <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
+                <tbody>
+                    {% for item in itens_encontrados %}
+                    <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
+                    {% else %}
+                    <tr><td colspan="2" class="muted">Nenhum item esperado foi encontrado.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-    </div>
 
-    <h4 style="margin-top: 2rem; color: #dc3545;">✖ Itens Faltando ({{ itens_faltando|length }})</h4>
-    <p class="muted" style="margin-top: -0.5rem;">Estes itens estão no catálogo para este local, mas não foram encontrados no último scan.</p>
-    <table class="data-table">
-        <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
-        <tbody>
-            {% for item in itens_faltando %}
-            <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-            {% else %}
-            <tr><td colspan="2" class="muted">Nenhum item faltando.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    {# Relatório 2: Comparação de Rotina (entre snapshots) #}
+    {% elif comparison_mode == 'snapshot' %}
+        <div class="list-container-full-width">
+            <div class="list-header">
+                <h3>Comparativo de Rotina (entre scans)</h3>
+                <div class="muted">
+                    Comparando o scan de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o scan anterior de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
+                </div>
+            </div>
+            <table class="data-table">
+                <thead><tr><th>ITEM ATUAL</th><th>ITEM ANTERIOR</th><th>MUDANÇA</th></tr></thead>
+                <tbody>
+                    {% for row in tabela_unificada %} 
+                    <tr>
+                        <td>{{ row.item_atual }}</td>
+                        <td>{{ row.item_anterior }}</td>
+                        <td style="font-weight: 500;">
+                            {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span> 
+                            {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span> 
+                            {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %} 
+                        </td>
+                    </tr>
+                    {% else %} 
+                    <tr><td colspan="3" class="muted">Nenhum item para comparar.</td></tr> 
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    
+    {% else %}
+        <div class="list-container-full-width">
+            <div class="list-header">
+                <h3>Relatório de Comparação</h3>
+                <p class="muted">Realize um inventário neste datacenter para gerar um relatório de comparação.</p>
+            </div>
+        </div>
+    {% endif %}
 
-    <h4 style="margin-top: 2rem; color: #0d6efd;">? Itens Novos / Não Catalogados ({{ itens_novos|length }})</h4>
-    <p class="muted" style="margin-top: -0.5rem;">Estes itens foram encontrados no scan, mas não constam no catálogo mestre para este local.</p>
-    <table class="data-table">
-        <thead><tr><th>NOME (SE ASSOCIADO)</th><th>CÓDIGO RFID</th></tr></thead>
-        <tbody>
-            {% for item in itens_novos %}
-            <tr><td>{{ item.nome_equip }}</td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-            {% else %}
-            <tr><td colspan="2" class="muted">Nenhum item novo ou não catalogado encontrado.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-    <h4 style="margin-top: 2rem; color: #198754;">✔ Itens Encontrados ({{ itens_encontrados|length }})</h4>
-    <p class="muted" style="margin-top: -0.5rem;">Estes itens constam no catálogo e foram corretamente identificados no último scan.</p>
-    <table class="data-table">
-        <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
-        <tbody>
-            {% for item in itens_encontrados %}
-            <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-            {% else %}
-            <tr><td colspan="2" class="muted">Nenhum item esperado foi encontrado.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
 {% endif %}
 
 {% if current_view == 'current' %}
