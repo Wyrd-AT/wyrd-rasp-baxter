@@ -450,88 +450,130 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+Peço desculpas! Você está coberto de razão. Minha resposta anterior foi um passo à frente do que você precisava. Nós pulamos a etapa de fazer a funcionalidade atual funcionar perfeitamente.
+
+Vamos focar 100% em resolver o problema do botão "Ler Tag Única". Sua pergunta "Como vou saber se tá dando certo ou não?" é o ponto central: a interface não está te dando o feedback visual necessário.
+
+Quando você clica e "nada acontece", pode ser por vários motivos: um erro silencioso no JavaScript, uma falha na conexão com o backend, ou o backend não conseguindo falar com a pistola. Vamos adicionar um feedback claro para cada uma dessas etapas.
+
+Depurando o Botão "Ler Tag Única" - Passo a Passo
+
+Passo 1: A Ferramenta Mais Importante: O Console do Navegador
+
+Para descobrirmos o que está acontecendo, vamos usar o "Console" do navegador. Ele é como o terminal de logs do seu backend, mas para o frontend.
+
+    Como abrir: Em qualquer lugar da página, pressione a tecla F12. Uma nova janela de ferramentas vai abrir. Procure e clique na aba chamada "Console". É aqui que vamos ver as mensagens de status e erros do nosso script.
+
+Passo 2: O Novo Script com Feedback Visual e Logs
+
+Vamos substituir o script de leitura única que fizemos por uma versão muito mais "falante". Ela vai atualizar o botão e o texto de status de forma agressiva, além de imprimir mensagens detalhadas no console que abrimos.
+
+Arquivo a ser modificado: app/web/templates/catalogo.html
+
+No final do seu arquivo, encontre o bloco <script> que começa com `` e substitua-o inteiramente por este novo código:
+HTML
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     // --- Variáveis para a Leitura Única ---
     const readBtn = document.getElementById('read-single-tag-btn');
     const rfidInput = document.getElementById('codigo-rfid-input');
     const statusDiv = document.getElementById('single-read-status');
-    let rfidSocket = null; // A conexão será iniciada quando o modal abrir
+    let rfidSocket = null;
 
     // --- Lógica de Conexão WebSocket ---
     function connectRfidScannerSocket() {
-        // Se já existe uma conexão aberta, não faz nada
         if (rfidSocket && rfidSocket.readyState === WebSocket.OPEN) {
+            console.log("[RFID Single Read] Conexão já está aberta.");
             return;
         }
+
+        console.log("[RFID Single Read] Tentando conectar ao WebSocket /ws/rfid...");
+        statusDiv.textContent = "Conectando ao leitor...";
+        statusDiv.style.color = '#6c757d';
+        readBtn.disabled = true;
 
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
 
         rfidSocket.onopen = () => {
-            console.log("Conexão para Leitura Única de RFID estabelecida.");
+            console.log("[RFID Single Read] SUCESSO: Conexão WebSocket estabelecida.");
             statusDiv.textContent = "Leitor pronto.";
-            statusDiv.style.color = '#6c757d'; // Cor padrão
             readBtn.disabled = false;
         };
 
         rfidSocket.onmessage = (event) => {
+            console.log("[RFID Single Read] MENSAGEM RECEBIDA:", event.data);
             const data = JSON.parse(event.data);
             
-            // Mensagem de que uma tag foi lida com sucesso
+            readBtn.disabled = false; // Reabilita o botão após receber uma resposta
+            readBtn.textContent = 'Ler Tag Única';
+
             if (data.type === 'tag_scanned') {
-                rfidInput.value = data.tag_id; // Preenche o campo de texto!
-                statusDiv.textContent = `Tag encontrada: ${data.tag_id}`;
-                statusDiv.style.color = '#28a745'; // Verde para sucesso
-                readBtn.disabled = false;
-                readBtn.textContent = 'Ler Novamente';
-            }
-            // Mensagem de status ou erro do backend
-            else if (data.type === 'scan_status' || data.type === 'scan_error' || data.type === 'hardware_error') {
-                statusDiv.textContent = data.message;
-                statusDiv.style.color = '#dc3545'; // Vermelho para erro
-                readBtn.disabled = false;
-                readBtn.textContent = 'Tentar Novamente';
+                rfidInput.value = data.tag_id;
+                statusDiv.textContent = `SUCESSO! Tag encontrada: ${data.tag_id}`;
+                statusDiv.style.color = '#28a745'; // Verde
+            } else if (data.type === 'scan_status' && data.message.toLowerCase().includes('finalizada')) {
+                // Se a sessão termina sem ler tag (ex: timeout no backend)
+                if (rfidInput.value === '') { // Só mostra erro se não encontrou nada
+                    statusDiv.textContent = "Nenhuma tag encontrada. Tente novamente.";
+                    statusDiv.style.color = '#dc3545'; // Vermelho
+                }
+            } else if (data.type === 'scan_error' || data.type === 'hardware_error') {
+                statusDiv.textContent = `ERRO: ${data.message}`;
+                statusDiv.style.color = '#dc3545'; // Vermelho
             }
         };
 
+        rfidSocket.onerror = (error) => {
+            console.error("[RFID Single Read] ERRO na conexão WebSocket:", error);
+            statusDiv.textContent = "Erro na conexão com o servidor.";
+            statusDiv.style.color = '#dc3545';
+            readBtn.disabled = true;
+        };
+
         rfidSocket.onclose = () => {
-            console.log("Conexão para Leitura Única de RFID fechada.");
+            console.warn("[RFID Single Read] Conexão WebSocket fechada.");
             statusDiv.textContent = "Leitor desconectado.";
             readBtn.disabled = true;
+            rfidSocket = null; // Limpa a variável para permitir reconexão
         };
     }
 
     // --- Controle do Botão ---
-
-    // Ouve o botão de abrir o modal principal de cadastro
     const openMainModalBtn = document.getElementById('open-cadastro-modal-btn');
-    openMainModalBtn.addEventListener('click', () => {
-        // Inicia a conexão do scanner SÓ QUANDO o usuário abre o modal de cadastro
-        connectRfidScannerSocket();
-    });
-
-    // Evento de clique no botão "Ler Tag Única"
-    readBtn.addEventListener('click', () => {
-        if (!rfidSocket || rfidSocket.readyState !== WebSocket.OPEN) {
-            alert("A conexão com o leitor não está ativa. Tentando reconectar...");
+    if (openMainModalBtn) {
+        openMainModalBtn.addEventListener('click', () => {
+            console.log("[RFID Single Read] Modal de cadastro aberto. Iniciando conexão com o leitor.");
             connectRfidScannerSocket();
-            return;
-        }
+        });
+    }
 
-        // Prepara a UI para a leitura
-        readBtn.disabled = true;
-        readBtn.textContent = 'Lendo...';
-        statusDiv.textContent = "Aproxime a tag e aguarde...";
-        statusDiv.style.color = '#0466C8'; // Azul para "em progresso"
-        rfidInput.value = '';
+    if(readBtn) {
+        readBtn.addEventListener('click', () => {
+            console.log("[RFID Single Read] Botão 'Ler Tag Única' clicado.");
+            if (!rfidSocket || rfidSocket.readyState !== WebSocket.OPEN) {
+                console.warn("[RFID Single Read] Tentando ler, mas socket não está aberto. Tentando reconectar...");
+                statusDiv.textContent = "Reconectando ao leitor...";
+                connectRfidScannerSocket();
+                return;
+            }
 
-        // Envia o comando para o backend com o MODO SINGLE
-        rfidSocket.send(JSON.stringify({
-            action: "start_scan",
-            mode: "single" // A chave para a nova funcionalidade!
-        }));
-    });
+            readBtn.disabled = true;
+            readBtn.textContent = 'Lendo...';
+            statusDiv.textContent = "Aproxime a tag da pistola e aguarde...";
+            statusDiv.style.color = '#0466C8'; // Azul
+            rfidInput.value = '';
+
+            const command = {
+                action: "start_scan",
+                mode: "single"
+            };
+
+            console.log("[RFID Single Read] Enviando comando para o backend:", command);
+            rfidSocket.send(JSON.stringify(command));
+        });
+    }
 });
 </script>
 {% endblock %}
