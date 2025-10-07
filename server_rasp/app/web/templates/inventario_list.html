@@ -14,31 +14,32 @@
     <div class="filters-toolbar">
         <div class="filter-group-left">
             <form id="datacenter-form" method="get" action="{{ url_for('list_inventario') }}">
+                <input type="hidden" name="view" value="{{ current_view }}">
                 <select name="datacenter_id" id="datacenter-select" class="filter-dropdown-main" onchange="this.form.submit()">
                     {% for dc in all_datacenters %}
-                    <option value="{{ dc.id }}" {% if current_dc_id and dc.id == current_dc_id|int %}selected{% endif %}>
-                        {{ dc.nome }}
-                    </option>
+                    <option value="{{ dc.id }}" {% if current_dc_id and dc.id == current_dc_id|int %}selected{% endif %}>{{ dc.nome }}</option>
                     {% endfor %}
                 </select>
             </form>
         </div>
     </div>
     <div class="view-toggle">
-        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=comparison" class="btn-toggle {% if current_view == 'comparison' %}active{% endif %}">Comparativo</a>
         <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=current" class="btn-toggle {% if current_view == 'current' %}active{% endif %}">Inventário Atual</a>
+        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=master_audit" class="btn-toggle {% if current_view == 'master_audit' %}active{% endif %}">Auditoria Mestra</a>
+        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=snapshot_comparison" class="btn-toggle {% if current_view == 'snapshot_comparison' %}active{% endif %}">Comparativo de Scans</a>
     </div>
 </div>
 
 <div class="form-card" style="margin-top: 1.5rem;">
     <h3>Leitura por Pistola RFID</h3>
-    <span style="font-size: 0.8rem; color: #6c757d; font-weight: 500; background-color: #f1f3f5; padding: 2px 6px; border-radius: 4px;"
-          title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
-        Porta: {{ rfid_serial_port }}
-    </span>
-    <button type="button" id="check-reader-status-btn" class="btn-secondary btn-sm">Verificar Leitor</button>
-    <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
-
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 0.8rem; color: #6c757d; font-weight: 500; background-color: #f1f3f5; padding: 2px 6px; border-radius: 4px;"
+              title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
+            Porta: {{ rfid_serial_port }}
+        </span>
+        <button type="button" id="check-reader-status-btn" class="btn-secondary btn-sm">Verificar Leitor</button>
+    </div>
+    <div id="scan-status" class="muted" style="margin-bottom: 10px; margin-top: 5px;">Status: Ocioso</div>
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
@@ -50,123 +51,62 @@
     </div>
 </div>
 
-{% if current_view == 'comparison' %}
-
-    {# --- NOVO: Lógica para decidir qual relatório mostrar --- #}
-
-    {# Relatório 1: Comparação Mestra (para o primeiro scan) #}
-    {% if comparison_mode == 'master' %}
-        <div class="list-container-full-width">
-            <div class="list-header">
-                <h3>Relatório de Auditoria Inicial (vs. Catálogo Mestre)</h3>
-                <div class="muted">
-                    {% if snapshot_atual %}
-                        Comparando o Catálogo Mestre com o primeiro scan de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m/%Y %H:%M") }}</strong>.
-                    {% else %}
-                        Nenhum scan foi realizado neste datacenter para comparação.
-                    {% endif %}
-                </div>
-            </div>
-            <h4 style="margin-top: 2rem; color: #dc3545;">✖ Itens Faltando ({{ itens_faltando|length }})</h4>
-            <table class="data-table">
-                <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
-                <tbody>
-                    {% for item in itens_faltando %}
-                    <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-                    {% else %}
-                    <tr><td colspan="2" class="muted">Nenhum item faltando.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <h4 style="margin-top: 2rem; color: #0d6efd;">? Itens Novos / Não Catalogados ({{ itens_novos|length }})</h4>
-            <table class="data-table">
-                <thead><tr><th>NOME (SE ASSOCIADO)</th><th>CÓDIGO RFID</th></tr></thead>
-                <tbody>
-                    {% for item in itens_novos %}
-                    <tr><td>{{ item.nome_equip }}</td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-                    {% else %}
-                    <tr><td colspan="2" class="muted">Nenhum item novo encontrado.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <h4 style="margin-top: 2rem; color: #198754;">✔ Itens Encontrados ({{ itens_encontrados|length }})</h4>
-            <table class="data-table">
-                <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
-                <tbody>
-                    {% for item in itens_encontrados %}
-                    <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-                    {% else %}
-                    <tr><td colspan="2" class="muted">Nenhum item esperado foi encontrado.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-    {# Relatório 2: Comparação de Rotina (entre snapshots) #}
-    {% elif comparison_mode == 'snapshot' %}
-        <div class="list-container-full-width">
-            <div class="list-header">
-                <h3>Comparativo de Rotina (entre scans)</h3>
-                <div class="muted">
-                    Comparando o scan de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o scan anterior de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
-                </div>
-            </div>
-            <table class="data-table">
-                <thead><tr><th>ITEM ATUAL</th><th>ITEM ANTERIOR</th><th>MUDANÇA</th></tr></thead>
-                <tbody>
-                    {% for row in tabela_unificada %} 
-                    <tr>
-                        <td>{{ row.item_atual }}</td>
-                        <td>{{ row.item_anterior }}</td>
-                        <td style="font-weight: 500;">
-                            {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span> 
-                            {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span> 
-                            {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %} 
-                        </td>
-                    </tr>
-                    {% else %} 
-                    <tr><td colspan="3" class="muted">Nenhum item para comparar.</td></tr> 
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    
-    {% else %}
-        <div class="list-container-full-width">
-            <div class="list-header">
-                <h3>Relatório de Comparação</h3>
-                <p class="muted">Realize um inventário neste datacenter para gerar um relatório de comparação.</p>
-            </div>
-        </div>
-    {% endif %}
-
-{% endif %}
+<hr style="margin: 2rem 0;">
 
 {% if current_view == 'current' %}
 <div class="list-container-full-width">
-    <div class="list-header">
-        <h3>Inventário Atual ({{ count_atual }})</h3>
-        {% if snapshot_atual %}<div class="muted">Realizado em {{ snapshot_atual.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") }}</div>{% endif %}
-    </div>
+    <div class="list-header"><h3>Último Scan Realizado</h3></div>
     <table class="data-table">
-        <thead>
-            <tr>
-                <th>CÓDIGO RFID</th>
-                <th>EQUIPAMENTO ASSOCIADO</th>
-                <th>DATA DE CRIAÇÃO</th> 
-            </tr>
-        </thead>
+        <thead><tr><th>CÓDIGO RFID</th><th>EQUIPAMENTO ASSOCIADO</th><th>DATA DO SCAN</th></tr></thead>
         <tbody>
             {% for row in inventario_atual %}
-            <tr>
-                <td><code>{{ row.codigo_rfid }}</code></td> 
-                <td>{{ row.tipo }}</td> <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td> 
-            </tr>
+            <tr><td><code>{{ row.codigo_rfid }}</code></td><td>{{ row.nome_equip }}</td><td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td></tr>
             {% else %}
-            <tr><td colspan="3" class="muted">Nenhum item no inventário atual.</td></tr>
+            <tr><td colspan="3" class="muted">Nenhum scan encontrado para este datacenter.</td></tr>
             {% endfor %}
         </tbody>
     </table>
+</div>
+
+{% elif current_view == 'master_audit' %}
+<div class="list-container-full-width">
+    <div class="list-header"><h3>Relatório de Auditoria (Último Scan vs. Catálogo Mestre)</h3></div>
+    <h4 style="margin-top: 1.5rem;">✖ Itens Faltando ({{ itens_faltando|length }})</h4>
+    <table class="data-table">
+        <thead><tr><th>HOSTNAME</th><th>CÓDIGO RFID</th></tr></thead><tbody>
+        {% for item in itens_faltando %}<tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>{% else %}<tr><td colspan="2" class="muted">Nenhum.</td></tr>{% endfor %}
+    </tbody></table>
+    <h4 style="margin-top: 1.5rem;">? Itens Novos / Não Catalogados ({{ itens_novos|length }})</h4>
+    <table class="data-table">
+        <thead><tr><th>NOME (SE ASSOCIADO)</th><th>CÓDIGO RFID</th></tr></thead><tbody>
+        {% for item in itens_novos %}<tr><td>{{ item.nome_equip }}</td><td><code>{{ item.codigo_rfid }}</code></td></tr>{% else %}<tr><td colspan="2" class="muted">Nenhum.</td></tr>{% endfor %}
+    </tbody></table>
+    <h4 style="margin-top: 1.5rem;">✔ Itens Encontrados ({{ itens_encontrados|length }})</h4>
+    <table class="data-table">
+        <thead><tr><th>HOSTNAME</th><th>CÓDIGO RFID</th></tr></thead><tbody>
+        {% for item in itens_encontrados %}<tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>{% else %}<tr><td colspan="2" class="muted">Nenhum.</td></tr>{% endfor %}
+    </tbody></table>
+</div>
+
+{% elif current_view == 'snapshot_comparison' %}
+<div class="list-container-full-width">
+    <div class="list-header"><h3>Comparativo de Rotina (Último Scan vs. Scan Anterior)</h3></div>
+    {% if snapshot_anterior %}
+        <table class="data-table">
+            <thead><tr><th>ITEM ATUAL</th><th>ITEM ANTERIOR</th><th>MUDANÇA</th></tr></thead>
+            <tbody>
+                {% for row in comparativo_snapshots %} 
+                <tr>
+                    <td>{{ row.item_atual }}</td><td>{{ row.item_anterior }}</td><td style="font-weight: 500;">
+                        <span>{{ row.status }}</span>
+                    </td>
+                </tr>
+                {% else %}<tr><td colspan="3" class="muted">Nenhuma mudança detectada.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="muted" style="margin-top: 1rem;">É necessário ter pelo menos dois scans neste datacenter para gerar este comparativo.</p>
+    {% endif %}
 </div>
 {% endif %}
 
@@ -177,18 +117,21 @@
 {{ super() }}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    // Script da Pistola RFID
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
     const cancelBtn = document.getElementById('cancel-scan-btn'); 
-    const checkBtn = document.getElementById('check-reader-status-btn')
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
     const countSpan = document.getElementById('scanned-tags-count');
+    const checkBtn = document.getElementById('check-reader-status-btn');
     let scannedTagsCount = 0;
 
     function resetScanUI() {
         statusDiv.textContent = "Status: Conectado e pronto.";
+        statusDiv.style.color = '#6c757d';
+        statusDiv.style.fontWeight = 'normal';
         tagsListDiv.innerHTML = '<div class="muted">Aguardando início da leitura...</div>';
         scannedTagsCount = 0;
         countSpan.textContent = `(0)`;
@@ -201,33 +144,22 @@ document.addEventListener('DOMContentLoaded', function () {
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
         
-        rfidSocket.onopen = () => { resetScanUI(); checkBtn.disabled = false;};
+        rfidSocket.onopen = () => { resetScanUI(); checkBtn.disabled = false; };
         rfidSocket.onclose = () => { 
             statusDiv.textContent = "Status: Desconectado. Recarregue a página.";
-            startBtn.disabled = true; 
-            stopBtn.disabled = true; 
-            checkBtn.disabled = true;
-            cancelBtn.disabled = true;
+            startBtn.disabled = true; stopBtn.disabled = true; cancelBtn.disabled = true; checkBtn.disabled = true;
         };
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === 'reader_status') {
                 statusDiv.textContent = data.message;
-                statusDiv.style.color = data.status === 'OK' ? '#198754' : '#dc3545';
+                statusDiv.style.color = data.status === 'OK' ? '#198754' : '#333';
                 statusDiv.style.fontWeight = data.status === 'ERROR' ? 'bold' : 'normal';
-            }
-            if (data.type === 'hardware_error') {
-                statusDiv.textContent = data.message;
-                statusDiv.style.color = '#dc3545';
-                statusDiv.style.fontWeight = 'bold';
-                startBtn.disabled = true; stopBtn.disabled = true; cancelBtn.disabled = true;
-                return;
             }
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
                 if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelada")) {
                     resetScanUI();
-                    statusDiv.textContent = "Status: Conectado e pronto.";
                 }
             }
             if (data.type === 'tag_scanned') {
@@ -239,28 +171,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 countSpan.textContent = `(${scannedTagsCount})`;
             }
         };
-        
+
         checkBtn.addEventListener('click', () => {
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 rfidSocket.send(JSON.stringify({ action: "check_health" }));
             }
         });
-
         startBtn.addEventListener('click', () => {
             const datacenterId = dcSelect.value;
             if (!datacenterId) { alert("Por favor, selecione um datacenter primeiro."); return; }
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 scannedTagsCount = 0;
                 countSpan.textContent = `(0)`;
-                rfidSocket.send(JSON.stringify({ action: "start_scan", datacenter_id: parseInt(datacenterId) }));
-                statusDiv.textContent = "Status: Iniciando...";
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
-                cancelBtn.disabled = false; 
-                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
-            } else { alert("Erro: Conexão com o servidor de scan não está aberta."); }
+                rfidSocket.send(JSON.stringify({ action: "start_scan", mode: 'multiple', datacenter_id: parseInt(datacenterId) }));
+                startBtn.disabled = true; stopBtn.disabled = false; cancelBtn.disabled = false; 
+                tagsListDiv.innerHTML = '';
+            }
         });
-
         stopBtn.addEventListener('click', () => {
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 rfidSocket.send(JSON.stringify({ action: "stop_scan", datacenter_id: parseInt(dcSelect.value) }));
@@ -272,6 +199,19 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
+
+    // Script para as Abas de Visualização
+    const tabButtons = document.querySelectorAll('#inventory-tabs .nav-link');
+    const tabPanes = document.querySelectorAll('.tab-content .tab-pane');
+    tabButtons.forEach(button => {
+        button.addEventListener('click', (event) => {
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabPanes.forEach(pane => pane.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            const targetPaneId = event.currentTarget.getAttribute('data-bs-target');
+            document.querySelector(targetPaneId).classList.add('active');
+        });
+    });
 });
 </script>
 {% endblock %}

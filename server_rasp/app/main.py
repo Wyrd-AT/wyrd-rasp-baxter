@@ -1375,104 +1375,66 @@ def delete_datacenter_api(dc_id: int, db: Session = Depends(get_db)):
 def inventory_page(
     request: Request,
     db: Session = Depends(get_db),
-    view: str = Query("current"),
-    datacenter_id: Optional[int] = Query(None)
+    datacenter_id: Optional[str] = Query(None),
+    view: str = Query("current") # Reintroduzindo o parâmetro 'view'
 ):
     all_datacenters = db.query(DataCenter).order_by(DataCenter.id).all()
+    dc_id_int = int(datacenter_id) if datacenter_id and datacenter_id.isdigit() else None
 
-    if not datacenter_id and all_datacenters:
+    if not dc_id_int and all_datacenters:
         primeiro_dc_id = all_datacenters[0].id
         params = dict(request.query_params)
         params['datacenter_id'] = primeiro_dc_id
         redirect_url = request.url.replace(query=urlencode(params))
         return RedirectResponse(url=str(redirect_url))
 
-    # --- NOVA LÓGICA DE DECISÃO ---
-    snapshot_query = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == datacenter_id)
-    snapshot_count = snapshot_query.count()
-    
-    snapshots = snapshot_query.order_by(InventorySnapshot.created_on.desc()).limit(2).all()
+    snapshots = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == dc_id_int).order_by(InventorySnapshot.created_on.desc()).limit(2).all()
     snapshot_atual = snapshots[0] if snapshots else None
     snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
 
-    # Variáveis para o template
-    inventario_atual_formatado = []
-    tabela_unificada = []
-    itens_encontrados, itens_faltando, itens_novos = [], [], []
-    comparison_mode = None # Informa ao template qual relatório mostrar
+    # Inicializa todas as listas de dados
+    context_data = {
+        "inventario_atual": [], "comparativo_snapshots": [],
+        "itens_encontrados": [], "itens_faltando": [], "itens_novos": []
+    }
 
-    # --- Lógica da Visão "CURRENT" ---
     if view == "current" and snapshot_atual:
-        # (Esta parte não muda)
-        itens_query = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                        .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                        .outerjoin(Product.equipamento)\
-                        .filter(InventoryItem.snapshot_id == snapshot_atual.id)\
-                        .order_by(Product.codigo_rfid).all()
-        for codigo, nome_equip in itens_query:
-            inventario_atual_formatado.append({ "codigo_rfid": codigo, "nome_equip": nome_equip or "Não associado", "created_on": snapshot_atual.created_on })
+        # Lógica para Visão 1
+        itens_q = db.query(Product.codigo_rfid, Equipamento.nome_equip).join(InventoryItem, InventoryItem.product_id == Product.id).outerjoin(Product.equipamento).filter(InventoryItem.snapshot_id == snapshot_atual.id).order_by(Product.codigo_rfid).all()
+        context_data["inventario_atual"] = [{ "codigo_rfid": c, "nome_equip": n or "Não associado", "created_on": snapshot_atual.created_on } for c, n in itens_q]
+    
+    elif view == "master_audit" and snapshot_atual:
+        # Lógica para Visão 2
+        catalogo_q = db.query(Product.codigo_rfid, Equipamento.nome_equip).join(Equipamento, Product.equipamento_id == Equipamento.id).join(Bastidor, Equipamento.bastidor_id == Bastidor.id).filter(Bastidor.localizacao_id == dc_id_int).all()
+        mapa_catalogo = {c: n for c, n in catalogo_q}
+        itens_q = db.query(Product.codigo_rfid, Equipamento.nome_equip).join(InventoryItem, InventoryItem.product_id == Product.id).outerjoin(Product.equipamento).filter(InventoryItem.snapshot_id == snapshot_atual.id).all()
+        mapa_snapshot_atual = {c: n or "Não associado" for c, n in itens_q}
+        
+        set_catalogo, set_snapshot_atual = set(mapa_catalogo.keys()), set(mapa_snapshot_atual.keys())
+        context_data["itens_encontrados"] = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(set_catalogo.intersection(set_snapshot_atual)))]
+        context_data["itens_faltando"] = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(set_catalogo.difference(set_snapshot_atual)))]
+        context_data["itens_novos"] = [{"codigo_rfid": c, "nome_equip": mapa_snapshot_atual[c]} for c in sorted(list(set_snapshot_atual.difference(set_catalogo)))]
 
-    # --- Lógica da Visão "COMPARISON" ---
-    elif view == "comparison":
-        # Cenário 1: Primeiro inventário -> Compara com o Catálogo Mestre
-        if snapshot_count <= 1 and snapshot_atual:
-            comparison_mode = "master"
-            # (Lógica de Reconciliação Mestra que já fizemos)
-            query_catalogo = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                               .join(Equipamento, Product.equipamento_id == Equipamento.id)\
-                               .join(Bastidor, Equipamento.bastidor_id == Bastidor.id)\
-                               .filter(Bastidor.localizacao_id == datacenter_id).all()
-            mapa_catalogo = {codigo: nome for codigo, nome in query_catalogo}
-            set_catalogo = set(mapa_catalogo.keys())
-
-            query_snapshot = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                               .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                               .outerjoin(Product.equipamento)\
-                               .filter(InventoryItem.snapshot_id == snapshot_atual.id).all()
-            mapa_snapshot = {codigo: (nome or "Não associado") for codigo, nome in query_snapshot}
-            set_snapshot = set(mapa_snapshot.keys())
-
-            codigos_encontrados = set_catalogo.intersection(set_snapshot)
-            codigos_faltando = set_catalogo.difference(set_snapshot)
-            codigos_novos = set_snapshot.difference(set_catalogo)
-
-            itens_encontrados = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_encontrados))]
-            itens_faltando = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_faltando))]
-            itens_novos = [{"codigo_rfid": c, "nome_equip": mapa_snapshot[c]} for c in sorted(list(codigos_novos))]
-
-        # Cenário 2: Inventários seguintes -> Compara com o Snapshot Anterior
-        elif snapshot_count > 1 and snapshot_atual and snapshot_anterior:
-            comparison_mode = "snapshot"
-            # (Esta é a lógica original de comparação entre dois snapshots)
-            def get_data_from_snapshot(snapshot_id):
-                items = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                          .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                          .outerjoin(Product.equipamento)\
-                          .filter(InventoryItem.snapshot_id == snapshot_id).all()
-                return {codigo: (nome or "Não associado") for codigo, nome in items}
-
-            map_atual = get_data_from_snapshot(snapshot_atual.id)
-            map_anterior = get_data_from_snapshot(snapshot_anterior.id)
-            
-            set_atual = set(map_atual.keys())
-            set_anterior = set(map_anterior.keys())
-            todos_codigos = sorted(list(set_atual | set_anterior))
-            
-            for codigo in todos_codigos:
-                status = "Mantido"
-                if codigo in set_atual and codigo not in set_anterior: status = "Adicionado"
-                elif codigo not in set_atual and codigo in set_anterior: status = "Deletado"
-                tabela_unificada.append({ "codigo_rfid": codigo, "item_atual": map_atual.get(codigo, "---"), "item_anterior": map_anterior.get(codigo, "---"), "status": status })
-
-    rfid_serial_port = settings.get('serial_port', 'Não configurada')
+    elif view == "snapshot_comparison" and snapshot_atual and snapshot_anterior:
+        # Lógica para Visão 3
+        def get_data_from_snapshot(snapshot_id):
+            items = db.query(Product.codigo_rfid, Equipamento.nome_equip).join(InventoryItem, InventoryItem.product_id == Product.id).outerjoin(Product.equipamento).filter(InventoryItem.snapshot_id == snapshot_id).all()
+            return {codigo: (nome or "Não associado") for codigo, nome in items}
+        map_atual, map_anterior = get_data_from_snapshot(snapshot_atual.id), get_data_from_snapshot(snapshot_anterior.id)
+        set_atual, set_anterior = set(map_atual.keys()), set(map_anterior.keys())
+        todos_codigos = sorted(list(set_atual | set_anterior))
+        for codigo in todos_codigos:
+            status = "Mantido"
+            if codigo in set_atual and codigo not in set_anterior: status = "Adicionado"
+            elif codigo not in set_atual and codigo in set_anterior: status = "Deletado"
+            context_data["comparativo_snapshots"].append({ "codigo_rfid": codigo, "item_atual": map_atual.get(codigo, "---"), "item_anterior": map_anterior.get(codigo, "---"), "status": status })
 
     return templates.TemplateResponse("inventario_list.html", {
-        "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
-        "inventario_atual": inventario_atual_formatado, "tabela_unificada": tabela_unificada,
+        "request": request, "all_datacenters": all_datacenters, "current_dc_id": dc_id_int,
         "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior,
-        "current_view": view, "rfid_serial_port": rfid_serial_port,
-        "itens_encontrados": itens_encontrados, "itens_faltando": itens_faltando,
-        "itens_novos": itens_novos, "comparison_mode": comparison_mode
+        "rfid_serial_port": settings.get('serial_port', 'Não configurada'),
+        "current_view": view,
+        **context_data
     })
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")
@@ -1827,98 +1789,137 @@ def create_equipamento_instancia(instancia_in: EquipamentoInstanciaCreate, db: S
         db.rollback()
         logger.error(f"Erro ao criar instância de equipamento: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao salvar o equipamento.")
-
-
-@app.get("/equipamentos", name="list_equipamentos")
-def list_equipamentos(
-    request: Request,
-    db: Session = Depends(get_db),
-    search: Optional[str] = Query(None),
-    sort_by: Optional[str] = Query("nome_equip"),
-    order: Optional[str] = Query("asc"),
-    # --- MUDANÇA 1: Alterado o tipo de 'int' para 'str' para aceitar valores vazios ---
-    filter_localizacao_id: Optional[str] = Query(None),
-    filter_modelo_id: Optional[str] = Query(None),
-    filter_bastidor_id: Optional[str] = Query(None)
-):
+def _query_equipamentos(db: Session, filters: dict):
+    """Função auxiliar que constrói e retorna a query de equipamentos com filtros e ordenação."""
     query = db.query(Equipamento).options(
         joinedload(Equipamento.product),
         joinedload(Equipamento.equipamento_tipo).joinedload(EquipamentoTipo.fabricante),
         joinedload(Equipamento.bastidor).joinedload(Bastidor.localizacao)
     )
 
-    localizacao_id_int = int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None
-    modelo_id_int = int(filter_modelo_id) if filter_modelo_id and filter_modelo_id.isdigit() else None
-    bastidor_id_int = int(filter_bastidor_id) if filter_bastidor_id and filter_bastidor_id.isdigit() else None
-
-    if localizacao_id_int:
-        query = query.join(Equipamento.bastidor).filter(Bastidor.localizacao_id == localizacao_id_int)
-    if modelo_id_int:
-        query = query.filter(Equipamento.equipamento_tipo_id == modelo_id_int)
-    if bastidor_id_int:
-        query = query.filter(Equipamento.bastidor_id == bastidor_id_int)
-
-
-    # Lógica de busca atualizada
-    if search:
-        search_term = f"%{search}%"
-        query = query.join(Equipamento.product).join(Equipamento.equipamento_tipo).join(EquipamentoTipo.fabricante).join(Equipamento.bastidor).join(Bastidor.localizacao).filter(
+    # Aplica filtros
+    if filters.get("localizacao_id"):
+        query = query.join(Equipamento.bastidor).filter(Bastidor.localizacao_id == filters["localizacao_id"])
+    if filters.get("modelo_id"):
+        query = query.filter(Equipamento.equipamento_tipo_id == filters["modelo_id"])
+    if filters.get("bastidor_id"):
+        query = query.filter(Equipamento.bastidor_id == filters["bastidor_id"])
+    
+    if filters.get("search"):
+        search_term = f"%{filters['search']}%"
+        # Garante que os joins para a busca existam
+        query = query.outerjoin(Product).outerjoin(Equipamento.equipamento_tipo).outerjoin(EquipamentoTipo.fabricante).outerjoin(Equipamento.bastidor).outerjoin(Bastidor.localizacao).filter(
             or_(
                 Equipamento.nome_equip.ilike(search_term),
                 EquipamentoTipo.nome.ilike(search_term),
-                EquipamentoTipo.modelo.ilike(search_term),
-                Product.codigo_rfid.ilike(search_term),
-                Fabricante.nome.ilike(search_term),
-                Bastidor.codigo_bast.ilike(search_term),
-                DataCenter.nome.ilike(search_term)
+                Product.codigo_rfid.ilike(search_term)
             )
         )
 
-    # Lógica de ordenação atualizada
+    # Aplica ordenação
     sortable_columns = {
-        "nome_equip": Equipamento.nome_equip,
-        "rfid": Product.codigo_rfid,
-        "modelo_nome": EquipamentoTipo.nome,
-        "fabricante": Fabricante.nome,
-        "modelo_pn": EquipamentoTipo.modelo,
-        "bastidor": Bastidor.codigo_bast,
+        "nome_equip": Equipamento.nome_equip, "rfid": Product.codigo_rfid, "modelo_nome": EquipamentoTipo.nome,
+        "fabricante": Fabricante.nome, "modelo_pn": EquipamentoTipo.modelo, "bastidor": Bastidor.codigo_bast,
         "localizacao": DataCenter.nome,
     }
-
-    # Garante que os joins necessários para a ordenação existam
-    if sort_by in ["rfid"]: query = query.join(Product)
-    if sort_by in ["modelo_nome", "fabricante", "modelo_pn"]: query = query.join(Equipamento.equipamento_tipo).join(EquipamentoTipo.fabricante)
-    if sort_by in ["bastidor", "localizacao"]: query = query.join(Equipamento.bastidor).join(Bastidor.localizacao)
-
+    sort_by = filters.get("sort_by", "nome_equip")
+    order = filters.get("order", "asc")
     sort_column = sortable_columns.get(sort_by, Equipamento.nome_equip)
     query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
 
-    equipamentos = query.all()
+    return query
 
-    all_localizacoes = db.query(DataCenter).order_by(DataCenter.nome).all()
-    all_modelos = db.query(EquipamentoTipo).order_by(EquipamentoTipo.nome).all()
 
-    # --- MUDANÇA IMPORTANTE AQUI ---
-    # A lista de bastidores agora é filtrada pela localização, se houver uma selecionada
-    bastidores_query = db.query(Bastidor).order_by(Bastidor.codigo_bast)
-    if localizacao_id_int:
-        bastidores_query = bastidores_query.filter(Bastidor.localizacao_id == localizacao_id_int)
-    all_bastidores = bastidores_query.all()
-    
+@app.get("/equipamentos", name="list_equipamentos")
+def list_equipamentos(
+    request: Request, db: Session = Depends(get_db),
+    search: Optional[str] = Query(None), sort_by: Optional[str] = Query("nome_equip"), order: Optional[str] = Query("asc"),
+    filter_localizacao_id: Optional[str] = Query(None), filter_modelo_id: Optional[str] = Query(None), filter_bastidor_id: Optional[str] = Query(None)
+):
     current_filters = {
-        "localizacao_id": localizacao_id_int,
-        "modelo_id": modelo_id_int,
-        "bastidor_id": bastidor_id_int
+        "search": search, "sort_by": sort_by, "order": order,
+        "localizacao_id": int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None,
+        "modelo_id": int(filter_modelo_id) if filter_modelo_id and filter_modelo_id.isdigit() else None,
+        "bastidor_id": int(filter_bastidor_id) if filter_bastidor_id and filter_bastidor_id.isdigit() else None
     }
 
+    equipamentos_query = _query_equipamentos(db, current_filters)
+    equipamentos = equipamentos_query.all()
+
+    # (o resto da função para popular os dropdowns continua igual)
+    all_localizacoes = db.query(DataCenter).order_by(DataCenter.nome).all()
+    all_modelos = db.query(EquipamentoTipo).order_by(EquipamentoTipo.nome).all()
+    bastidores_query = db.query(Bastidor).order_by(Bastidor.codigo_bast)
+    if current_filters["localizacao_id"]:
+        bastidores_query = bastidores_query.filter(Bastidor.localizacao_id == current_filters["localizacao_id"])
+    all_bastidores = bastidores_query.all()
+
     return templates.TemplateResponse("equipamentos_list.html", {
-        "request": request,
-        "equipamentos": equipamentos,
-        "current_filters": current_filters,
-        "all_localizacoes": all_localizacoes,
-        "all_modelos": all_modelos,
-        "all_bastidores": all_bastidores,
+        "request": request, "equipamentos": equipamentos, "current_filters": current_filters,
+        "all_localizacoes": all_localizacoes, "all_modelos": all_modelos, "all_bastidores": all_bastidores,
     })
+
+@app.get("/equipamentos/download", name="download_equipamentos_csv")
+def download_equipamentos_csv(
+    db: Session = Depends(get_db),
+    search: Optional[str] = Query(None), sort_by: Optional[str] = Query("nome_equip"), order: Optional[str] = Query("asc"),
+    filter_localizacao_id: Optional[str] = Query(None), filter_modelo_id: Optional[str] = Query(None), filter_bastidor_id: Optional[str] = Query(None)
+):
+    current_filters = {
+        "search": search, "sort_by": sort_by, "order": order,
+        "localizacao_id": int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None,
+        "modelo_id": int(filter_modelo_id) if filter_modelo_id and filter_modelo_id.isdigit() else None,
+        "bastidor_id": int(filter_bastidor_id) if filter_bastidor_id and filter_bastidor_id.isdigit() else None
+    }
+
+    equipamentos_query = _query_equipamentos(db, current_filters)
+    equipamentos = equipamentos_query.all()
+
+    def iter_csv():
+        output = StringIO()
+        writer = csv.writer(output)
+        
+        # Escreve o cabeçalho com todas as colunas
+        header = [
+            "HOSTNAME", "CODIGO_RFID", "NOME_MODELO", "FABRICANTE", "MODELO_PN",
+            "TECNOLOGIA", "TIPO", "ESTADO_CV", "ESTADO_OP", "BASTIDOR",
+            "LOCALIZACAO", "MUNICIPIO", "UF", "PISO", "SALA", "ENDERECO"
+        ]
+        writer.writerow(header)
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+        # Escreve os dados de cada equipamento
+        for equip in equipamentos:
+            row = [
+                equip.nome_equip,
+                equip.product.codigo_rfid if equip.product else "",
+                equip.equipamento_tipo.nome if equip.equipamento_tipo else "",
+                equip.equipamento_tipo.fabricante.nome if equip.equipamento_tipo and equip.equipamento_tipo.fabricante else "",
+                equip.equipamento_tipo.modelo if equip.equipamento_tipo else "",
+                equip.equipamento_tipo.tecnologia_equip if equip.equipamento_tipo else "",
+                equip.equipamento_tipo.tipo_equip if equip.equipamento_tipo else "",
+                equip.equipamento_tipo.estado_cv_equip if equip.equipamento_tipo else "",
+                equip.equipamento_tipo.estado_op_equip if equip.equipamento_tipo else "",
+                equip.bastidor.codigo_bast if equip.bastidor else "",
+                equip.bastidor.localizacao.nome if equip.bastidor and equip.bastidor.localizacao else "",
+                equip.bastidor.localizacao.municipio if equip.bastidor and equip.bastidor.localizacao else "",
+                equip.bastidor.localizacao.uf_abrv if equip.bastidor and equip.bastidor.localizacao else "",
+                equip.bastidor.localizacao.piso if equip.bastidor and equip.bastidor.localizacao else "",
+                equip.bastidor.localizacao.sala if equip.bastidor and equip.bastidor.localizacao else "",
+                equip.bastidor.localizacao.endereco_completo if equip.bastidor and equip.bastidor.localizacao else ""
+            ]
+            writer.writerow(row)
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
+    return StreamingResponse(
+        iter_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=catalogo_equipamentos.csv"}
+    )
 
 @app.on_event("startup")
 async def on_startup():
