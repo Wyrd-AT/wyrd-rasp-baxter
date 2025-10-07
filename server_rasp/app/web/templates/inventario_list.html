@@ -98,7 +98,13 @@
                 {% for row in comparativo_snapshots %} 
                 <tr>
                     <td>{{ row.item_atual }}</td><td>{{ row.item_anterior }}</td><td style="font-weight: 500;">
-                        <span>{{ row.status }}</span>
+                        {% if row.status == 'Adicionado' %}
+                            <span style="color: #28a745;">{{ row.status }}</span> 
+                        {% elif row.status == 'Deletado' %}
+                            <span style="color: #dc3545;">{{ row.status }}</span> 
+                        {% else %}
+                            <span style="color: #333;">{{ row.status }}</span>
+                        {% endif %} 
                     </td>
                 </tr>
                 {% else %}<tr><td colspan="3" class="muted">Nenhuma mudança detectada.</td></tr>{% endfor %}

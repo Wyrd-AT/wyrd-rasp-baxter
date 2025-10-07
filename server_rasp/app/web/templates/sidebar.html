@@ -29,15 +29,15 @@
             <span class="nav-text">Planta</span>
         <a href="{{ url_for('cadastro_page') }}" class="nav-item {% if 'cadastro' in request.url.path %}active{% endif %}" title="Cadastro e Gestão">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/catalogo.svg') }});"></span>
-            <span class="nav-text">Cadastro e Gestão</span>
+            <span class="nav-text">Cadastro RFID</span>
+        </a>    
+        <a href="{{ url_for('list_equipamentos') }}" class="nav-item {% if 'equipamentos' in request.url.path %}active{% endif %}" title="Catálogo de Equipamentos">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/list.svg') }});"></span>
+            <span class="nav-text">Catálogo RFID</span>
         </a>
         <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}" title="Inventário e Auditoria">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }});"></span>
-            <span class="nav-text">Inventário e Auditoria</span>
-        </a>
-        <a href="{{ url_for('list_equipamentos') }}" class="nav-item {% if 'equipamentos' in request.url.path %}active{% endif %}" title="Catálogo de Equipamentos">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/list.svg') }});"></span>
-            <span class="nav-text">Catálogo de Equipamentos</span>
+            <span class="nav-text">Inventário RFID</span>
         </a>
     </nav>
     <button id="sidebar-toggle-btn" title="Alternar menu">
