@@ -3,6 +3,15 @@
 {% block title %}Inventário e Auditoria{% endblock %}
 
 {% block content %}
+
+<style>
+    .pending-items-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 8px 16px; /* Espaçamento vertical e horizontal */
+    }
+</style>
+
 <div class="content-header">
     <h1>Inventário e Auditoria</h1>
     <div class="header-actions">
