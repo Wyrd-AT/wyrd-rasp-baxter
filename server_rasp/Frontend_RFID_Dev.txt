@@ -326,17 +326,16 @@ ARQUIVO: app/web/templates/cadastro.html
             <div class="form-group"><label for="inst_bastidor_id">Bastidor (Rack)</label><select id="inst_bastidor_id" required><option value="">Selecione a localização</option></select></div>
         </div>
         <div id="tab-rfid" class="modal-tab-content">
-            <h4>Associação da Etiqueta RFID</h4>
+            <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Etiqueta RFID</h4>
             <div class="form-group">
-                <label>Código RFID</label>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <input type="text" name="codigo_rfid" id="codigo-rfid-input" required style="flex-grow: 1;">
-                    <button type="button" id="read-single-tag-btn" class="btn-secondary">Ler Tag Única</button>
+                <label for="inst_codigo_rfid">Código RFID</label>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="inst_codigo_rfid" required style="flex-grow: 1;">
+                    <button type="button" id="read-single-tag-btn" class="btn-secondary" style="white-space: nowrap;">Ler Tag</button>
+                    <button type="button" id="check-reader-status-btn-cadastro" class="btn-secondary btn-sm">Verificar</button>
                 </div>
-                <div id="single-read-status" class="muted" style="margin-top: 8px; min-height: 1.2em;">
-                    </div>
+                <small id="rfid-status-text" class="muted"></small>
             </div>
-        </div>
         <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
             <button type="submit" class="btn-primary">Salvar Nova Instância</button>
         </div>
@@ -442,8 +441,11 @@ ARQUIVO: app/web/templates/cadastro.html
 <script>
 document.addEventListener('DOMContentLoaded', function () {
 
-    // Função utilitária global para popular dropdowns
+    // ==========================================================
+    // SEÇÃO 0: FUNÇÃO UTILITÁRIA GLOBAL
+    // ==========================================================
     async function populateSelect(url, selectElement, valueField, textField, prompt) {
+        if (!selectElement) return;
         selectElement.innerHTML = `<option value="">Carregando...</option>`;
         try {
             const response = await fetch(url);
@@ -463,7 +465,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ==========================================================
-    // PARTE 1: LÓGICA DO FORMULÁRIO DE CADASTRO DE INSTÂNCIA
+    // SEÇÃO 1: LÓGICA DO FORMULÁRIO DE CADASTRO DE INSTÂNCIA
     // ==========================================================
     const newInstanceForm = document.getElementById('new-instance-form');
     if (newInstanceForm) {
@@ -501,11 +503,93 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ==========================================================
-    // PARTE 2: LÓGICA DAS ABAS DE GERENCIAMENTO
+    // SEÇÃO 2: LÓGICA DO BOTÃO "LER TAG ÚNICA"
     // ==========================================================
+    const readTagBtn = document.getElementById('read-single-tag-btn');
+    const rfidInput = document.getElementById('inst_codigo_rfid'); // Corrigido para o ID correto
+    const rfidStatusText = document.getElementById('rfid-status-text'); // Corrigido
+    
+    if(readTagBtn) {
+        let rfidSocket = null;
+
+        function connectRfidSocket() {
+            if (rfidSocket && rfidSocket.readyState === WebSocket.OPEN) return;
+
+            const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
+
+            rfidSocket.onopen = () => {
+                readTagBtn.disabled = false;
+                rfidStatusText.textContent = "Leitor pronto.";
+                rfidStatusText.style.color = '#6c757d';
+            };
+
+            rfidSocket.onmessage = async (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'scan_status' || data.type === 'scan_error') {
+                    rfidStatusText.textContent = data.message;
+                    rfidStatusText.style.color = data.type === 'scan_error' ? '#dc3545' : '#6c757d';
+                    if (data.message !== "Aguardando leitura da tag...") {
+                        readTagBtn.disabled = false;
+                        readTagBtn.textContent = "Ler Tag";
+                    }
+                }
+                if (data.type === 'tag_scanned') {
+                    const tagId = data.tag_id;
+                    rfidInput.value = tagId;
+                    try {
+                        rfidStatusText.textContent = "Verificando status...";
+                        const response = await fetch(`/api/rfid-status/${tagId}`);
+                        const statusResult = await response.json();
+                        rfidStatusText.textContent = statusResult.message;
+                        if (statusResult.status === 'ASSOCIADO') {
+                            rfidStatusText.style.color = '#dc3545';
+                            rfidStatusText.innerHTML += ` <strong>${statusResult.equipamento_nome}</strong>`;
+                        } else {
+                            rfidStatusText.style.color = '#198754';
+                        }
+                    } catch (error) {
+                        rfidStatusText.textContent = "Não foi possível verificar o status da tag.";
+                        rfidStatusText.style.color = '#dc3545';
+                    }
+                    readTagBtn.disabled = false;
+                    readTagBtn.textContent = "Ler Tag";
+                }
+            };
+
+            rfidSocket.onclose = () => {
+                readTagBtn.disabled = true;
+                rfidStatusText.textContent = "Leitor desconectado. Tente recarregar a página.";
+                rfidStatusText.style.color = '#dc3545';
+            };
+        }
+
+        readTagBtn.addEventListener('click', () => {
+            if (!rfidSocket || rfidSocket.readyState !== WebSocket.OPEN) {
+                connectRfidSocket();
+                setTimeout(() => readTagBtn.click(), 1000); // Tenta de novo após 1s
+                return;
+            }
+            readTagBtn.disabled = true;
+            readTagBtn.textContent = 'Lendo...';
+            rfidStatusText.textContent = "Aproxime a tag da pistola...";
+            rfidStatusText.style.color = '#0466C8';
+            rfidSocket.send(JSON.stringify({ action: "read_single_tag" }));
+        });
+
+        // Conecta na primeira vez que a página carrega
+        connectRfidSocket();
+    }
+
+
+    // ==========================================================
+    // SEÇÃO 3: LÓGICA DAS ABAS DE GERENCIAMENTO
+    // ==========================================================
+    // (Esta parte agora está completa e sem omissões)
+
     const navButtons = document.querySelectorAll('.management-nav .nav-button');
     const tabPanes = document.querySelectorAll('.management-content .tab-pane');
-    navButtons.forEach(button => {
+    navButtons.forEach(button => {;
         button.addEventListener('click', (event) => {
             navButtons.forEach(btn => btn.classList.remove('active'));
             tabPanes.forEach(pane => pane.classList.remove('active'));
@@ -710,14 +794,12 @@ document.addEventListener('DOMContentLoaded', function () {
     (async () => {
         const bastidorManager = await manageBastidores();
         const tipoManager = await manageEquipamentoTipos();
-        
         await manageLocalizacoes({
             onUpdate: async () => {
-                // Quando uma localização for criada/excluída, esta função será chamada
+                populateSelect('/api/localizacoes', document.getElementById('inst_localizacao_id'), 'id', 'nome', 'Selecione');
                 await bastidorManager.updateLocalizacaoDropdown();
             }
         });
-
         await createSimpleCrudManager({
             entityName: 'fabricante',
             apiUrl: '/api/fabricantes',
@@ -729,37 +811,13 @@ document.addEventListener('DOMContentLoaded', function () {
                 return tr;
             },
             onUpdate: async () => {
-                // Quando um fabricante for criado/excluído, atualiza o dropdown de modelos
-                await tipoManager.updateFabricanteDropdown();
+                populateSelect('/api/fabricantes', document.querySelector('#form-equipamento-tipo select[name="fabricante_id"]'), 'id', 'nome', 'Selecione');
                 await tipoManager.loadItems();
             }
         });
     })();
 });
 </script>
-
-Peço desculpas! Você está coberto de razão. Minha resposta anterior foi um passo à frente do que você precisava. Nós pulamos a etapa de fazer a funcionalidade atual funcionar perfeitamente.
-
-Vamos focar 100% em resolver o problema do botão "Ler Tag Única". Sua pergunta "Como vou saber se tá dando certo ou não?" é o ponto central: a interface não está te dando o feedback visual necessário.
-
-Quando você clica e "nada acontece", pode ser por vários motivos: um erro silencioso no JavaScript, uma falha na conexão com o backend, ou o backend não conseguindo falar com a pistola. Vamos adicionar um feedback claro para cada uma dessas etapas.
-
-Depurando o Botão "Ler Tag Única" - Passo a Passo
-
-Passo 1: A Ferramenta Mais Importante: O Console do Navegador
-
-Para descobrirmos o que está acontecendo, vamos usar o "Console" do navegador. Ele é como o terminal de logs do seu backend, mas para o frontend.
-
-    Como abrir: Em qualquer lugar da página, pressione a tecla F12. Uma nova janela de ferramentas vai abrir. Procure e clique na aba chamada "Console". É aqui que vamos ver as mensagens de status e erros do nosso script.
-
-Passo 2: O Novo Script com Feedback Visual e Logs
-
-Vamos substituir o script de leitura única que fizemos por uma versão muito mais "falante". Ela vai atualizar o botão e o texto de status de forma agressiva, além de imprimir mensagens detalhadas no console que abrimos.
-
-Arquivo a ser modificado: app/web/templates/catalogo.html
-
-No final do seu arquivo, encontre o bloco <script> que começa com `` e substitua-o inteiramente por este novo código:
-HTML
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -790,26 +848,47 @@ document.addEventListener('DOMContentLoaded', function () {
             readBtn.disabled = false;
         };
 
-        rfidSocket.onmessage = (event) => {
-            console.log("[RFID Single Read] MENSAGEM RECEBIDA:", event.data);
+        rfidSocket.onmessage = async (event) => { // Adicionamos 'async' para poder usar 'await'
             const data = JSON.parse(event.data);
             
-            readBtn.disabled = false; // Reabilita o botão após receber uma resposta
-            readBtn.textContent = 'Ler Tag Única';
+            // Se for uma mensagem de status do leitor, exibe para o usuário
+            if (data.type === 'scan_status' || data.type === 'scan_error') {
+                rfidStatusText.textContent = data.message;
+                rfidStatusText.style.color = data.type === 'scan_error' ? '#dc3545' : '#6c757d';
 
-            if (data.type === 'tag_scanned') {
-                rfidInput.value = data.tag_id;
-                statusDiv.textContent = `SUCESSO! Tag encontrada: ${data.tag_id}`;
-                statusDiv.style.color = '#28a745'; // Verde
-            } else if (data.type === 'scan_status' && data.message.toLowerCase().includes('finalizada')) {
-                // Se a sessão termina sem ler tag (ex: timeout no backend)
-                if (rfidInput.value === '') { // Só mostra erro se não encontrou nada
-                    statusDiv.textContent = "Nenhuma tag encontrada. Tente novamente.";
-                    statusDiv.style.color = '#dc3545'; // Vermelho
+                if (data.message !== "Aguardando leitura da tag...") {
+                    readTagBtn.disabled = false;
+                    readTagBtn.textContent = "Ler Tag";
                 }
-            } else if (data.type === 'scan_error' || data.type === 'hardware_error') {
-                statusDiv.textContent = `ERRO: ${data.message}`;
-                statusDiv.style.color = '#dc3545'; // Vermelho
+            }
+
+            // Se for a tag que estávamos esperando, preenche o campo e verifica o status
+            if (data.type === 'tag_scanned') {
+                const tagId = data.tag_id;
+                rfidInput.value = tagId;
+
+                // --- NOVA LÓGICA DE VERIFICAÇÃO DE STATUS ---
+                try {
+                    rfidStatusText.textContent = "Verificando status da tag...";
+                    const response = await fetch(`/api/rfid-status/${tagId}`);
+                    const statusResult = await response.json();
+
+                    rfidStatusText.textContent = statusResult.message;
+                    if (statusResult.status === 'ASSOCIADO') {
+                        rfidStatusText.style.color = '#dc3545'; // Vermelho para alerta
+                        rfidStatusText.innerHTML += ` <strong>${statusResult.equipamento_nome}</strong>`;
+                    } else {
+                        rfidStatusText.style.color = '#198754'; // Verde para sucesso
+                    }
+
+                } catch (error) {
+                    rfidStatusText.textContent = "Não foi possível verificar o status da tag.";
+                    rfidStatusText.style.color = '#dc3545';
+                }
+                // --- FIM DA NOVA LÓGICA ---
+
+                readTagBtn.disabled = false;
+                readTagBtn.textContent = "Ler Tag";
             }
         };
 
@@ -1622,7 +1701,9 @@ ARQUIVO: app/web/templates/inventario_list.html
           title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
         Porta: {{ rfid_serial_port }}
     </span>
+    <button type="button" id="check-reader-status-btn" class="btn-secondary btn-sm">Verificar Leitor</button>
     <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
+
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
@@ -1764,6 +1845,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
     const cancelBtn = document.getElementById('cancel-scan-btn'); 
+    const checkBtn = document.getElementById('check-reader-status-btn')
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
@@ -1784,15 +1866,21 @@ document.addEventListener('DOMContentLoaded', function () {
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
         
-        rfidSocket.onopen = () => { resetScanUI(); };
+        rfidSocket.onopen = () => { resetScanUI(); checkBtn.disabled = false;};
         rfidSocket.onclose = () => { 
             statusDiv.textContent = "Status: Desconectado. Recarregue a página.";
             startBtn.disabled = true; 
             stopBtn.disabled = true; 
+            checkBtn.disabled = true;
             cancelBtn.disabled = true;
         };
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            if (data.type === 'reader_status') {
+                statusDiv.textContent = data.message;
+                statusDiv.style.color = data.status === 'OK' ? '#198754' : '#dc3545';
+                statusDiv.style.fontWeight = data.status === 'ERROR' ? 'bold' : 'normal';
+            }
             if (data.type === 'hardware_error') {
                 statusDiv.textContent = data.message;
                 statusDiv.style.color = '#dc3545';
@@ -1816,6 +1904,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 countSpan.textContent = `(${scannedTagsCount})`;
             }
         };
+        
+        checkBtn.addEventListener('click', () => {
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({ action: "check_health" }));
+            }
+        });
 
         startBtn.addEventListener('click', () => {
             const datacenterId = dcSelect.value;

@@ -104,6 +104,47 @@ async def rfid_scan_task(websocket: WebSocket, mode: str, datacenter_id: Optiona
         await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão de leitura finalizada."})) 
         return list(tags_lidas) 
 
+async def check_reader_health(websocket: WebSocket):
+    """
+    Tenta se comunicar com o leitor RFID para verificar se ele está conectado e respondendo.
+    """
+    PORTA_SERIAL = settings.get('serial_port', 'COM3')
+    reader, writer = None, None
+    try:
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "CHECKING", "message": "Verificando conexão com o leitor..."}))
+        
+        # 1. Tenta abrir a porta serial
+        reader, writer = await asyncio.wait_for(
+            serial_asyncio.open_serial_connection(url=PORTA_SERIAL, baudrate=115200),
+            timeout=3.0 # Timeout curto de 3 segundos
+        )
+
+        # 2. Envia um comando simples que espera uma resposta
+        # NOTA: '.vr' é um comando comum para pedir a versão do firmware.
+        #       Consulte o manual da sua pistola para o comando correto de status/versão.
+        writer.write(b'.vr\r\n')
+        await writer.drain()
+
+        # 3. Aguarda uma resposta
+        # Se o leitor responder qualquer coisa, consideramos que ele está funcionando.
+        await asyncio.wait_for(reader.readline(), timeout=3.0)
+
+        # 4. Se tudo deu certo, envia a mensagem de sucesso
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "OK", "message": f"Leitor conectado e respondendo na porta {PORTA_SERIAL}."}))
+        logger.info(f"Verificação de saúde do leitor na porta {PORTA_SERIAL} bem-sucedida.")
+
+    except (serial.SerialException, FileNotFoundError):
+        msg = f"FALHA: Leitor não encontrado na porta '{PORTA_SERIAL}'. Verifique a conexão e o arquivo config.ini."
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "ERROR", "message": msg}))
+    except asyncio.TimeoutError:
+        msg = f"FALHA: O leitor na porta '{PORTA_SERIAL}' foi encontrado, mas não está respondendo. Verifique se está ligado."
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "ERROR", "message": msg}))
+    except Exception as e:
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "ERROR", "message": f"Erro inesperado: {e}"}))
+    finally:
+        if writer and not writer.is_closing():
+            writer.close()
+
 def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):
     """Pega uma lista de tags e salva como um novo snapshot de inventário."""
     if not tags:

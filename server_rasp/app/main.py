@@ -461,7 +461,12 @@ async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(ge
             elif action == "read_single_tag": # Leitura única
                 task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, mode='single'))
                 scanning_tasks[client_id] = task
-                
+            
+            elif action == "check_health":
+                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
+                    continue
+                asyncio.create_task(scan_rfid.check_reader_health(websocket))
+            
             elif action == "stop_scan":
                 if client_id in scanning_tasks and not scanning_tasks[client_id].done():
                     task = scanning_tasks[client_id]
@@ -1652,6 +1657,38 @@ def delete_fabricante(fab_id: int, db: Session = Depends(get_db)):
     db.delete(fab_db)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class RfidStatusResponse(BaseModel):
+    status: str
+    message: str
+    equipamento_nome: Optional[str] = None
+
+@app.get("/api/rfid-status/{codigo_rfid}", response_model=RfidStatusResponse)
+def get_rfid_tag_status(codigo_rfid: str, db: Session = Depends(get_db)):
+    """
+    Verifica o status de uma etiqueta RFID no banco de dados.
+    """
+    product = db.query(Product).options(joinedload(Product.equipamento)).filter(Product.codigo_rfid == codigo_rfid).first()
+
+    if not product:
+        return {
+            "status": "NOVO",
+            "message": "Esta etiqueta é nova e pode ser cadastrada."
+        }
+    
+    if not product.equipamento:
+        return {
+            "status": "NAO_ASSOCIADO",
+            "message": "Etiqueta já existe no sistema, mas está livre para associação."
+        }
+    
+    return {
+        "status": "ASSOCIADO",
+        "message": f"ATENÇÃO: Etiqueta já em uso pelo equipamento:",
+        "equipamento_nome": product.equipamento.nome_equip
+    }
+
 
 # --- API para Localizações (DataCenter) ---
 @app.get("/api/localizacoes", response_model=List[DataCenterSchema])

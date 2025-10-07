@@ -1005,13 +1005,20 @@ async def rfid_websocket_endpoint(websocket: WebSocket, db: Session = Depends(ge
                 
                 datacenter_id = data.get("datacenter_id")
                 if not datacenter_id:
-                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Por favor, selecione um datacenter."}))
+                    await websocket.send_text(json.dumps({"type": "scan_error", "message": "Selecione um datacenter."}))
                     continue
-
-                # A chamada para a tarefa agora é mais simples, sem o 'scan_mode'
-                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, datacenter_id))
+                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, mode='multiple', datacenter_id=datacenter_id))
                 scanning_tasks[client_id] = task
 
+            elif action == "read_single_tag": # Leitura única
+                task = asyncio.create_task(scan_rfid.rfid_scan_task(websocket, mode='single'))
+                scanning_tasks[client_id] = task
+            
+            elif action == "check_health":
+                if client_id in scanning_tasks and not scanning_tasks[client_id].done():
+                    continue
+                asyncio.create_task(scan_rfid.check_reader_health(websocket))
+            
             elif action == "stop_scan":
                 if client_id in scanning_tasks and not scanning_tasks[client_id].done():
                     task = scanning_tasks[client_id]
@@ -2203,6 +2210,38 @@ def delete_fabricante(fab_id: int, db: Session = Depends(get_db)):
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+
+class RfidStatusResponse(BaseModel):
+    status: str
+    message: str
+    equipamento_nome: Optional[str] = None
+
+@app.get("/api/rfid-status/{codigo_rfid}", response_model=RfidStatusResponse)
+def get_rfid_tag_status(codigo_rfid: str, db: Session = Depends(get_db)):
+    """
+    Verifica o status de uma etiqueta RFID no banco de dados.
+    """
+    product = db.query(Product).options(joinedload(Product.equipamento)).filter(Product.codigo_rfid == codigo_rfid).first()
+
+    if not product:
+        return {
+            "status": "NOVO",
+            "message": "Esta etiqueta é nova e pode ser cadastrada."
+        }
+    
+    if not product.equipamento:
+        return {
+            "status": "NAO_ASSOCIADO",
+            "message": "Etiqueta já existe no sistema, mas está livre para associação."
+        }
+    
+    return {
+        "status": "ASSOCIADO",
+        "message": f"ATENÇÃO: Etiqueta já em uso pelo equipamento:",
+        "equipamento_nome": product.equipamento.nome_equip
+    }
+
+
 # --- API para Localizações (DataCenter) ---
 @app.get("/api/localizacoes", response_model=List[DataCenterSchema])
 def list_localizacoes(db: Session = Depends(get_db)):
@@ -2761,7 +2800,7 @@ import logging
 import json
 import asyncio
 import serial_asyncio
-from typing import List
+from typing import List, Optional
 from .config import settings
 
 from fastapi import WebSocket
@@ -2774,7 +2813,7 @@ from .models import InventorySnapshot, InventoryItem, Product
 
 logger = logging.getLogger(__name__)
 
-async def rfid_scan_task(websocket: WebSocket, datacenter_id: int, mode: str) -> List[str]:
+async def rfid_scan_task(websocket: WebSocket, mode: str, datacenter_id: Optional[int] = None ) -> List[str]:
     """
     Tarefa de fundo que ouve as tags lidas.
     Suporta dois modos:
@@ -2862,6 +2901,47 @@ async def rfid_scan_task(websocket: WebSocket, datacenter_id: int, mode: str) ->
         
         await websocket.send_text(json.dumps({"type": "scan_status", "message": "Sessão de leitura finalizada."})) 
         return list(tags_lidas) 
+
+async def check_reader_health(websocket: WebSocket):
+    """
+    Tenta se comunicar com o leitor RFID para verificar se ele está conectado e respondendo.
+    """
+    PORTA_SERIAL = settings.get('serial_port', 'COM3')
+    reader, writer = None, None
+    try:
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "CHECKING", "message": "Verificando conexão com o leitor..."}))
+        
+        # 1. Tenta abrir a porta serial
+        reader, writer = await asyncio.wait_for(
+            serial_asyncio.open_serial_connection(url=PORTA_SERIAL, baudrate=115200),
+            timeout=3.0 # Timeout curto de 3 segundos
+        )
+
+        # 2. Envia um comando simples que espera uma resposta
+        # NOTA: '.vr' é um comando comum para pedir a versão do firmware.
+        #       Consulte o manual da sua pistola para o comando correto de status/versão.
+        writer.write(b'.vr\r\n')
+        await writer.drain()
+
+        # 3. Aguarda uma resposta
+        # Se o leitor responder qualquer coisa, consideramos que ele está funcionando.
+        await asyncio.wait_for(reader.readline(), timeout=3.0)
+
+        # 4. Se tudo deu certo, envia a mensagem de sucesso
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "OK", "message": f"Leitor conectado e respondendo na porta {PORTA_SERIAL}."}))
+        logger.info(f"Verificação de saúde do leitor na porta {PORTA_SERIAL} bem-sucedida.")
+
+    except (serial.SerialException, FileNotFoundError):
+        msg = f"FALHA: Leitor não encontrado na porta '{PORTA_SERIAL}'. Verifique a conexão e o arquivo config.ini."
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "ERROR", "message": msg}))
+    except asyncio.TimeoutError:
+        msg = f"FALHA: O leitor na porta '{PORTA_SERIAL}' foi encontrado, mas não está respondendo. Verifique se está ligado."
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "ERROR", "message": msg}))
+    except Exception as e:
+        await websocket.send_text(json.dumps({"type": "reader_status", "status": "ERROR", "message": f"Erro inesperado: {e}"}))
+    finally:
+        if writer and not writer.is_closing():
+            writer.close()
 
 def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):
     """Pega uma lista de tags e salva como um novo snapshot de inventário."""

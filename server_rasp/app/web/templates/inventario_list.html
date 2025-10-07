@@ -36,7 +36,9 @@
           title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
         Porta: {{ rfid_serial_port }}
     </span>
+    <button type="button" id="check-reader-status-btn" class="btn-secondary btn-sm">Verificar Leitor</button>
     <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
+
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
@@ -178,6 +180,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
     const cancelBtn = document.getElementById('cancel-scan-btn'); 
+    const checkBtn = document.getElementById('check-reader-status-btn')
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
@@ -198,15 +201,21 @@ document.addEventListener('DOMContentLoaded', function () {
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
         
-        rfidSocket.onopen = () => { resetScanUI(); };
+        rfidSocket.onopen = () => { resetScanUI(); checkBtn.disabled = false;};
         rfidSocket.onclose = () => { 
             statusDiv.textContent = "Status: Desconectado. Recarregue a página.";
             startBtn.disabled = true; 
             stopBtn.disabled = true; 
+            checkBtn.disabled = true;
             cancelBtn.disabled = true;
         };
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            if (data.type === 'reader_status') {
+                statusDiv.textContent = data.message;
+                statusDiv.style.color = data.status === 'OK' ? '#198754' : '#dc3545';
+                statusDiv.style.fontWeight = data.status === 'ERROR' ? 'bold' : 'normal';
+            }
             if (data.type === 'hardware_error') {
                 statusDiv.textContent = data.message;
                 statusDiv.style.color = '#dc3545';
@@ -230,6 +239,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 countSpan.textContent = `(${scannedTagsCount})`;
             }
         };
+        
+        checkBtn.addEventListener('click', () => {
+            if (rfidSocket.readyState === WebSocket.OPEN) {
+                rfidSocket.send(JSON.stringify({ action: "check_health" }));
+            }
+        });
 
         startBtn.addEventListener('click', () => {
             const datacenterId = dcSelect.value;
