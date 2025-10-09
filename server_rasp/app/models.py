@@ -50,7 +50,7 @@ class Asset(Base):
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
     quarto = relationship("Quarto", back_populates="assets")
     status = Column(String, default='Online', nullable=False)
-
+    location_status = Column(String, default='Confirmado', nullable=False)
 
 class Embarcado(Base):
     __tablename__ = "embarcados"
