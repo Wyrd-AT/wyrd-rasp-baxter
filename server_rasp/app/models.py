@@ -51,6 +51,7 @@ class Asset(Base):
     quarto = relationship("Quarto", back_populates="assets")
     status = Column(String, default='Online', nullable=False)
     location_status = Column(String, default='Confirmado', nullable=False)
+    location_status_updated_on = Column(DateTime(timezone=True), nullable=True)
 
 class Embarcado(Base):
     __tablename__ = "embarcados"

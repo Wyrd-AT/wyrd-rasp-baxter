@@ -1,3 +1,659 @@
+========================================
+ARQUIVO: app/__init__.py
+========================================
+
+
+
+========================================
+ARQUIVO: app/aggregator.py
+========================================
+# ==============================================================================
+# ARQUIVO: aggregator.py (VERSÃO DEFINITIVA E ROBUSTA)
+# FUNÇÃO:  Cérebro do sistema RTLS. Processa dados brutos de sinal, aplica
+#          regras de negócio e determina a localização final dos ativos.
+# LÓGICA DE PENDENTES, SAÍDAS E CANCELAMENTOS CORRIGIDA.
+# ==============================================================================
+
+import asyncio
+import time
+import json
+import logging
+from datetime import datetime, timezone, timedelta
+from sqlalchemy.orm import Session, joinedload
+
+FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
+
+from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting, ReceivedEvent
+from .services import batch_update_asset_assignments
+from .mqtt_client import scan_data_queue
+from .dispatcher import dispatch_event
+from .config import settings
+
+logger = logging.getLogger(__name__)
+signal_logger = logging.getLogger('signals')
+
+# --- CACHES GLOBAIS ---
+_esp_map = {}
+_asset_map = {}
+_asset_realtime_state = {}
+_config_needs_reload = asyncio.Event()
+_wifi_presence_cache = {}
+
+_handshake_confirmed_assets = set()
+_handshake_invalidated_assets = set()
+_last_handshake_success = {}
+HANDSHAKE_FAILURE_TIMEOUT_SEC = 180 # Ex: 3 minutos
+
+SIGNAL_LOG_INTERVAL_SEC = 15.0
+_last_signal_log_times_per_esp = {}
+
+# --- CONFIGURAÇÕES ---
+_config = {
+    "process_interval_sec": float(settings.get('process_interval_sec', 2.0)),
+    "reading_timeout_sec": int(settings.get('reading_timeout_sec', 10)),
+    "default_rssi_threshold": -75,
+    "inertia_entrada_ms": 3000,
+    "inertia_saida_ms": 10000,
+    "ema_alpha": float(settings.get('ema_alpha', 0.4)),
+    "max_assets_per_room": 1
+}
+PENDING_WARNING_TIMEOUT_SEC = int(settings.get('pending_warning_timeout_sec', 300))
+PENDING_EXPIRATION_TIMEOUT_SEC = int(settings.get('pending_expiration_timeout_sec', 900))
+DISAPPEARANCE_TOLERANCE_CYCLES = int(settings.get('disappearance_tolerance_cycles', 10))
+WIFI_FAILURE_INERTIA_SEC = int(settings.get('wifi_failure_inertia_sec', 180))
+
+# --- CLASSE DE ESTADO DO ATIVO ---
+class AssetState:
+    def __init__(self, mac):
+        self.mac = mac; self.readings = {}; self.last_known_ema = {}
+        self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000}
+        self.last_known_wifi_signal = None; self.candidate_quarto_id = None
+        self.candidate_since = None; self.disappeared_since = None
+        self.disappearance_count = 0; 
+        self.wifi_unseen_since = None
+
+    def update_reading(self, esp_id, rssi, timestamp, wifi_signal=None):
+        old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi); alpha = _config["ema_alpha"]
+        new_ema = (rssi * alpha) + (old_ema * (1 - alpha))
+        self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema, "wifi_signal": wifi_signal}
+        self.last_known_ema[esp_id] = new_ema; self.disappearance_count = 0
+        if wifi_signal is not None: self.last_known_wifi_signal = wifi_signal
+
+    def cleanup_old_readings(self):
+        now = time.time()
+        self.readings = {k: v for k, v in self.readings.items() if now - v["timestamp"] < _config["reading_timeout_sec"]}
+        return bool(self.readings)
+
+# --- FUNÇÕES DE INTERFACE E CONTROLE ---
+def update_wifi_presence_cache(latest_cache: dict):
+    global _wifi_presence_cache
+    _wifi_presence_cache = latest_cache
+
+def clear_asset_candidate_state(mac_beacon_to_clear: str):
+    if mac_beacon_to_clear in _asset_realtime_state:
+        state = _asset_realtime_state[mac_beacon_to_clear]
+        state.candidate_quarto_id = None; state.candidate_since = None
+        state.wifi_unseen_since = None
+
+        _handshake_confirmed_assets.discard(mac_beacon_to_clear)
+        _handshake_invalidated_assets.discard(mac_beacon_to_clear)
+        _last_handshake_success.pop(mac_beacon_to_clear, None) # Remove o timer
+        
+        logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
+        return True
+    return False
+
+def update_asset_cache(mac_beacon: str, new_quarto_id: int | None):
+    if mac_beacon in _asset_map: _asset_map[mac_beacon]["quarto_id"] = new_quarto_id
+
+def flag_for_reload():
+    _config_needs_reload.set()
+
+# --- FUNÇÕES INTERNAS DO MOTOR RTLS ---
+async def _consume_scan_data_queue():
+    db = None
+    try:
+        while not scan_data_queue.empty():
+            item = await scan_data_queue.get()
+            esp_id_from_item = item.get("esp_id")
+            if esp_id_from_item:
+                now = time.time() 
+                last_log_time = _last_signal_log_times_per_esp.get(esp_id_from_item, 0) 
+
+                if (now - last_log_time) > SIGNAL_LOG_INTERVAL_SEC: 
+                    signal_logger.info(json.dumps(item)) 
+                    _last_signal_log_times_per_esp[esp_id_from_item] = now 
+            esp_id, payload = item.get("esp_id"), item.get("payload", {})
+            beacons_obj = payload.get("b", {}); wifi_signal = payload.get("w")
+            for mac, rssi in beacons_obj.items():
+                mac = mac.lower()
+                if not mac or mac not in _asset_map: continue
+                if mac not in _asset_realtime_state: _asset_realtime_state[mac] = AssetState(mac)
+                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time(), wifi_signal)
+                asset_info = _asset_map.get(mac)
+                if asset_info and asset_info.get("status") == 'Offline':
+                    if db is None: db = SessionLocal()
+                    asset_db = db.query(Asset).get(asset_info.get("id"))
+                    if asset_db: asset_db.status = 'Online'
+                    _asset_map[mac]['status'] = 'Online'
+    finally:
+        if db: db.commit(); db.close()
+
+async def _processar_localizacoes():
+    """O coração da lógica de localização, com a máquina de estados final e robusta."""
+    if not _esp_map or not _asset_map: return
+
+    changes_to_commit = []
+    now = time.time()
+    db = SessionLocal()
+    try:
+        for mac, state in list(_asset_realtime_state.items()):
+            
+            # --- CÁLCULO DE CANDIDATO (FEITO PARA TODOS OS ATIVOS COM SINAL) ---
+            candidate_quarto_id = None
+            strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None, "wifi_signal": None}
+            if state.cleanup_old_readings():
+                for esp_id, reading in state.readings.items():
+                    if esp_id not in _esp_map: continue
+                    q_id, q_rssi = _esp_map[esp_id]
+                    if any(om != mac and oa.get("quarto_id") == q_id for om, oa in _asset_map.items()): continue
+
+                    if any(om != mac and o_state.pending_quarto_id == q_id for om, o_state in _asset_realtime_state.items()): continue
+                    
+                    threshold = q_rssi if q_rssi is not None else _config["default_rssi_threshold"]
+                    if reading["ema_rssi"] > threshold and reading["ema_rssi"] > strongest_candidate["ema_rssi"]:
+                        strongest_candidate.update({"esp_id": esp_id, "rssi": reading["rssi"], "ema_rssi": reading["ema_rssi"], "quarto_id": q_id, "wifi_signal": reading.get("wifi_signal")})
+                candidate_quarto_id = strongest_candidate["quarto_id"]
+                if state.readings:
+                    top_esp, top_read = max(state.readings.items(), key=lambda i: i[1]['ema_rssi'])
+                    state.last_strongest_signal = {"esp_id": top_esp, "rssi": top_read['rssi'], "ema_rssi": top_read['ema_rssi']}
+
+            # ESTADO 2: DESAPARECIDO (SEM SINAL BLE HÁ MUITO TEMPO)
+            if not state.readings:
+                state.disappearance_count += 1
+                if state.disappearance_count >= DISAPPEARANCE_TOLERANCE_CYCLES:
+                    asset_info = _asset_map.get(mac, {})
+                    if asset_info.get("status") == 'Online':
+                        if asset_info.get("quarto_id") is not None:
+                            changes_to_commit.append({"asset_id": asset_info.get("id"), "new_quarto_id": None, "source_esp_id": "server_disappearance", "details": "Ativo desapareceu do radar BLE."})
+                        asset_db = db.query(Asset).get(asset_info.get("id"));
+                        if asset_db: asset_db.status = 'Offline'
+                        _asset_map[mac]['status'] = 'Offline'
+                    del _asset_realtime_state[mac]
+                continue
+            
+            asset_info = _asset_map.get(mac, {}); asset_id = asset_info.get("id")
+            quarto_id_atual = asset_info.get("quarto_id")
+
+            # ESTADO 3: ALOCADO (DENTRO DE UM QUARTO) - LÓGICA REFEITA
+            if quarto_id_atual is not None:
+                # Verificação 1: O sinal BLE ainda é consistente com o quarto atual?
+                if candidate_quarto_id == quarto_id_atual:
+                    state.disappeared_since = None # Se sim, reseta a inércia de saída do BLE.
+                else:
+                    if state.disappeared_since is None:
+                        logger.info(f"[BLE] Sinal para {mac} no quarto {quarto_id_atual} inconsistente. Iniciando inércia de saída.")
+                        state.disappeared_since = now
+                    elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
+                        logger.info(f"[BLE] EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} por sinal BLE fraco.")
+                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "details": "Sinal BLE inconsistente com o quarto atual.", "action": "OUT"})
+                        clear_asset_candidate_state(mac)
+                        continue # Pula para o próximo ativo
+
+                # Verificação 2: O ativo ainda está respondendo ao handshake de presença?
+                
+                # --- NOVA VERIFICAÇÃO DE ALTA PRIORIDADE ---
+                if mac in _handshake_invalidated_assets:
+                    logger.error(f"[HANDSHAKE] EVENTO OUT (CALLBACK FALSE): Ativo {mac} removido do quarto {quarto_id_atual} por resposta explícita 'FALSE'.")
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": "aggregator_handshake_monitor",
+                        "details": "Removido por confirmação explícita de ausência (callback 'FALSE').",
+                        "action": "OUT"
+                    })
+                    _handshake_invalidated_assets.remove(mac) # Consome o flag
+                    clear_asset_candidate_state(mac)
+                    continue # Processo concluído para este ativo
+
+                # A lógica de timeout original continua abaixo, como um fallback.
+                last_success = _last_handshake_success.get(mac, 0)
+                
+                # Se nunca tivemos um sucesso ou o último foi há muito tempo, remove o ativo.
+                if last_success != 0 and (now - last_success) > HANDSHAKE_FAILURE_TIMEOUT_SEC:
+                    logger.error(f"[HANDSHAKE] EVENTO OUT (TIMEOUT): Ativo {mac} sem resposta de handshake por mais de {HANDSHAKE_FAILURE_TIMEOUT_SEC}s. Forçando remoção.")
+                    
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": "aggregator_handshake_monitor",
+                        "details": f"Removido por ausência de resposta ao handshake superior a {HANDSHAKE_FAILURE_TIMEOUT_SEC}s.",
+                        "action": "OUT"
+                    })
+                    clear_asset_candidate_state(mac)
+                    continue # Pula para o próximo ativo
+
+            # ESTADO 4: LIVRE (FORA DE UM QUARTO)
+            if quarto_id_atual is None and candidate_quarto_id is not None:
+                if candidate_quarto_id != state.candidate_quarto_id:
+                    state.candidate_quarto_id = candidate_quarto_id
+                    state.candidate_since = now
+                
+                # Se a inércia de entrada for cumprida, marca o ativo como PENDENTE no DB
+                if state.candidate_since and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
+                    logger.info(f"NOVA ENTRADA DETECTADA: Ativo {mac} -> Quarto {candidate_quarto_id}. Marcando como 'Pendente' no DB.")
+                    
+                    changes_to_commit.append({
+                        "asset_id": asset_id,
+                        "new_quarto_id": candidate_quarto_id,
+                        "location_status": "Pendente", # Define o novo status
+                        "action": "GET",
+                        "status": "Pendente-Inicial",
+                        "details": "Ativo detectado por BLE, iniciando processo de confirmação.",
+                        "quarto_context_id": candidate_quarto_id
+                    })
+                    
+                    # Limpa o estado de candidato da memória, pois agora o DB é a fonte da verdade
+                    state.candidate_since = None
+                    state.candidate_quarto_id = None
+            else:
+                if state.candidate_quarto_id is not None:
+                    logger.info(f"Ativo {mac} perdeu seu sinal de candidato para o quarto {state.candidate_quarto_id}. Abortando processo de entrada.")
+                    clear_asset_candidate_state(mac)
+
+        if changes_to_commit:
+            await batch_update_asset_assignments(db, changes_to_commit, _asset_map)
+        db.commit()
+    finally:
+        db.close()
+
+def confirm_asset_by_handshake(mac_beacon: str):
+    """
+    Função chamada pelo endpoint da API em main.py para registrar
+    uma confirmação de presença bem-sucedida.
+    """
+    if mac_beacon:
+        logger.info(f"[HANDSHAKE-STATE] Ativo {mac_beacon} confirmado via handshake.")
+        _handshake_confirmed_assets.add(mac_beacon)
+        _last_handshake_success[mac_beacon] = time.time()
+
+def invalidate_asset_by_handshake(mac_beacon: str):
+    """Função chamada pelo endpoint da API para registrar uma invalidação explícita."""
+    if mac_beacon:
+        logger.warning(f"[HANDSHAKE-STATE] Ativo {mac_beacon} invalidado via callback 'FALSE'.")
+        _handshake_invalidated_assets.add(mac_beacon)
+
+def _load_maps_from_db():
+    global _esp_map, _asset_map, _config
+    db = SessionLocal()
+    try:
+        esps = db.query(Embarcado).all()
+        _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
+        assets = db.query(Asset).all()
+        _asset_map = { a.mac_beacon: {"id": a.id, "nome_ativo": a.nome_ativo, "modelo": a.modelo, "quarto_id": a.quarto_id, "wifi_mac": a.mac_address, "status": a.status, "location_status": a.location_status } for a in assets }
+        settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
+        _config["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", _config["default_rssi_threshold"]))
+        _config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))
+        _config["inertia_saida_ms"] = int(settings_from_db.get("inertia_saida", _config["inertia_saida_ms"]))
+        _config["max_assets_per_room"] = int(settings_from_db.get("max_assets_per_room", _config["max_assets_per_room"]))
+        _config["ema_alpha"] = float(settings_from_db.get("ema_alpha", _config["ema_alpha"]))
+        logger.info(f"[RTLS] Cache (re)carregado: {len(_esp_map)} ESPs, {len(_asset_map)} Ativos.")
+    finally:
+        db.close()
+
+async def main_aggregator_loop():
+    logger.info("[RTLS] Motor de localização iniciado.")
+    _load_maps_from_db()
+    while True:
+        try:
+            if _config_needs_reload.is_set():
+                _load_maps_from_db()
+                _config_needs_reload.clear()
+            await _consume_scan_data_queue()
+            await _processar_localizacoes()
+        except Exception as e:
+            logger.error(f"[RTLS] Erro crítico no loop principal: {e}", exc_info=True)
+        await asyncio.sleep(_config["process_interval_sec"])
+
+
+========================================
+ARQUIVO: app/auth.py
+========================================
+# auth.py
+import logging
+logger = logging.getLogger(__name__)
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+security = HTTPBasic()
+ADMIN_USER = "admin"
+ADMIN_PASS = "wyrd"   # idealmente carregue via variável de ambiente
+
+def authenticate_admin(credentials: HTTPBasicCredentials = Depends(security)):
+    correct = (credentials.username == ADMIN_USER and credentials.password == ADMIN_PASS)
+    if not correct:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais inválidas",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+
+========================================
+ARQUIVO: app/config.py
+========================================
+# config.py (Versão Híbrida Final e Corrigida)
+import configparser
+import os
+import logging
+logger = logging.getLogger(__name__)
+
+# Define o nome do arquivo de configuração
+CONFIG_FILE = 'config.ini'
+
+def load_configuration():
+    """
+    Lê o arquivo config.ini e retorna um dicionário com as configurações.
+    Se o arquivo não existir, cria um com TODAS as chaves necessárias.
+    """
+    config = configparser.ConfigParser()
+    
+    if not os.path.exists(CONFIG_FILE):
+        logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão completos.")
+        
+        config['Network'] = {
+            'ip': '0.0.0.0',
+            'port': '8080',
+            'network_range_scan': '192.168.1.0/24' 
+        }
+
+        config['MQTT'] = {
+            'mqtt_broker_host': '127.0.0.1',
+            'mqtt_broker_port': '1883',
+            'mqtt_asset_list_topic': 'wyrd/rtls/assets/available',
+            'mqtt_esp_command_topic': 'wyrd/rtls/esp/all/command'
+        }
+        
+        config['Dispatcher'] = {
+            'final_ip': '127.0.0.1',
+            'final_port': '9500'
+        }
+
+        config['Aggregator'] = {
+            'pending_wifi_check_interval_sec': '10',
+            'pending_warning_timeout_sec': '300',
+            'pending_expiration_timeout_sec': '600',
+            'disappearance_tolerance_cycles': '10',
+            'wifi_failure_inertia_sec': '180',
+            'process_interval_sec': '2.0',     
+            'reading_timeout_sec': '10',        
+            'ema_alpha': '0.4',
+            'dispatch_delay_after_wifi_sec': '5',
+            'state_log_interval_sec': '30'         
+        }
+        
+        config['Tasks'] = {
+            'monitor_wifi_interval_sec': '60',
+            'esp_timeout_sec': '150',         
+            'wifi_failure_tolerance': '3',
+            'esp_status_interval_sec': '90',
+            'monitor_wifi_interval_sec': '60',  
+        }
+
+        config['Application'] = {
+            'history_retention_days': '7',
+            'event_page_size': '25',
+            'cleanup_interval_sec': '3600',
+        }
+
+        with open(CONFIG_FILE, 'w') as configfile:
+            config.write(configfile)
+    
+    config.read(CONFIG_FILE)
+    
+    settings = {}
+    for section in config.sections():
+        settings.update(config[section])
+        
+    return settings
+
+settings = load_configuration()
+
+
+========================================
+ARQUIVO: app/connection_manager.py
+========================================
+# app/connection_manager.py
+import uuid
+from typing import Dict
+from fastapi import WebSocket
+
+class ConnectionManager:
+    def __init__(self):
+        # Usamos um dicionário para guardar {client_id: websocket}
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket) -> str:
+        """Aceita uma nova conexão, gera um ID e guarda-a."""
+        await websocket.accept()
+        client_id = str(uuid.uuid4()) # Gera um ID único
+        self.active_connections[client_id] = websocket
+        return client_id
+
+    def disconnect(self, client_id: str):
+        """Remove uma conexão pelo seu ID."""
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+
+    async def send_to_client(self, client_id: str, message: str):
+        """Envia uma mensagem para um cliente específico."""
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_text(message)
+
+    async def broadcast(self, message: str):
+        """Envia uma mensagem para TODOS os clientes."""
+        for connection in self.active_connections.values():
+            await connection.send_text(message)
+
+manager = ConnectionManager()
+
+
+========================================
+ARQUIVO: app/dispatcher.py
+========================================
+# ==============================================================================
+# ARQUIVO: dispatcher.py
+# ==============================================================================
+"""
+Propósito do Arquivo:
+Envia o resultado final de um evento para o sistema externo (Connecta).
+
+Funções Chave no Fluxo:
+- `dispatch_event(evt)`: Recebe os dados de um evento resolvido (ex: "Cama X
+  no Quarto Y"), formata em JSON e envia via socket TCP, com tentativas
+  automáticas em caso de falha.
+"""
+
+import socket
+import json
+import time
+from .config import settings
+
+import logging
+logger = logging.getLogger(__name__)
+
+# --- Seção: Estratégia de Nova Tentativa (Exponential Backoff) ---
+# Esta função auxiliar implementa uma estratégia de "backoff exponencial".
+# A cada nova tentativa de conexão falha, ela calcula um tempo de espera
+# que aumenta exponencialmente (2^1, 2^2, 2^3...), até um limite máximo.
+# Isso evita sobrecarregar o serviço de destino com tentativas muito rápidas.
+def exponential_backoff(attempt):
+    # O tempo de espera dobra a cada tentativa, mas não passa de 30 segundos.
+    return min(2 ** attempt, 30)
+
+# --- Seção: Função Principal de Despacho ---
+# A função 'dispatch_event' é o coração deste módulo.
+# Ela recebe um evento, monta o payload JSON no formato esperado pelo
+# sistema de destino, e tenta enviá-lo via socket TCP.
+def dispatch_event(evt: dict) -> bool: # O parâmetro 'evt' é o dicionário completo
+    """
+    Envia um evento pré-formatado para o sistema final.
+    """
+    # --- INÍCIO DA CORREÇÃO ---
+    # Remove a recriação do payload. Agora, 'evt' já é o payload final.
+    payload = evt
+    # --- FIM DA CORREÇÃO ---
+
+    msg = json.dumps(payload) + "\n"
+    logger.info(f"[dispatch_event] Payload montado: {payload}")
+
+    attempt = 0
+    while attempt < 5:
+        try:
+            attempt += 1
+            logger.info(f"[dispatch_event] Tentativa {attempt} de conexão...")
+            with socket.create_connection((settings.get("final_ip"), int(settings.get("final_port"))), timeout=5) as sock:
+                sock.sendall(msg.encode())
+                logger.info(f"[dispatch_event] Payload enviado com sucesso.")
+                return True
+        except (socket.timeout, socket.error) as e:
+            wait = exponential_backoff(attempt)
+            logger.info(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s.")
+            time.sleep(wait)
+    else:
+        logger.info(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
+        return False
+
+
+========================================
+ARQUIVO: app/handshake_client.py
+========================================
+# Arquivo: app/handshake_tcp_client.py
+
+import asyncio
+import json
+import logging
+from .config import settings
+
+logger = logging.getLogger(__name__)
+
+# Usaremos as mesmas configurações de IP e Porta do dispatcher
+FINAL_IP = settings.get("final_ip")
+# Para o seu teste, vamos usar a porta 9502 como pediu
+FINAL_PORT = settings.get("handshake_tcp_port", 9502) 
+
+async def send_challenge(payload: dict):
+    """
+    Abre uma conexão TCP e envia um desafio "fire-and-forget".
+    Não espera por uma resposta nesta conexão.
+    """
+    challenge_payload = {**payload, "status": "SERVER"}
+    writer = None  # Define writer como None inicialmente
+    try:
+        logger.debug(f"[TCP-CHALLENGE] Conectando a {FINAL_IP}:{FINAL_PORT} para enviar desafio...")
+        # Abre a conexão com um timeout para a própria conexão
+        _, writer = await asyncio.wait_for(asyncio.open_connection(FINAL_IP, FINAL_PORT), timeout=5.0)
+
+        message_to_send = json.dumps(challenge_payload) + '\n'
+        logger.info(f"[TCP-CHALLENGE] Enviando desafio: {message_to_send.strip()}")
+        
+        writer.write(message_to_send.encode())
+        await writer.drain()
+        
+    except Exception as e:
+        logger.error(f"[TCP-CHALLENGE] Falha ao enviar desafio: {e}")
+    finally:
+        # Garante que a conexão seja sempre fechada após o envio
+        if writer and not writer.is_closing():
+            writer.close()
+            await writer.wait_closed()
+            logger.debug(f"[TCP-CHALLENGE] Conexão de envio fechada.")
+
+
+========================================
+ARQUIVO: app/logging_config.py
+========================================
+# logging_config.py (Corrigido e com Fuso Horário)
+import logging
+import logging.config
+import sys
+from datetime import datetime
+
+# --- NOVO: Classe para forçar o fuso horário de São Paulo ---
+class SaoPauloTimeFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        # Esta função converte o tempo do log para o nosso fuso
+        # Não precisa de bibliotecas externas
+        from datetime import timezone, timedelta
+        sao_paulo_tz = timezone(timedelta(hours=-3))
+        return datetime.fromtimestamp(record.created, tz=sao_paulo_tz).strftime(datefmt)
+
+def setup_logging():
+    LOGGING_CONFIG = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'default': {
+                '()': SaoPauloTimeFormatter,
+                'format': '%(asctime)s - %(levelname)s - [%(name)s] - %(message)s',
+                'datefmt': '%d/%m/%Y %H:%M:%S',
+            },
+            'signal_formatter': {
+                '()': SaoPauloTimeFormatter,
+                'format': '%(asctime)s - %(message)s',
+                'datefmt': '%d/%m/%Y %H:%M:%S',
+            },
+            # Formatter para o log de estado
+            'state_formatter': {
+                'format': '%(message)s'
+            },
+        },
+        'handlers': {
+            'console': { 'class': 'logging.StreamHandler', 'formatter': 'default', 'stream': sys.stdout, },
+            'file': {
+                'class': 'logging.handlers.TimedRotatingFileHandler', 'formatter': 'default',
+                'filename': 'rtls_events.log', 'when': 'D', 'interval': 1, 'backupCount': 7, 'encoding': 'utf-8',
+            },
+            'signals_handler': {
+                'class': 'logging.handlers.TimedRotatingFileHandler',
+                'formatter': 'signal_formatter',
+                'filename': 'rtls_signals.log', 
+                'when': 'D',
+                'interval': 1,
+                'backupCount': 7,
+                'encoding': 'utf-8',
+            },
+            # HANDLER PARA OS ARQUIVOS DE LOG DE ESTADO (COM A CORREÇÃO)
+            'state_log_handler': {
+                'class': 'logging.handlers.TimedRotatingFileHandler',
+                'formatter': 'state_formatter', # Garanta que este valor está correto
+                'filename': 'rtls_state.log',
+                'when': 'D',
+                'interval': 1,
+                'backupCount': 3,
+                'encoding': 'utf-8',
+            },
+        },
+        'loggers': {
+            'signals': { 'handlers': ['signals_handler'], 'level': 'INFO', 'propagate': False, },
+            
+            # --- ADICIONE ESTE BLOCO ---
+            'aggregator_state': {
+                'handlers': ['state_log_handler'],
+                'level': 'INFO',
+                'propagate': False, # Essencial para não poluir os outros logs
+            },
+            # --- FIM DO BLOCO ---
+        },
+        'root': { 'handlers': ['console', 'file'], 'level': 'INFO', },
+    }
+    logging.config.dictConfig(LOGGING_CONFIG)
+    logging.info("INFO: Sistema de logging configurado. Fuso horário: São Paulo.")
+
+
+========================================
+ARQUIVO: app/main.py
+========================================
 # main.py (Versão Final, Completa e Consolidada para Multi-Ativo)
 
 import asyncio
@@ -1342,3 +1998,418 @@ if __name__ == "__main__":
         "app.main:app", host=settings.get("ip", "0.0.0.0"),
         port=int(settings.get("port", 8000)), reload=True
     )
+
+
+========================================
+ARQUIVO: app/models.py
+========================================
+# models.py
+from sqlalchemy import Column, Integer, String, DateTime, JSON, create_engine, ForeignKey
+from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+import logging
+logger = logging.getLogger(__name__)
+
+DATABASE_URL = "sqlite:///./base_wh_baxter.db"
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+Base = declarative_base()
+
+class Andar(Base):
+    __tablename__ = "andares"
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    
+    # Relação inversa para acessar os quartos de um andar
+    quartos = relationship("Quarto", back_populates="andar")
+
+
+class Quarto(Base):
+    __tablename__ = "quartos"
+    id   = Column(Integer, primary_key=True, index=True)
+    nome = Column(String, unique=True, nullable=False)
+    
+    andar_id = Column(Integer, ForeignKey("andares.id"), nullable=False)
+    andar = relationship("Andar", back_populates="quartos")
+
+    embarcados = relationship("Embarcado", back_populates="quarto")
+    assets     = relationship("Asset", back_populates="quarto")
+
+class GlobalSetting(Base):
+    __tablename__ = "global_settings"
+    key = Column(String, primary_key=True, index=True)
+    value = Column(String, nullable=True)
+
+class Asset(Base):
+    __tablename__ = "assets"
+    id = Column(Integer, primary_key=True, index=True)
+    nome_ativo = Column(String, nullable=False, unique=True)
+    mac_beacon = Column(String, unique=True, nullable=False, index=True)
+    mac_address = Column(String, unique=True, nullable=True, index=True) 
+    tipo_ativo = Column(String, nullable=True)
+    modelo = Column(String, nullable=True)
+    fabricante = Column(String, nullable=True)
+    quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=True)
+    quarto = relationship("Quarto", back_populates="assets")
+    status = Column(String, default='Online', nullable=False)
+    location_status = Column(String, default='Confirmado', nullable=False)
+    location_status_updated_on = Column(DateTime(timezone=True), nullable=True)
+
+class Embarcado(Base):
+    __tablename__ = "embarcados"
+    id        = Column(Integer, primary_key=True, index=True)
+    id_esp    = Column(String, unique=True, nullable=False, index=True)
+    last_seen = Column(DateTime(timezone=True), nullable=True)
+    mac_address = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    wifi_signal = Column(Integer, nullable=True)
+    status_rede = Column(String, default="offline", nullable=False) 
+    quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
+    rssi_threshold = Column(Integer, nullable=True)
+    quarto = relationship("Quarto", back_populates="embarcados")
+    connecta_id = Column(String, nullable=False)
+
+
+class ReceivedEvent(Base):
+    __tablename__ = "received_events"
+    id            = Column(Integer, primary_key=True, index=True)
+    esp_id        = Column(String, nullable=False, index=True)
+    ativo        = Column(String, nullable=False, index=True)
+    quarto_nome   = Column(String, nullable=True) 
+    andar_nome = Column(String, nullable=True)
+    action        = Column(String, nullable=False, index=True)    
+    status        = Column(String, nullable=True, index=True)
+    status_detail = Column(String, nullable=True)   
+    rssi          = Column(Integer, nullable=True)
+    wifi          = Column(Integer, nullable=True)
+    data_on       = Column(DateTime(timezone=True), nullable=False, index=True)
+    raw           = Column(JSON, nullable=False)
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
+
+
+========================================
+ARQUIVO: app/mqtt_client.py
+========================================
+import paho.mqtt.client as mqtt
+import json
+import asyncio
+import threading
+from datetime import datetime, timezone
+# Removidas importações do 'models' que não são mais usadas neste arquivo
+from .config import settings
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Fila para comunicação com o Aggregator (processamento de localização)
+scan_data_queue = asyncio.Queue()
+
+# Cache em memória para status (last_seen, wifi_signal) e lock de segurança
+_esp_status_cache = {}
+_cache_lock = threading.Lock()
+
+client = mqtt.Client()
+
+def get_and_clear_status_cache():
+    """
+    Função segura para a tarefa agendada obter os dados do cache e limpá-lo.
+    """
+    with _cache_lock:
+        cache_copy = _esp_status_cache.copy()
+        _esp_status_cache.clear()
+        return cache_copy
+
+# --- FUNÇÃO RESTAURADA ---
+def publish_command_to_esp(esp_id: str, command: dict):
+    """
+    Publica um comando específico para o canal individual de um embarcado.
+    Essencial para os botões de 'Reiniciar' e 'Reconfigurar' da interface.
+    """
+    if not client.is_connected():
+        logger.warning(f"[MQTT] Cliente não conectado. Abortando envio de comando para {esp_id}.")
+        return
+
+    command_topic = f"wyrd/rtls/esp/{esp_id}/command"
+    payload = json.dumps(command)
+    logger.info(f"[MQTT] Enviando comando {payload} para a ESP '{esp_id}' no tópico '{command_topic}'")
+    client.publish(command_topic, payload, qos=1) # Usamos qos=1 para maior confiabilidade
+
+def on_message(client, userdata, msg):
+    """
+    Callback super rápido que agora SÓ coloca dados na fila e no cache em memória.
+    """
+    topic_parts = msg.topic.split('/')
+    
+    if len(topic_parts) == 5 and topic_parts[4] == "scan_data":
+        esp_id = topic_parts[3]
+        try:
+            payload = json.loads(msg.payload)
+            # 1. Coloca os dados de scan na fila do aggregator
+            scan_data_queue.put_nowait({"esp_id": esp_id, "payload": payload})
+
+            # 2. Atualiza o cache de status com as novas informações
+            with _cache_lock:
+                update_data = {
+                    "last_seen": datetime.now(timezone.utc)
+                }
+                if 'w' in payload:
+                    update_data["wifi_signal"] = payload['w']
+                
+                _esp_status_cache[esp_id] = update_data
+
+        except json.JSONDecodeError:
+            logger.warning("[MQTT] JSON inválido recebido no tópico: %s", msg.topic)
+        except Exception as e:
+            logger.error("[MQTT] Erro ao processar mensagem de %s: %s", esp_id, e)
+
+def on_connect(client, userdata, flags, rc):
+    """Callback executado quando a conexão com o broker é (re)estabelecida."""
+    if rc == 0:
+        logger.info("[MQTT] Conectado com sucesso ao Broker MQTT!")
+        client.subscribe("wyrd/rtls/esp/+/scan_data", qos=0) 
+        logger.info("[MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'")
+    else:
+        logger.error(f"[MQTT] Falha ao conectar, código de retorno: {rc}")
+
+def start_mqtt_client():
+    """Inicializa e conecta o cliente MQTT."""
+    logger.info("[MQTT] Iniciando cliente...")
+    client.on_connect = on_connect
+    client.on_message = on_message
+    try:
+        broker_port = int(settings.get("mqtt_broker_port")) 
+        client.connect(settings.get("mqtt_broker_host"), broker_port, 60) 
+        client.loop_start() 
+    except Exception as e:
+        logger.error(f"[MQTT] Não foi possível conectar ao broker: {e}")
+
+
+========================================
+ARQUIVO: app/nmap_scan.py
+========================================
+
+
+
+========================================
+ARQUIVO: app/presence.py
+========================================
+
+
+
+========================================
+ARQUIVO: app/services.py
+========================================
+import asyncio
+import logging
+from datetime import datetime, timezone, timedelta 
+
+FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
+
+from sqlalchemy.orm import Session, joinedload
+
+from . import mqtt_client
+from . import aggregator
+from .connection_manager import manager
+from .dispatcher import dispatch_event
+from .models import Asset, Embarcado, Quarto, ReceivedEvent, SessionLocal
+from .config import settings
+
+DISPATCH_DELAY_SEC = int(settings.get('dispatch_delay_after_wifi_sec', 15))
+
+logger = logging.getLogger(__name__)
+
+
+async def batch_update_asset_assignments(db: Session, changes: list, asset_map: dict):
+    """
+    (VERSÃO CORRIGIDA) Processa mudanças, garantindo que o ID Connecta seja usado
+    no payload despachado para o sistema final.
+    """
+    if not changes:
+        return
+
+    # --- INÍCIO DA MUDANÇA ---
+    # 1. Cria um mapa de consulta {nome_do_quarto: connecta_id} para ser usado depois.
+    #    Isso é feito uma vez para evitar múltiplas consultas ao DB.
+    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).all()
+    quarto_nome_to_connecta_id_map = {
+        e.quarto.nome: e.connecta_id 
+        for e in embarcados if e.quarto and e.connecta_id
+    }
+    # --- FIM DA MUDANÇA ---
+
+    events_to_dispatch = []
+    
+    try:
+        # ETAPA 1 (sem alterações)
+        for change in changes:
+            # ... (a lógica para criar o ReceivedEvent e salvar no SEU DB continua igual)
+            asset_id = change.get("asset_id")
+            if not asset_id: continue
+
+            asset = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
+            if not asset: continue
+
+            action = change.get("action", "GET")
+            status = change.get("status", "OK")
+            
+            quarto_evento_obj = None
+            quarto_context_id = change.get("quarto_context_id")
+            
+            if action == "OUT":
+                if asset.quarto:
+                    quarto_evento_obj = asset.quarto
+            elif quarto_context_id:
+                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_context_id).first()
+
+            event = ReceivedEvent(
+                esp_id=change.get("source_esp_id", "server"),
+                ativo=asset.mac_beacon,
+                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else "N/A",
+                andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
+                action=action, status=status, status_detail=change.get("details"),
+                rssi=change.get("rssi"), wifi=change.get("wifi_signal"),
+                data_on=datetime.now(timezone.utc),
+                raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
+            )
+
+            new_location_status = change.get("location_status")
+            if new_location_status:
+                asset.location_status = new_location_status
+                asset.location_status_updated_on = datetime.now(timezone.utc)
+
+            if status == "Confirmado" or action == "OUT":
+                asset.quarto_id = change.get("new_quarto_id")
+                
+            db.add(event)
+            events_to_dispatch.append(event)
+            
+            if status == "Confirmado" or action == "OUT":
+                asset.quarto_id = change.get("new_quarto_id")
+
+        db.commit()
+
+        # --- ETAPA 2: Tentar despachar os eventos ---
+        logger.info(f"Lote de {len(changes)} mudanças processado. Despachando eventos.")
+        loop = asyncio.get_running_loop()
+
+        for event in events_to_dispatch:
+            if event.action in ["GET", "OUT", "ALERTA"]:
+                db.refresh(event)
+                
+                data_zulu = event.data_on.replace(tzinfo=timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+                status_to_dispatch = event.action
+                if event.status in ["Pendente", "Confirmado"]:
+                    status_to_dispatch = "GET"
+
+                # --- INÍCIO DA MUDANÇA ---
+                # 2. Usa o mapa para encontrar o ID Connecta.
+                #    Se não encontrar, usa o nome do quarto como fallback para não quebrar.
+                quarto_nome_original = event.quarto_nome
+                
+                # Usa o mapa para encontrar o ID Connecta correspondente
+                connecta_id_para_enviar = quarto_nome_to_connecta_id_map.get(quarto_nome_original) # Retornará None se não encontrar
+
+                dispatch_payload = {
+                    "quarto": quarto_nome_original, # <-- Volta a enviar o nome do quarto
+                    "id_connecta": connecta_id_para_enviar, # <-- NOVO CAMPO com o ID
+                    "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
+                    "modelo": asset_map.get(event.ativo, {}).get("modelo"),
+                    "status": status_to_dispatch,
+                    "dataOn": data_zulu,
+                    "wifi":   event.wifi,
+                    "etapa": event.status
+                }
+                
+                # ... (resto da função de dispatch, tratamento de erro, etc. continua igual)
+                dispatch_successful = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+
+                if not dispatch_successful:
+                     logger.error(f"FALHA FINAL ao despachar evento ID {event.id}. Atualizando status para ERRO.")
+                     update_db = SessionLocal()
+                     try:
+                         event_to_update = update_db.query(ReceivedEvent).get(event.id)
+                         if event_to_update:
+                             event_to_update.status = "Erro"
+                             event_to_update.status_detail = "Falha no envio para o servidor final após 5 tentativas."
+                             update_db.commit()
+                     finally:
+                         update_db.close()
+        
+        aggregator.flag_for_reload()
+        await manager.broadcast("ATUALIZAR_ESTADO")
+
+    except Exception as e:
+        logger.error(f"ERRO na transação de atualização em lote: {e}", exc_info=True)
+        db.rollback()
+
+async def force_asset_removal(db: Session, asset_id: int, details: str):
+    """
+    (NOVA FUNÇÃO) Força a remoção de um ativo de um quarto e limpa seu estado.
+    Esta é a forma correta de "resetar" o estado de um ativo no servidor.
+    """
+    asset = db.query(Asset).get(asset_id)
+    if not asset or asset.quarto_id is None:
+        logger.warning(f"[SERVICE] Tentativa de forçar remoção do ativo {asset_id}, mas ele não está em um quarto.")
+        return
+
+    logger.info(f"[SERVICE] Forçando remoção do ativo '{asset.nome_ativo}' do quarto ID {asset.quarto_id}.")
+    
+    aggregator.clear_asset_candidate_state(asset.mac_beacon)
+
+    change_info = [{
+        "asset_id": asset.id,
+        "new_quarto_id": None,
+        "source_esp_id": "service_forced_removal",
+        "action": "OUT",
+        "rssi": -999,
+        "details": details
+    }]
+    
+    # Adiciona o asset_map ao chamado para evitar erros
+    asset_map_info = { asset.mac_beacon: {"nome_ativo": asset.nome_ativo, "modelo": asset.modelo} }
+    await batch_update_asset_assignments(db, change_info, asset_map_info)
+
+
+async def release_assets_for_offline_esp(db: Session, esp_id: str):
+    """
+    (FUNÇÃO CORRIGIDA) Liberta todos os ativos de um quarto cuja ESP ficou offline.
+    """
+    embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
+    if not embarcado or not embarcado.quarto_id:
+        return
+
+    quarto_nome = embarcado.quarto.nome
+    logger.warning(f"[LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Libertando seus ativos...")
+    
+    assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
+    if not assets_no_quarto:
+        return
+
+    changes_to_commit = []
+    asset_map_info = {}
+    for asset in assets_no_quarto:
+        logger.info(f"[LIVENESS] Preparando para libertar ativo '{asset.nome_ativo}'...")
+        
+        aggregator.clear_asset_candidate_state(asset.mac_beacon)
+
+        changes_to_commit.append({
+            "asset_id": asset.id,
+            "new_quarto_id": None,
+            "source_esp_id": "liveness_check",
+            "action": "OUT",
+            "rssi": -999,
+            "details": f"Ativo libertado porque a ESP '{esp_id}' do quarto '{quarto_nome}' ficou offline."
+        })
+        asset_map_info[asset.mac_beacon] = {"nome_ativo": asset.nome_ativo, "modelo": asset.modelo}
+
+    if changes_to_commit:
+        logger.info(f"[LIVENESS] Processando a saída de {len(changes_to_commit)} ativos do quarto {quarto_nome}.")
+        await batch_update_asset_assignments(db, changes_to_commit, asset_map_info)
+
+

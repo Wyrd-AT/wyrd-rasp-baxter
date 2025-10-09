@@ -70,6 +70,15 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
                 data_on=datetime.now(timezone.utc),
                 raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
             )
+
+            new_location_status = change.get("location_status")
+            if new_location_status:
+                asset.location_status = new_location_status
+                asset.location_status_updated_on = datetime.now(timezone.utc)
+
+            if status == "Confirmado" or action == "OUT":
+                asset.quarto_id = change.get("new_quarto_id")
+                
             db.add(event)
             events_to_dispatch.append(event)
             

@@ -877,3 +877,47 @@ body.login-page {
     margin-bottom: 0 !important;
     opacity: 0;
 }
+
+
+.form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem; /* Espaçamento entre o cabeçalho e os campos */
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+.form-header h3 {
+    margin: 0; /* Remove a margem padrão do título para alinhamento perfeito */
+}
+
+/* Nova classe para deixar o ícone do botão azul */
+.icon-btn-primary {
+    color: var(--primary-color);
+}
+
+.icon-btn-primary:hover {
+    color: var(--primary-dark);
+}
+
+.forms-container-horizontal {
+    display: flex;
+    align-items: stretch; /* Garante que todos os filhos estiquem para a mesma altura */
+    gap: 1.5rem;
+}
+
+.forms-container-horizontal .form-card {
+    flex: 1; /* Faz com que os cards ocupem o espaço de forma flexível */
+    display: flex; /* Transforma o próprio card em um container flex */
+    flex-direction: column; /* Organiza o conteúdo do card em coluna */
+}
+
+.forms-container-horizontal .form-card form {
+    flex-grow: 1; /* Faz o formulário crescer para ocupar todo o espaço do card */
+    display: flex;
+    flex-direction: column;
+}
+
+@keyframes blink { 50% { opacity: 0.3; } }
+.blinking-animation { animation: blink 1.5s linear infinite; }

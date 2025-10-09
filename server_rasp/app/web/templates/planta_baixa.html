@@ -82,56 +82,47 @@ document.addEventListener('DOMContentLoaded', function () {
                     nomeQuartoSpan.className = 'ponto-nome-quarto';
                     nomeQuartoSpan.textContent = quarto.nome_quarto;
                     pontoContainer.appendChild(nomeQuartoSpan);
-
-                    const pontoStatusDiv = document.createElement('div');
-                    pontoStatusDiv.className = 'ponto-quarto-status';
                     
                     // --- NOVA LÓGICA DE PRIORIDADE ---
                     // 1. Procura se existe algum ativo pendente neste quarto.
+                    const pontoStatusDiv = document.createElement('div');
+                    pontoStatusDiv.className = 'ponto-quarto-status';
+                    
+                    // --- NOVA LÓGICA DE PRIORIDADE DE COR ---
+                    const ativoAlertado = quarto.ativos.find(a => a.status === 'alertado');
                     const ativoPendente = quarto.ativos.find(a => a.status === 'pendente');
                     const ativoConfirmado = quarto.ativos.find(a => a.status === 'confirmado');
 
-                    // 2. Lógica de Cor com a prioridade correta
                     if (quarto.status_embarcado === 'Offline') {
                         pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza (Prioridade máxima)
+                    } else if (ativoAlertado) {
+                        pontoStatusDiv.style.backgroundColor = '#e74c3c'; // Vermelho forte para Alerta
+                        pontoStatusDiv.classList.add('blinking-animation'); // Adiciona animação de piscar
                     } else if (ativoPendente) {
-                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja (Segunda prioridade)
+                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja
                     } else if (ativoConfirmado) {
-                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde (Terceira prioridade)
+                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde
                     } else {
                         pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho (Livre)
                     }
                     pontoContainer.appendChild(pontoStatusDiv);
                     
-                    // 3. Lógica do Texto com a prioridade correta
+                    // --- NOVA LÓGICA DE PRIORIDADE DE TEXTO ---
                     const nomeCamaSpan = document.createElement('span');
                     nomeCamaSpan.className = 'ponto-nome-cama';
 
                     if (quarto.status_embarcado === 'Offline') {
                         nomeCamaSpan.textContent = '(Offline)';
-                        nomeCamaSpan.classList.add('cama-livre');
+                    } else if (ativoAlertado) {
+                        nomeCamaSpan.textContent = ativoAlertado.nome + ' (Alerta)';
                     } else if (ativoPendente) {
                         nomeCamaSpan.textContent = ativoPendente.nome + ' (Pendente)';
                     } else if (ativoConfirmado) {
                         nomeCamaSpan.textContent = ativoConfirmado.nome;
                     } else {
                         nomeCamaSpan.textContent = 'Livre';
-                        nomeCamaSpan.classList.add('cama-livre');
                     }
                     pontoContainer.appendChild(nomeCamaSpan);
-
-                    // Lógica do Tooltip (sem alteração)
-                    let tooltipText = `${quarto.nome_quarto}`;
-                    if (quarto.status_embarcado === 'Offline') {
-                        tooltipText += `\n(Embarcado Offline)`;
-                    } else if (quarto.numero_ativos > 0) {
-                        quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.texto_conexao})`; });
-                    } else {
-                        tooltipText += `\nLivre`;
-                    }
-                    pontoContainer.title = tooltipText;
-
-                    pontosContainer.appendChild(pontoContainer);
                 });
             });
     }

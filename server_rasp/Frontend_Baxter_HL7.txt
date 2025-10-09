@@ -1,12 +1,16 @@
 ========================================
 ARQUIVO: app/web/templates/asset_form.html
 ========================================
-{# asset_form.html #}
+{# asset_form.html (NOVO ESTILO) #}
 <div class="form-card">
     <form action="{{ form_action }}" method="post">
-        <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativo{% endif %}</h3>
+        <div class="form-header">
+            <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativos{% endif %}</h3>
+            <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if asset else 'Salvar' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            </button>
+        </div>
         
-        {# Nova grade com 3 colunas para os campos principais #}
         <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr);">
             <div class="form-group">
                 <label for="nome_ativo">Nome da Cama</label>
@@ -21,9 +25,8 @@ ARQUIVO: app/web/templates/asset_form.html
                 <input type="text" id="mac_address" name="mac_address" value="{{ asset.mac_address if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
             </div>
         </div>
-        
-        {# Nova grade com 3 colunas para os detalhes do ativo #}
-        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr) auto; margin-top: 1.5rem;">
+     
+        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1.5rem;">
             <div class="form-group">
                 <label for="tipo_ativo">Tipo de Ativo</label>
                 <input type="text" id="tipo_ativo" name="tipo_ativo" value="{{ asset.tipo_ativo if asset else '' }}" placeholder="Ex: Cama Hospitalar">
@@ -36,10 +39,6 @@ ARQUIVO: app/web/templates/asset_form.html
                 <label for="fabricante">Fabricante</label>
                 <input type="text" id="fabricante" name="fabricante" value="{{ asset.fabricante if asset else '' }}" placeholder="Ex: Hillrom">
             </div>
-    
-            <button type="submit" class="icon-btn" title="{{ 'Atualizar' if asset else 'Salvar' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-            </button>
         </div>
     </form>
 </div>
@@ -61,9 +60,7 @@ ARQUIVO: app/web/templates/assets_list.html
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
         <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
@@ -220,36 +217,34 @@ ARQUIVO: app/web/templates/base.html
             overlay.addEventListener('click', toggleSidebar);
         }
         
-        const toggleFormsBtn = document.getElementById('toggle-forms-btn');
+        const toggleFormsBtn = document.getElementById('forms-toggle-btn');
         const formsContainer = document.getElementById('forms-container');
 
         // Só executa se o botão e o container existirem nesta página
         if (toggleFormsBtn && formsContainer) {
             
-            // Função para atualizar o texto do tooltip (title) do botão
-            const updateButtonTitle = () => {
+            // Função para atualizar o texto do botão
+            const updateButtonText = () => {
                 if (formsContainer.classList.contains('collapsed')) {
-                    toggleFormsBtn.title = 'Mostrar Formulários';
+                    toggleFormsBtn.textContent = 'Mostrar Formulários';
                 } else {
-                    toggleFormsBtn.title = 'Recolher Formulários';
+                    toggleFormsBtn.textContent = 'Recolher Formulários';
                 }
             };
 
             // Ao carregar a página, verifica se o estado "recolhido" estava salvo
             if (localStorage.getItem('formsCollapsed') === 'true') {
                 formsContainer.classList.add('collapsed');
-                toggleFormsBtn.classList.add('collapsed');
             }
-            updateButtonTitle(); // Garante que o texto do title esteja correto no carregamento
+            updateButtonText(); // Garante que o texto esteja correto no carregamento
 
             // Adiciona o evento de clique ao botão
             toggleFormsBtn.addEventListener('click', () => {
-                // Alterna a classe 'collapsed' no container e no botão (para a seta girar)
+                // Alterna a classe 'collapsed' no container
                 formsContainer.classList.toggle('collapsed');
-                toggleFormsBtn.classList.toggle('collapsed');
-
-                // Atualiza o texto do title para o novo estado
-                updateButtonTitle();
+                
+                // Atualiza o texto do botão para o novo estado
+                updateButtonText();
 
                 // Salva o estado atual no armazenamento local
                 localStorage.setItem('formsCollapsed', formsContainer.classList.contains('collapsed'));
@@ -319,24 +314,28 @@ ARQUIVO: app/web/templates/base.html
 ========================================
 ARQUIVO: app/web/templates/embarcado_form.html
 ========================================
-{# embarcado_form.html #}
 <form action="{{ form_action }}" method="post">
-    <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
     
-    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr auto;">
+    <div class="form-header">
+        <h3>{% if embarcado %}Editar Embarcado{% else %}Cadastro de Embarcados{% endif %}</h3>
+        <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if embarcado else 'Salvar' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+        </button>
+    </div>
+    
+    <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
         <div class="form-group">
             <label for="id_esp">ID da ESP</label>
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         
-        <div class="form-group">
+        <div class="form-group" hidden>
             <label for="connecta_id">ID Connecta</label>
             <input type="text" id="connecta_id" name="connecta_id" 
                    value="{{ embarcado.connecta_id if embarcado else '' }}" 
                    placeholder="ID usado no sistema final">
         </div>
 
-        {# NOVO CAMPO ANDAR #}
         <div class="form-group">
             <label for="andar_nome">Andar</label>
             <input type="text" id="andar_nome" name="andar_nome" 
@@ -351,17 +350,12 @@ ARQUIVO: app/web/templates/embarcado_form.html
                    placeholder="Ex: 101, UTI-02" required>
         </div>
         
-        {# O campo RSSI foi movido para uma nova linha para melhor organização #}
-        <div class="form-group" style="grid-column: 1 / 4;"> {# Ocupa 3 colunas #}
+        <div class="form-group">
             <label for="rssi_threshold">RSSI Mínimo Individual (dBm)</label>
             <input type="number" id="rssi_threshold" name="rssi_threshold"
                    value="{{ embarcado.rssi_threshold if embarcado and embarcado.rssi_threshold is not none else '' }}"
                    placeholder="Deixe em branco para usar o global">
         </div>
-
-        <button type="submit" class="icon-btn" title="{{ 'Atualizar' if embarcado else 'Salvar' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-        </button>
     </div>
 </form>
 
@@ -381,9 +375,7 @@ ARQUIVO: app/web/templates/embarcados_list.html
             <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
-        <button id="toggle-forms-btn" class="icon-btn" title="Recolher Formulários">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/forms.svg') }})"></span>
-        </button>
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
         <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">Baixar Dados</a>
     </div>
 </div>
@@ -395,9 +387,14 @@ ARQUIVO: app/web/templates/embarcados_list.html
     </div>
     
     <div class="form-card">
-        <form action="{{ url_for('update_settings') }}" method="post">
-            <h3>Configurações Globais</h3>
-            <div class="form-fields-grid">
+          <form action="{{ url_for('update_settings') }}" method="post">
+            <div class="form-header">
+                <h3>Configurações Globais</h3>
+                <button type="submit" class="icon-btn icon-btn-primary" title="Salvar Configurações Globais">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                </button>
+            </div>
+            <div class="form-fields-grid", style="grid-template-columns: repeat(2, 1fr);">
                 <div class="form-group">
                     <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
                     <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
@@ -410,9 +407,6 @@ ARQUIVO: app/web/templates/embarcados_list.html
                     <label for="inercia_saida">Inércia de Saída (ms)</label>
                     <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
                 </div>
-                <button type="submit" class="icon-btn" title="Salvar Configurações Globais">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                </button>
             </div>
         </form>
     </div>
@@ -708,26 +702,6 @@ ARQUIVO: app/web/templates/events_list.html
     </div>
 </form>
 
-{# A seção de pendentes agora começa escondida por padrão com style="display: none;" #}
-<div id="pending-section-container" class="pending-events-section" style="display: none;">
-    <h2>Eventos Pendentes (Aguardando Wi-Fi)</h2>
-    <div class="history-table-container">
-        <table class="data-table history-table">
-            <thead>
-                <tr>
-                    <th>TEMPO PENDENTE</th>
-                    <th>CAMA</th>
-                    <th>QUARTO DETECTADO</th>
-                    <th>DETALHES</th>
-                    <th>AÇÕES</th>
-                </tr>
-            </thead>
-            <tbody id="pending-events-tbody">
-                {# O conteúdo será inserido aqui pelo JavaScript #}
-            </tbody>
-        </table>
-    </div>
-</div>
 
 {# Seção da Tabela de Histórico (COM AS CORREÇÕES) #}
 <div class="history-table-container">
@@ -814,77 +788,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const pendingSectionContainer = document.getElementById('pending-section-container');
     const pendingBody = document.getElementById('pending-events-tbody');
 
-    function renderPendingEvents(events) {
-        if (!events || events.length === 0) {
-            pendingSectionContainer.style.display = 'none';
-            return;
-        }
-
-        pendingSectionContainer.style.display = 'block';
-        pendingBody.innerHTML = '';
-
-        // === INÍCIO DA CORREÇÃO ===
-        // 1. Criamos um "molde" da URL no servidor, com um placeholder.
-        const cancelUrlTemplate = "{{ url_for('cancel_pending_event', asset_mac='PLACEHOLDER') }}";
-        // === FIM DA CORREÇÃO ===
-
-        events.forEach(event => {
-            const row = document.createElement('tr');
-            
-            // ... (criação das outras células timeCell, camaCell, etc. continua igual)
-            const timeCell = document.createElement('td');
-            timeCell.textContent = `${event.tempo_pendente_sec}s`;
-
-            const camaCell = document.createElement('td');
-            camaCell.textContent = event.nome_ativo;
-
-            const quartoCell = document.createElement('td');
-            quartoCell.textContent = event.quarto_nome;
-
-            const detailsCell = document.createElement('td');
-            detailsCell.textContent = event.detalhes;
-            
-            const actionsCell = document.createElement('td');
-
-            // === INÍCIO DA CORREÇÃO ===
-            // 2. Usamos o molde e substituímos o placeholder pelo MAC real do ativo.
-            const cancelUrl = cancelUrlTemplate.replace('PLACEHOLDER', event.ativo_mac);
-            // === FIM DA CORREÇÃO ===
-            
-            actionsCell.innerHTML = `
-                <form action="${cancelUrl}" method="post" onsubmit="return confirm('Tem certeza que deseja cancelar esta verificação para ${event.nome_ativo}?');">
-                    <button type="submit" class="btn-cancel" title="Cancelar verificação em segundo plano">
-                        Cancelar
-                    </button>
-                </form>
-            `;
-
-            row.appendChild(timeCell);
-            row.appendChild(camaCell);
-            row.appendChild(quartoCell);
-            row.appendChild(detailsCell);
-            row.appendChild(actionsCell);
-            
-            pendingBody.appendChild(row);
-        });
-    }
-
-    async function fetchPendingEvents() {
-        try {
-            const response = await fetch("{{ url_for('get_pending_events') }}");
-            if (!response.ok) {
-                throw new Error('Falha ao buscar eventos pendentes');
-            }
-            const events = await response.json();
-            renderPendingEvents(events);
-        } catch (error) {
-            console.error("Erro ao buscar eventos pendentes:", error);
-            pendingSectionContainer.style.display = 'none';
-        }
-    }
-
-    fetchPendingEvents();
-    setInterval(fetchPendingEvents, 30000); 
 });
 </script>
 {% endblock %}
@@ -1067,56 +970,47 @@ document.addEventListener('DOMContentLoaded', function () {
                     nomeQuartoSpan.className = 'ponto-nome-quarto';
                     nomeQuartoSpan.textContent = quarto.nome_quarto;
                     pontoContainer.appendChild(nomeQuartoSpan);
-
-                    const pontoStatusDiv = document.createElement('div');
-                    pontoStatusDiv.className = 'ponto-quarto-status';
                     
                     // --- NOVA LÓGICA DE PRIORIDADE ---
                     // 1. Procura se existe algum ativo pendente neste quarto.
+                    const pontoStatusDiv = document.createElement('div');
+                    pontoStatusDiv.className = 'ponto-quarto-status';
+                    
+                    // --- NOVA LÓGICA DE PRIORIDADE DE COR ---
+                    const ativoAlertado = quarto.ativos.find(a => a.status === 'alertado');
                     const ativoPendente = quarto.ativos.find(a => a.status === 'pendente');
                     const ativoConfirmado = quarto.ativos.find(a => a.status === 'confirmado');
 
-                    // 2. Lógica de Cor com a prioridade correta
                     if (quarto.status_embarcado === 'Offline') {
                         pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza (Prioridade máxima)
+                    } else if (ativoAlertado) {
+                        pontoStatusDiv.style.backgroundColor = '#e74c3c'; // Vermelho forte para Alerta
+                        pontoStatusDiv.classList.add('blinking-animation'); // Adiciona animação de piscar
                     } else if (ativoPendente) {
-                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja (Segunda prioridade)
+                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja
                     } else if (ativoConfirmado) {
-                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde (Terceira prioridade)
+                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde
                     } else {
                         pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho (Livre)
                     }
                     pontoContainer.appendChild(pontoStatusDiv);
                     
-                    // 3. Lógica do Texto com a prioridade correta
+                    // --- NOVA LÓGICA DE PRIORIDADE DE TEXTO ---
                     const nomeCamaSpan = document.createElement('span');
                     nomeCamaSpan.className = 'ponto-nome-cama';
 
                     if (quarto.status_embarcado === 'Offline') {
                         nomeCamaSpan.textContent = '(Offline)';
-                        nomeCamaSpan.classList.add('cama-livre');
+                    } else if (ativoAlertado) {
+                        nomeCamaSpan.textContent = ativoAlertado.nome + ' (Alerta)';
                     } else if (ativoPendente) {
                         nomeCamaSpan.textContent = ativoPendente.nome + ' (Pendente)';
                     } else if (ativoConfirmado) {
                         nomeCamaSpan.textContent = ativoConfirmado.nome;
                     } else {
                         nomeCamaSpan.textContent = 'Livre';
-                        nomeCamaSpan.classList.add('cama-livre');
                     }
                     pontoContainer.appendChild(nomeCamaSpan);
-
-                    // Lógica do Tooltip (sem alteração)
-                    let tooltipText = `${quarto.nome_quarto}`;
-                    if (quarto.status_embarcado === 'Offline') {
-                        tooltipText += `\n(Embarcado Offline)`;
-                    } else if (quarto.numero_ativos > 0) {
-                        quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.texto_conexao})`; });
-                    } else {
-                        tooltipText += `\nLivre`;
-                    }
-                    pontoContainer.title = tooltipText;
-
-                    pontosContainer.appendChild(pontoContainer);
                 });
             });
     }

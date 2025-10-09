@@ -1,9 +1,13 @@
-{# asset_form.html #}
+{# asset_form.html (NOVO ESTILO) #}
 <div class="form-card">
     <form action="{{ form_action }}" method="post">
-        <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativo{% endif %}</h3>
+        <div class="form-header">
+            <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativos{% endif %}</h3>
+            <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if asset else 'Salvar' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            </button>
+        </div>
         
-        {# Nova grade com 3 colunas para os campos principais #}
         <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr);">
             <div class="form-group">
                 <label for="nome_ativo">Nome da Cama</label>
@@ -18,9 +22,8 @@
                 <input type="text" id="mac_address" name="mac_address" value="{{ asset.mac_address if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
             </div>
         </div>
-        
-        {# Nova grade com 3 colunas para os detalhes do ativo #}
-        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr) auto; margin-top: 1.5rem;">
+     
+        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1.5rem;">
             <div class="form-group">
                 <label for="tipo_ativo">Tipo de Ativo</label>
                 <input type="text" id="tipo_ativo" name="tipo_ativo" value="{{ asset.tipo_ativo if asset else '' }}" placeholder="Ex: Cama Hospitalar">
@@ -33,10 +36,6 @@
                 <label for="fabricante">Fabricante</label>
                 <input type="text" id="fabricante" name="fabricante" value="{{ asset.fabricante if asset else '' }}" placeholder="Ex: Hillrom">
             </div>
-    
-            <button type="submit" class="icon-btn" title="{{ 'Atualizar' if asset else 'Salvar' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-            </button>
         </div>
     </form>
 </div>
