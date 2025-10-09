@@ -329,6 +329,13 @@ ARQUIVO: app/web/templates/embarcado_form.html
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         
+        <div class="form-group">
+            <label for="connecta_id">ID Connecta</label>
+            <input type="text" id="connecta_id" name="connecta_id" 
+                   value="{{ embarcado.connecta_id if embarcado else '' }}" 
+                   placeholder="ID usado no sistema final">
+        </div>
+
         {# NOVO CAMPO ANDAR #}
         <div class="form-group">
             <label for="andar_nome">Andar</label>
@@ -695,12 +702,6 @@ ARQUIVO: app/web/templates/events_list.html
           <option value="{{ value }}" {% if current_filters.action == value %}selected{% endif %}>{{ name }}</option>
           {% endfor %}
         </select>
-        <select name="filter_status" class="filter-btn" onchange="this.form.submit()">
-          <option value="">Status</option>
-          {% for status_option in all_status_options %}
-          <option value="{{ status_option }}" {% if current_filters.status == status_option %}selected{% endif %}>{{ status_option }}</option>
-          {% endfor %}
-        </select>
         <a href="{{ url_for('list_events') }}" class="filter-reset-btn" title="Limpar Filtros">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/reiniciar.svg') }})"></span>
         </a>
@@ -754,10 +755,6 @@ ARQUIVO: app/web/templates/events_list.html
                 </th>
                 {# === FIM DAS MUDANÇAS === #}
 
-                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
-                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'rssi' and current_filters.order == 'desc' else 'desc' %}
                 <th><a href="{{ request.url.replace_query_params(sort_by='rssi', order=sort_order) }}">SINAL BLE</a>
                     {% if current_filters.sort_by == 'rssi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -766,9 +763,9 @@ ARQUIVO: app/web/templates/events_list.html
                 <th><a href="{{ request.url.replace_query_params(sort_by='wifi', order=sort_order) }}">SINAL WI-FI</a>
                     {% if current_filters.sort_by == 'wifi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
-                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
+                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
             </tr>
         </thead>
@@ -784,27 +781,19 @@ ARQUIVO: app/web/templates/events_list.html
                 <td>{{ event.andar_nome or '---' }}</td>
                 {# === FIM DAS MUDANÇAS === #}
 
-                <td>
-                    {% if event.action == 'GET' %}
-                        <span class="action-get">Conectar</span>
-                    {% elif event.action == 'OUT' %}
-                        <span class="action-out">Desconectar</span>
-                    {% elif event.action == 'ALERTA' %}
-                        <span class="action-warning">Alerta</span>
-                    {% else %}
-                        <span>{{ event.action }}</span>
-                    {% endif %}
-                </td>
                 <td>{{ event.rssi or '---' }}</td>     
                 <td>{{ event.wifi or '---' }}</td>     
                 <td>
-                    {% if event.status %}
-                        <span class="status-box status-{{ event.status | lower }}"
-                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
-                            {{ event.status }}
-                        </span>
-                    {% endif %}
-                </td>
+            <span class="action-{{ event.action | lower }} action-tooltip" 
+                  {% if event.tooltip_text %} title="{{ event.tooltip_text }}" {% endif %}>
+
+                {% if event.action == 'GET' %} Conectado
+                {% elif event.action == 'OUT' %} Desconectado
+                {% elif event.action == 'ALERTA' %} Alerta
+                {% else %} {{ event.action }}
+                {% endif %}
+            </span>
+        </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -1073,6 +1062,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     pontoContainer.style.top = coords.top;
                     pontoContainer.style.left = coords.left;
 
+                    // Lógica do Nome do Quarto (sem alteração)
                     const nomeQuartoSpan = document.createElement('span');
                     nomeQuartoSpan.className = 'ponto-nome-quarto';
                     nomeQuartoSpan.textContent = quarto.nome_quarto;
@@ -1080,43 +1070,42 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     const pontoStatusDiv = document.createElement('div');
                     pontoStatusDiv.className = 'ponto-quarto-status';
+                    
+                    // --- NOVA LÓGICA DE PRIORIDADE ---
+                    // 1. Procura se existe algum ativo pendente neste quarto.
+                    const ativoPendente = quarto.ativos.find(a => a.status === 'pendente');
+                    const ativoConfirmado = quarto.ativos.find(a => a.status === 'confirmado');
 
-                    // --- INÍCIO DA NOVA LÓGICA DE COR ---
-                    const temAtivoConfirmado = quarto.ativos.some(a => a.status === 'confirmado');
-                    const temAtivoPendente = quarto.ativos.some(a => a.status === 'pendente');
-
+                    // 2. Lógica de Cor com a prioridade correta
                     if (quarto.status_embarcado === 'Offline') {
-                        pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza
-                    } else if (temAtivoConfirmado) {
-                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde
-                    } else if (temAtivoPendente) {
-                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja
+                        pontoStatusDiv.style.backgroundColor = '#6c757d'; // Cinza (Prioridade máxima)
+                    } else if (ativoPendente) {
+                        pontoStatusDiv.style.backgroundColor = '#fd7e14'; // Laranja (Segunda prioridade)
+                    } else if (ativoConfirmado) {
+                        pontoStatusDiv.style.backgroundColor = '#28a745'; // Verde (Terceira prioridade)
                     } else {
-                        pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho
+                        pontoStatusDiv.style.backgroundColor = '#dc3545'; // Vermelho (Livre)
                     }
                     pontoContainer.appendChild(pontoStatusDiv);
-                    // --- FIM DA NOVA LÓGICA DE COR ---
                     
+                    // 3. Lógica do Texto com a prioridade correta
                     const nomeCamaSpan = document.createElement('span');
                     nomeCamaSpan.className = 'ponto-nome-cama';
 
-                    // --- INÍCIO DA NOVA LÓGICA DE TEXTO ---
                     if (quarto.status_embarcado === 'Offline') {
                         nomeCamaSpan.textContent = '(Offline)';
                         nomeCamaSpan.classList.add('cama-livre');
-                    } else if (quarto.numero_ativos > 0) {
-                        // Mostra o primeiro ativo da lista (seja confirmado ou pendente)
-                        nomeCamaSpan.textContent = quarto.ativos[0].nome;
-                        if(quarto.ativos[0].status === 'pendente') {
-                             nomeCamaSpan.textContent += ' (Pendente)';
-                        }
+                    } else if (ativoPendente) {
+                        nomeCamaSpan.textContent = ativoPendente.nome + ' (Pendente)';
+                    } else if (ativoConfirmado) {
+                        nomeCamaSpan.textContent = ativoConfirmado.nome;
                     } else {
                         nomeCamaSpan.textContent = 'Livre';
                         nomeCamaSpan.classList.add('cama-livre');
                     }
                     pontoContainer.appendChild(nomeCamaSpan);
-                    // --- FIM DA NOVA LÓGICA DE TEXTO ---
 
+                    // Lógica do Tooltip (sem alteração)
                     let tooltipText = `${quarto.nome_quarto}`;
                     if (quarto.status_embarcado === 'Offline') {
                         tooltipText += `\n(Embarcado Offline)`;
@@ -1126,7 +1115,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         tooltipText += `\nLivre`;
                     }
                     pontoContainer.title = tooltipText;
-                    
+
                     pontosContainer.appendChild(pontoContainer);
                 });
             });

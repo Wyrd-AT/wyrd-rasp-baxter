@@ -39,6 +39,11 @@ _asset_realtime_state = {}
 _config_needs_reload = asyncio.Event()
 _wifi_presence_cache = {}
 
+_handshake_confirmed_assets = set()
+_handshake_invalidated_assets = set()
+_last_handshake_success = {}
+HANDSHAKE_FAILURE_TIMEOUT_SEC = 180 # Ex: 3 minutos
+
 SIGNAL_LOG_INTERVAL_SEC = 15.0
 _last_signal_log_times_per_esp = {}
 
@@ -94,6 +99,12 @@ def clear_asset_candidate_state(mac_beacon_to_clear: str):
         state.pending_event_details = {}; 
         state.wifi_unseen_since = None
         state.warning_stage = 0; state.last_warning_time = None
+        state.pending_candidate_lost_since = None
+
+        _handshake_confirmed_assets.discard(mac_beacon_to_clear)
+        _handshake_invalidated_assets.discard(mac_beacon_to_clear)
+        _last_handshake_success.pop(mac_beacon_to_clear, None) # Remove o timer
+        
         logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
         return True
     return False
@@ -106,37 +117,17 @@ def flag_for_reload():
 
 def cancel_and_log_manual_pending_event(mac_beacon_to_cancel: str) -> bool:
     """
-    Encontra um ativo em estado pendente, cria um evento de cancelamento manual
-    no banco de dados e depois limpa seu estado da memória.
+    Encontra um ativo em estado pendente e limpa seu estado da memória
+    sem criar um evento de cancelamento.
     """
     if mac_beacon_to_cancel in _asset_realtime_state:
         state = _asset_realtime_state[mac_beacon_to_cancel]
         
         # Procede apenas se o ativo estiver realmente em estado pendente
         if state.pending_wifi_check_since is not None:
-            db = SessionLocal()
-            try:
-                logger.info(f"Cancelamento manual para {mac_beacon_to_cancel}. Registrando evento.")
-                quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
-                
-                cancel_event = ReceivedEvent(
-                    esp_id="operator_ui",
-                    ativo=mac_beacon_to_cancel,
-                    quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
-                    andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
-                    action="GET",
-                    status="Cancelado",
-                    status_detail="Cancelado manualmente pelo operador.",
-                    rssi=state.last_strongest_signal.get('rssi'),
-                    data_on=datetime.now(timezone.utc),
-                    raw={"reason": "manual_cancel"}
-                )
-                db.add(cancel_event)
-                db.commit()
-            finally:
-                db.close()
+            logger.info(f"Cancelamento manual para {mac_beacon_to_cancel}. Limpando estado de memória.")
             
-            # Agora, limpa o estado da memória
+            # Apenas limpa o estado da memória.
             clear_asset_candidate_state(mac_beacon_to_cancel)
             return True
     return False
@@ -202,41 +193,38 @@ async def _processar_localizacoes():
 
             # ESTADO 1: PENDENTE (AGUARDANDO WI-FI)
             if state.pending_wifi_check_since is not None:
-                if candidate_quarto_id != state.pending_quarto_id:
-                    logger.info(f"PENDENTE CANCELADO: Ativo {mac} perdeu a candidatura para o quarto {state.pending_quarto_id}. Registrando evento.")
-                    
-                    # Busca o nome do quarto e do andar para o registro histórico
-                    quarto_pendente = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == state.pending_quarto_id).first()
-                    
-                    # Cria o evento de cancelamento diretamente no banco
-                    cancel_event = ReceivedEvent(
-                        esp_id=state.pending_event_details.get("source_esp_id", "aggregator"),
-                        ativo=mac,
-                        quarto_nome=quarto_pendente.nome if quarto_pendente else "N/A",
-                        andar_nome=quarto_pendente.andar.nome if quarto_pendente and quarto_pendente.andar else None,
-                        action="GET",
-                        status="Cancelado",
-                        status_detail="Ativo perdeu o sinal de candidato para o quarto enquanto estava pendente.",
-                        rssi=state.last_strongest_signal.get('rssi'),
-                        data_on=datetime.now(timezone.utc),
-                        raw={"reason": "candidate_lost"}
-                    )
-                    db.add(cancel_event)
-                    
-                    clear_asset_candidate_state(mac)
-                    continue
-
-                if _wifi_presence_cache.get(mac, False):
-                    logger.info(f"EVENTO CONFIRMADO (Wi-Fi OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via cache.")
+                
+                # A verificação de 'invalidate' FOI REMOVIDA daqui.
+                # Agora, a primeira verificação é a de CONFIRMAÇÃO.
+                if mac in _handshake_confirmed_assets:
+                    logger.info(f"EVENTO CONFIRMADO (HANDSHAKE OK): Ativo {mac} confirmado no Quarto {state.pending_quarto_id} via callback.")
                     change_details = {
                         **state.pending_event_details, 
                         "new_quarto_id": state.pending_quarto_id,
                         "status": "Confirmado",
-                        "details": f"Entrada confirmada após pendência (Wi-Fi detectado)."
+                        "details": f"Entrada confirmada após pendência (Handshake OK).",
+                        "quarto_context_id": state.pending_quarto_id
                     }
                     changes_to_commit.append(change_details)
+                    _handshake_confirmed_assets.remove(mac) # Consome o flag de confirmação
                     clear_asset_candidate_state(mac)
                     continue
+
+                # VERIFICAÇÃO 3: A candidatura de SINAL BLE foi perdida por inércia?
+                is_still_candidate = (candidate_quarto_id == state.pending_quarto_id)
+                if not is_still_candidate:
+                    if state.pending_candidate_lost_since is None:
+                        logger.info(f"[PENDING] Ativo {mac} perdeu candidatura para o quarto {state.pending_quarto_id}. Iniciando inércia de saída.")
+                        state.pending_candidate_lost_since = now
+                    elif (now - state.pending_candidate_lost_since) * 1000 > _config["inertia_saida_ms"]:
+                        logger.warning(f"[PENDING] CANCELADO POR INÉRCIA DE BLE: Ativo {mac} ficou sem sinal consistente. Limpando estado.")
+                        clear_asset_candidate_state(mac)
+                        continue
+                else:
+                    # Se o ativo ainda é um bom candidato, reseta o timer de inércia.
+                    state.pending_candidate_lost_since = None
+
+                # VERIFICAÇÃO 4: Se nada acima aconteceu, checa se precisa enviar um ALERTA de timeout.
                 pending_duration_sec = now - state.pending_wifi_check_since
                 
                 def issue_warning(detail_text):
@@ -324,54 +312,40 @@ async def _processar_localizacoes():
                         state.disappeared_since = now
                     elif (now - state.disappeared_since) * 1000 > _config["inertia_saida_ms"]:
                         logger.info(f"[BLE] EVENTO OUT (INÉRCIA): Ativo {mac} removido do Quarto {quarto_id_atual} por sinal BLE fraco.")
-                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "details": "Sinal BLE inconsistente com o quarto atual."})
+                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "source_esp_id": "server_inertia_out", "rssi": state.last_strongest_signal.get('rssi'), "details": "Sinal BLE inconsistente com o quarto atual.", "action": "OUT"})
+                        clear_asset_candidate_state(mac)
                         continue # Pula para o próximo ativo
 
-                # Verificação 2: O Wi-Fi do ativo ainda está presente na rede?
-                is_wifi_present = _wifi_presence_cache.get(mac, True) # Default True para segurança
-                if is_wifi_present:
-                    state.wifi_unseen_since = None # Se sim, reseta a inércia de falha do Wi-Fi.
-                else:
-                    if state.wifi_unseen_since is None:
-                        logger.warning(f"[WIFI] Wi-Fi para {mac} no quarto {quarto_id_atual} ausente. Iniciando inércia de falha.")
-                        state.wifi_unseen_since = now
-                    elif (now - state.wifi_unseen_since) > WIFI_FAILURE_INERTIA_SEC:
-                        logger.error(f"[WIFI] EVENTO OUT (INÉRCIA): Ativo {mac} ausente do Wi-Fi por mais de {WIFI_FAILURE_INERTIA_SEC}s. Forçando remoção.")
-                        
-                        # Criação do Alerta com TODAS as informações (incluindo o andar)
-                        asset_obj = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
-                        if asset_obj and asset_obj.quarto:
-                            alerta = ReceivedEvent(
-                                esp_id="aggregator_wifi_monitor", ativo=mac,
-                                quarto_nome=asset_obj.quarto.nome,
-                                andar_nome=asset_obj.quarto.andar.nome if asset_obj.quarto.andar else None,
-                                action="ALERTA", status="OK",
-                                status_detail=f"Ativo '{asset_info.get('nome_ativo')}' desapareceu da rede Wi-Fi enquanto estava no quarto.",
-                                data_on=datetime.now(timezone.utc), raw={}
-                            )
-                            db.add(alerta)
-                            
-                            # --- INÍCIO DA CORREÇÃO ---
-                            # Despacha o alerta para o servidor final
-                            logger.info(f"[WIFI-MONITOR] Despachando ALERTA para o servidor final para o ativo {mac}.")
-                            loop = asyncio.get_running_loop()
-                            dispatch_payload = {
-                                "quarto": asset_obj.quarto.nome,
-                                "cama":   asset_info.get("nome_ativo"),
-                                "modelo": _asset_map.get(mac, {}).get("modelo") or getattr(asset_obj, "modelo", None),
-                                "status": "ALERTA",
-                                "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-                            }
-                            await loop.run_in_executor(None, dispatch_event, dispatch_payload)
-                            # --- FIM DA CORREÇÃO ---
+                # Verificação 2: O ativo ainda está respondendo ao handshake de presença?
+                
+                # --- NOVA VERIFICAÇÃO DE ALTA PRIORIDADE ---
+                if mac in _handshake_invalidated_assets:
+                    logger.error(f"[HANDSHAKE] EVENTO OUT (CALLBACK FALSE): Ativo {mac} removido do quarto {quarto_id_atual} por resposta explícita 'FALSE'.")
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": "aggregator_handshake_monitor",
+                        "details": "Removido por confirmação explícita de ausência (callback 'FALSE').",
+                        "action": "OUT"
+                    })
+                    _handshake_invalidated_assets.remove(mac) # Consome o flag
+                    clear_asset_candidate_state(mac)
+                    continue # Processo concluído para este ativo
 
-                        changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": None,
-                            "source_esp_id": "aggregator_wifi_monitor",
-                            "details": f"Removido por ausência de Wi-Fi superior a {WIFI_FAILURE_INERTIA_SEC}s."
-                        })
-                        clear_asset_candidate_state(mac)
-                continue
+                # A lógica de timeout original continua abaixo, como um fallback.
+                last_success = _last_handshake_success.get(mac, 0)
+                
+                # Se nunca tivemos um sucesso ou o último foi há muito tempo, remove o ativo.
+                if last_success != 0 and (now - last_success) > HANDSHAKE_FAILURE_TIMEOUT_SEC:
+                    logger.error(f"[HANDSHAKE] EVENTO OUT (TIMEOUT): Ativo {mac} sem resposta de handshake por mais de {HANDSHAKE_FAILURE_TIMEOUT_SEC}s. Forçando remoção.")
+                    
+                    changes_to_commit.append({
+                        "asset_id": asset_id, "new_quarto_id": None,
+                        "source_esp_id": "aggregator_handshake_monitor",
+                        "details": f"Removido por ausência de resposta ao handshake superior a {HANDSHAKE_FAILURE_TIMEOUT_SEC}s.",
+                        "action": "OUT"
+                    })
+                    clear_asset_candidate_state(mac)
+                    continue # Pula para o próximo ativo
 
             # ESTADO 4: LIVRE (FORA DE UM QUARTO E NÃO PENDENTE)
             if quarto_id_atual is None and candidate_quarto_id is not None:
@@ -379,20 +353,16 @@ async def _processar_localizacoes():
                     state.candidate_quarto_id = candidate_quarto_id
                     state.candidate_since = now
                 
-                if state.candidate_since and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
-                    if _wifi_presence_cache.get(mac, False):
-                        logger.info(f"ENTRADA DIRETA: Ativo {mac} com Wi-Fi já presente. Confirmando entrada no Quarto {candidate_quarto_id}.")
-                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Entrada direta com Wi-Fi pré-confirmado."})
-                    else:
-                        logger.info(f"EVENTO PENDENTE (em memória): Ativo {mac} -> Quarto {candidate_quarto_id}. Aguardando Wi-Fi.")
-                        state.pending_quarto_id = candidate_quarto_id
-                        state.pending_wifi_check_since = now
-                        state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal'], "details": "Wi-Fi confirmado via cache."}
+                if state.candidate_since and state.pending_wifi_check_since is None and (now - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
+                    logger.info(f"EVENTO PENDENTE (em memória): Ativo {mac} -> Quarto {candidate_quarto_id}. Aguardando handshake.")
+                    
+                    state.pending_quarto_id = candidate_quarto_id
+                    state.pending_wifi_check_since = now
+                    state.pending_event_details = {"asset_id": asset_id, "source_esp_id": strongest_candidate['esp_id'], "rssi": strongest_candidate['rssi'], "wifi_signal": strongest_candidate['wifi_signal']}
                     
                     state.candidate_since = None
                     state.candidate_quarto_id = None
             else:
-                # LÓGICA DE ABORTO DE PENDENTE CORRIGIDA
                 if state.candidate_quarto_id is not None:
                     logger.info(f"Ativo {mac} perdeu seu sinal de candidato para o quarto {state.candidate_quarto_id}. Abortando processo de entrada.")
                     clear_asset_candidate_state(mac)
@@ -402,6 +372,22 @@ async def _processar_localizacoes():
         db.commit()
     finally:
         db.close()
+
+def confirm_asset_by_handshake(mac_beacon: str):
+    """
+    Função chamada pelo endpoint da API em main.py para registrar
+    uma confirmação de presença bem-sucedida.
+    """
+    if mac_beacon:
+        logger.info(f"[HANDSHAKE-STATE] Ativo {mac_beacon} confirmado via handshake.")
+        _handshake_confirmed_assets.add(mac_beacon)
+        _last_handshake_success[mac_beacon] = time.time()
+
+def invalidate_asset_by_handshake(mac_beacon: str):
+    """Função chamada pelo endpoint da API para registrar uma invalidação explícita."""
+    if mac_beacon:
+        logger.warning(f"[HANDSHAKE-STATE] Ativo {mac_beacon} invalidado via callback 'FALSE'.")
+        _handshake_invalidated_assets.add(mac_beacon)
 
 # --- DEMAIS FUNÇÕES (sem alterações) ---
 def get_pending_states_for_ui():
@@ -632,19 +618,15 @@ def exponential_backoff(attempt):
 # A função 'dispatch_event' é o coração deste módulo.
 # Ela recebe um evento, monta o payload JSON no formato esperado pelo
 # sistema de destino, e tenta enviá-lo via socket TCP.
-def dispatch_event(evt) -> bool: # Adicionamos a anotação de retorno -> bool
+def dispatch_event(evt: dict) -> bool: # O parâmetro 'evt' é o dicionário completo
     """
-    Envia um evento para o sistema final e retorna True em caso de sucesso
-    ou False em caso de falha final após todas as tentativas.
+    Envia um evento pré-formatado para o sistema final.
     """
-    # ... (a montagem do payload continua igual)
-    payload = {
-        "quarto": evt.get("quarto"),
-        "cama":   evt.get("cama"),
-        "status": evt.get("status"),
-        "dataOn": evt.get("dataOn"),
-        "wifi":   evt.get("wifi")
-    }
+    # --- INÍCIO DA CORREÇÃO ---
+    # Remove a recriação do payload. Agora, 'evt' já é o payload final.
+    payload = evt
+    # --- FIM DA CORREÇÃO ---
+
     msg = json.dumps(payload) + "\n"
     logger.info(f"[dispatch_event] Payload montado: {payload}")
 
@@ -656,14 +638,59 @@ def dispatch_event(evt) -> bool: # Adicionamos a anotação de retorno -> bool
             with socket.create_connection((settings.get("final_ip"), int(settings.get("final_port"))), timeout=5) as sock:
                 sock.sendall(msg.encode())
                 logger.info(f"[dispatch_event] Payload enviado com sucesso.")
-                return True # SUCESSO: Retorna True
+                return True
         except (socket.timeout, socket.error) as e:
             wait = exponential_backoff(attempt)
             logger.info(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s.")
             time.sleep(wait)
     else:
         logger.info(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
-        return False # FALHA FINAL: Retorna False
+        return False
+
+
+========================================
+ARQUIVO: app/handshake_client.py
+========================================
+# Arquivo: app/handshake_tcp_client.py
+
+import asyncio
+import json
+import logging
+from .config import settings
+
+logger = logging.getLogger(__name__)
+
+# Usaremos as mesmas configurações de IP e Porta do dispatcher
+FINAL_IP = settings.get("final_ip")
+# Para o seu teste, vamos usar a porta 9502 como pediu
+FINAL_PORT = settings.get("handshake_tcp_port", 9502) 
+
+async def send_challenge(payload: dict):
+    """
+    Abre uma conexão TCP e envia um desafio "fire-and-forget".
+    Não espera por uma resposta nesta conexão.
+    """
+    challenge_payload = {**payload, "status": "SERVER"}
+    writer = None  # Define writer como None inicialmente
+    try:
+        logger.debug(f"[TCP-CHALLENGE] Conectando a {FINAL_IP}:{FINAL_PORT} para enviar desafio...")
+        # Abre a conexão com um timeout para a própria conexão
+        _, writer = await asyncio.wait_for(asyncio.open_connection(FINAL_IP, FINAL_PORT), timeout=5.0)
+
+        message_to_send = json.dumps(challenge_payload) + '\n'
+        logger.info(f"[TCP-CHALLENGE] Enviando desafio: {message_to_send.strip()}")
+        
+        writer.write(message_to_send.encode())
+        await writer.drain()
+        
+    except Exception as e:
+        logger.error(f"[TCP-CHALLENGE] Falha ao enviar desafio: {e}")
+    finally:
+        # Garante que a conexão seja sempre fechada após o envio
+        if writer and not writer.is_closing():
+            writer.close()
+            await writer.wait_closed()
+            logger.debug(f"[TCP-CHALLENGE] Conexão de envio fechada.")
 
 
 ========================================
@@ -786,6 +813,7 @@ from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request as StarletteRequest
 from starlette.exceptions import WebSocketException 
+from starlette.responses import PlainTextResponse
 from collections import defaultdict
 
 from .models import (
@@ -800,6 +828,7 @@ from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _a
 from .config import settings
 from .auth import authenticate_admin
 from .dispatcher import dispatch_event
+from . import handshake_client
 
 logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 
@@ -811,9 +840,12 @@ WIFI_FAILURE_TOLERANCE = int(settings.get('wifi_failure_tolerance', 3))
 ESP_STATUS_UPDATE_INTERVAL_SEC = int(settings.get('esp_status_interval_sec', 90))
 WIFI_GUARDIAN_INTERVAL_SEC = int(settings.get('monitor_wifi_interval_sec', 60))
 
-pending_rssi_requests = {} 
+pending_rssi_requests = {}
 _wifi_failure_counts = defaultdict(int)
 _wifi_presence_cache = {}
+
+_handshake_challenge_sent = {}
+_handshake_confirmed_assets = set() 
 
 try:
     base_path = sys._MEIPASS
@@ -1014,6 +1046,32 @@ def get_server_time():
     """
     return {"unix_time": int(time.time())}
 
+@app.post("/api/presence/confirm", name="confirm_presence_handshake", status_code=200)
+async def confirm_presence_handshake(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+    nome_cama = data.get("cama")
+    status_response = data.get("status") # Renomeado para clareza
+
+    if not nome_cama or not status_response:
+        raise HTTPException(status_code=400, detail="Payload inválido. 'cama' e 'status' são necessários.")
+
+    asset = db.query(Asset).filter(Asset.nome_ativo == nome_cama).first()
+    if not asset:
+        logger.warning(f"[HANDSHAKE-CALLBACK] Resposta recebida para a cama '{nome_cama}', mas ela não foi encontrada no DB.")
+        return PlainTextResponse("Asset not found")
+
+    # --- LÓGICA ATUALIZADA PARA TRATAR TRUE/FALSE ---
+    if status_response == "TRUE":
+        logger.info(f"[HANDSHAKE-CALLBACK] Confirmação de presença recebida para {asset.mac_beacon}. Repassando para o Aggregator.")
+        aggregator.confirm_asset_by_handshake(asset.mac_beacon)
+    elif status_response == "FALSE":
+        logger.warning(f"[HANDSHAKE-CALLBACK] Invalidação de presença recebida para {asset.mac_beacon}. Repassando para o Aggregator.")
+        aggregator.invalidate_asset_by_handshake(asset.mac_beacon)
+    else:
+        logger.warning(f"[HANDSHAKE-CALLBACK] Status desconhecido '{status_response}' recebido para {nome_cama}.")
+
+    return PlainTextResponse("OK")
+
 @app.get("/", name="main")
 def main_page(request: Request):
     return RedirectResponse(url=request.url_for("login_page"), status_code=303)
@@ -1058,29 +1116,6 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
     await manager.send_to_client(client_id, json.dumps(websocket_message))
 
     return Response(status_code=status.HTTP_200_OK)
-
-# @app.post("/rssi-report", status_code=status.HTTP_204_NO_CONTENT)
-# async def receive_rssi_report(report_data: Dict):
-#     """
-#     Recebe um relatório de RSSI de uma ESP via POST e o retransmite
-#     para todos os clientes conectados via WebSocket.
-#     """
-#     esp_id = report_data.get("esp_id") 
-#     report_payload = report_data.get("report")
-
-#     if not esp_id or report_payload is None:
-#         raise HTTPException(status_code=400, detail="Payload do relatório incompleto.")
-    
-#     client_id = pending_rssi_requests.pop(esp_id, None)
-#     if client_id:
-#         logger.info("Relatório da ESP '%s' recebido. Enviando para o cliente '%s'.", esp_id, client_id)
-#         websocket_message = {"type": "RSSI_REPORT", "esp_id": esp_id, "report": report_data.get("report")}
-
-#         await manager.send_to_client(client_id, json.dumps(websocket_message))
-#     else:
-#         logger.warning("Relatório da ESP '%s' recebido, mas nenhum cliente estava à espera dele.", esp_id)
-
-#     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @app.get("/api/assets/map", name="get_assets_map")
 def get_assets_map(db: Session = Depends(get_db)):
@@ -1159,44 +1194,64 @@ GUARDIAN_LOG_INTERVAL_SEC = 120 # Logar a cada 120 segundos (2 minutos)
 
 async def wifi_guardian_task_unificada(db: Session):
     """
-    Verifica a presença Wi-Fi de todos os ativos, atualiza o cache do agregador
-    e lida com a lógica de falhas de conexão.
+    Esta tarefa envia o desafio de verificação com ambos os campos: 
+    'quarto' (nome) e 'id_connecta'.
     """
     try:
-        # Busca todos os ativos que possuem um MAC de Wi-Fi cadastrado
-        assets_to_check = db.query(
-            Asset.nome_ativo, Asset.mac_beacon, Asset.mac_address, Asset.quarto_id
-        ).filter(Asset.mac_address.isnot(None)).all()
+        # 1. Cria um mapa de consulta para encontrar o ID Connecta a partir do ID do quarto
+        embarcados = db.query(Embarcado).all()
+        quarto_id_to_connecta_id_map = {e.quarto_id: e.connecta_id for e in embarcados if e.connecta_id}
+
+        # 2. Pega a lista de ativos PENDENTES
+        pending_assets_list = aggregator.get_pending_states_for_ui()
+        
+        # 3. Pega a lista de ativos CONFIRMADOS
+        confirmed_assets_db = db.query(Asset).options(joinedload(Asset.quarto)).filter(Asset.quarto_id != None).all()
+        
+        # 4. Junta tudo em uma lista única para verificação, agora com o quarto_id
+        assets_to_check = []
+        for asset_info in pending_assets_list:
+            quarto_obj = db.query(Quarto).filter(Quarto.id == asset_info.get("pending_quarto_id")).first()
+            assets_to_check.append({
+                "mac": asset_info.get("ativo_mac"),
+                "nome_ativo": asset_info.get("nome_ativo"),
+                "modelo": aggregator._asset_map.get(asset_info.get("ativo_mac"), {}).get("modelo"),
+                "quarto_alvo": quarto_obj.nome if quarto_obj else "N/A",
+                "quarto_id": asset_info.get("pending_quarto_id")
+            })
+            
+        for asset in confirmed_assets_db:
+            if not any(a["mac"] == asset.mac_beacon for a in assets_to_check):
+                 assets_to_check.append({
+                    "mac": asset.mac_beacon,
+                    "nome_ativo": asset.nome_ativo,
+                    "modelo": asset.modelo,
+                    "quarto_alvo": asset.quarto.nome if asset.quarto else "N/A",
+                    "quarto_id": asset.quarto_id
+                })
 
         if not assets_to_check:
-            _wifi_failure_counts.clear()
             return
 
-        # Executa todas as verificações de presença em paralelo
-        tasks = [check_presence(mac_wifi) for _, _, mac_wifi, _ in assets_to_check]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        current_wifi_presence = {}
-        
-        for (nome_ativo, mac_beacon, mac_wifi, quarto_id), result in zip(assets_to_check, results):
-            is_present = isinstance(result, bool) and result
+        # 5. Para cada ativo, monta o payload completo e envia
+        for asset_data in assets_to_check:
+            quarto_id = asset_data.get("quarto_id")
+            nome_do_quarto = asset_data.get("quarto_alvo")
+            id_connecta = quarto_id_to_connecta_id_map.get(quarto_id) # Retorna None se não encontrar
 
-            # Popula o cache que será usado pelo aggregator
-            current_wifi_presence[mac_beacon] = is_present
+            challenge_payload = {
+                "cama": asset_data.get("nome_ativo"),
+                "modelo": asset_data.get("modelo"),
+                "quarto": nome_do_quarto,           # <-- Nome do quarto
+                "id_connecta": id_connecta,         # <-- NOVO CAMPO com o ID
+                "dataOn": datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+            }
             
-            # Lógica de contagem de falhas (para o guardião de ativos já alocados)
-            if is_present:
-                if mac_wifi in _wifi_failure_counts:
-                    del _wifi_failure_counts[mac_wifi]
-            else:
-                if quarto_id is not None:
-                    _wifi_failure_counts[mac_wifi] += 1
-        
-        # Envia o cache atualizado para o aggregator
-        aggregator.update_wifi_presence_cache(current_wifi_presence)
+            # Chama o cliente de handshake para enviar o desafio
+            await handshake_client.send_challenge(challenge_payload)
 
     except Exception as e:
-        logger.error(f"[GUARDIAN-UNIFICADO] Erro crítico na tarefa: {e}", exc_info=True)
+        logger.error(f"[GUARDIAN] Erro crítico na tarefa: {e}", exc_info=True)
 
 async def main_guardian_loop():
     """
@@ -1445,6 +1500,7 @@ def create_embarcado(
     id_esp: str = Form(...), 
     andar_nome: str = Form(...), # Novo campo
     quarto_nome: str = Form(...),
+    connecta_id: str = Form(...),
     rssi_threshold: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
@@ -1453,7 +1509,7 @@ def create_embarcado(
     
     rssi_value = int(rssi_threshold) if rssi_threshold else None
     
-    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, rssi_threshold=rssi_value)
+    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, connecta_id=connecta_id, rssi_threshold=rssi_value)
         
     try:
         db.add(novo_embarcado)
@@ -1507,6 +1563,7 @@ def update_embarcado(
     andar_nome: str = Form(...), # Novo campo
     quarto_nome: str = Form(...),
     rssi_threshold: Optional[str] = Form(None),
+    connecta_id: str = Form(...),
     db: Session = Depends(get_db)
 ):
     emb = db.query(Embarcado).get(embarcado_id)
@@ -1518,6 +1575,7 @@ def update_embarcado(
         
         emb.quarto_id = quarto_obj.id
         emb.rssi_threshold = rssi_value
+        emb.connecta_id = connecta_id
         db.commit()
         aggregator.flag_for_reload()
         logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. Disparando reset automático.")
@@ -1846,13 +1904,23 @@ def list_events(
                 data_local = data_utc.astimezone(sao_paulo_tz)
                 e.data_str = data_local.strftime("%d/%m/%Y")
                 e.hora_str = data_local.strftime("%H:%M:%S")
+            
+            # --- LÓGICA ADICIONADA AQUI ---
+            # Junta o status e o detalhe para criar o texto do tooltip
+            tooltip_parts = []
+            if e.status:
+                tooltip_parts.append(e.status)
+            if e.status_detail:
+                tooltip_parts.append(e.status_detail)
+            e.tooltip_text = " - ".join(tooltip_parts)
+            # --- FIM DA ADIÇÃO ---
 
     enrich_event_data(pending_events)
     enrich_event_data(events)
 
     # --- Coleta de dados para os menus de filtro ---
     all_assets = db.query(Asset.nome_ativo, Asset.mac_beacon).distinct().order_by(Asset.nome_ativo).all()
-    all_action_options = [("GET", "Conectar"), ("OUT", "Desconectar"), ("WARNING", "Alerta")]
+    all_action_options = [("GET", "Conectado"), ("OUT", "Desconectado"), ("ALERTA", "Alerta")]
     all_status_options = ["OK", "Resolvido", "Confirmado", "Enfileirado", "Ignorado", "Cancelado", "Vencido", "Erro"]
     all_quartos = sorted([q.nome for q in db.query(Quarto).order_by(Quarto.nome).all()])
     all_andares = sorted([a.nome for a in db.query(Andar).order_by(Andar.nome).all()]) 
@@ -2136,6 +2204,7 @@ class Embarcado(Base):
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
     rssi_threshold = Column(Integer, nullable=True)
     quarto = relationship("Quarto", back_populates="embarcados")
+    connecta_id = Column(String, nullable=False)
 
 
 class ReceivedEvent(Base):
@@ -2258,11 +2327,12 @@ def start_mqtt_client():
 ARQUIVO: app/nmap_scan.py
 ========================================
 # ==============================================================================
-# ARQUIVO: nmap_scan.py (Versão Final, Corrigida e Compatível com Windows)
+# ARQUIVO: nmap_scan.py (Versão Final, Corrigida e MULTIPLATAFORMA)
 # ==============================================================================
 import asyncio
 import re
 import subprocess
+import sys # Importa o módulo 'sys' para detectar o sistema operacional
 from .config import settings
 
 import logging
@@ -2271,73 +2341,96 @@ logger = logging.getLogger(__name__)
 # --- Funções "Trabalhadoras" (Síncronas) ---
 
 def _worker_get_mac_to_ip_map() -> dict:
-    """Função trabalhadora que executa o 'arp -a' e processa o resultado."""
+    """
+    Função trabalhadora que primeiro força a atualização da tabela ARP com Nmap 
+    e depois a lê, adaptando-se para Windows ou Linux.
+    """
     try:
-        # Usamos uma codificação compatível com o CMD do Windows em português
-        result = subprocess.run(
-            "arp -a",
-            shell=True,
+        # PASSO 1: Força a atualização da tabela ARP (Funciona em ambos os sistemas)
+        network_range = settings.get('network_range_scan', '192.168.1.0/24')
+        logger.info(f"[nmap_scan_worker] Forçando a atualização da tabela ARP com Nmap na faixa: {network_range}...")
+        subprocess.run(
+            ["nmap", "-sn", network_range],
             capture_output=True,
-            text=True,
-            timeout=60,
-            encoding='cp850'
+            timeout=90
         )
-        if result.returncode != 0:
-            logger.info(f"[nmap_scan_worker] ERRO: Comando 'arp -a' falhou. Stderr: {result.stderr}")
-            return {}
+        logger.info(f"[nmap_scan_worker] Tabela ARP atualizada. Lendo o conteúdo...")
 
-        output = result.stdout
-        pattern = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+([0-9a-fA-F]{2}(?:[-:][0-9a-fA-F]{2}){5})")
-        matches = pattern.findall(output)
-        mac_ip_map = {mac.lower().replace('-', ':'): ip for ip, mac in matches}
+        # PASSO 2: Lê a tabela ARP, com lógica específica para cada SO
+        mac_ip_map = {}
         
-        #logger.info(f"[nmap_scan_worker] Mapa MAC->IP atualizado. {len(mac_ip_map)} dispositivos encontrados.")
+        if sys.platform == "win32":
+            # --- LÓGICA PARA WINDOWS ---
+            result = subprocess.run(
+                "arp -a", shell=True, capture_output=True, text=True,
+                timeout=60, encoding='cp850'
+            )
+            if result.returncode != 0:
+                logger.warning(f"[nmap_scan_worker] Comando 'arp -a' falhou no Windows. Stderr: {result.stderr}")
+                return {}
+            
+            pattern = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+([0-9a-fA-F]{2}(?:[-:][0-9a-fA-F]{2}){5})")
+            matches = pattern.findall(result.stdout)
+            mac_ip_map = {mac.lower().replace('-', ':'): ip for ip, mac in matches}
+        else:
+            # --- LÓGICA PARA LINUX / OUTROS ---
+            result = subprocess.run(
+                "arp -a", shell=True, capture_output=True, text=True,
+                timeout=60 # A codificação padrão (UTF-8) é usada
+            )
+            if result.returncode != 0:
+                logger.warning(f"[nmap_scan_worker] Comando 'arp -a' falhou no Linux/Outros. Stderr: {result.stderr}")
+                return {}
+            
+            # Regex adaptada para o formato do Linux: "? (IP) at MAC [ether] on dev"
+            pattern = re.compile(r"\((.*?)\)\s+at\s+([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})")
+            matches = pattern.findall(result.stdout)
+            mac_ip_map = {mac.lower(): ip for ip, mac in matches}
+
         return mac_ip_map
+        
     except Exception as e:
-        logger.info(f"[nmap_scan_worker] ERRO CRÍTICO ao criar mapa MAC->IP: {e}")
+        logger.error(f"[nmap_scan_worker] ERRO CRÍTICO ao criar mapa MAC->IP: {e}")
         return {}
 
 def _worker_is_host_online(ip_address: str) -> bool:
     """Função trabalhadora que executa o 'nmap' e procura pela resposta correta."""
+    # Esta função já é majoritariamente compatível, pois nmap é padronizado.
     if not ip_address:
         return False
         
     try:
         command = ["nmap", "-sn", "-PE", "-PR", "-T4", ip_address]
         result = subprocess.run(
-            command,
+             command,
             capture_output=True,
             text=True,
             timeout=15
         )
         
-        # --- CORREÇÃO PRINCIPAL AQUI ---
-        # Procuramos por "Host is up" em vez de "Status: Up"
+        # A verificação "Host is up" funciona bem em sistemas com locale em inglês.
         if "Host is up" in result.stdout:
             return True
         else:
             return False
-        # --- FIM DA CORREÇÃO ---
             
     except FileNotFoundError:
-        logger.info("\n\n[NMAP] ERRO CRÍTICO: O comando 'nmap' não foi encontrado. Instale o Nmap no seu sistema.\n\n")
+        logger.error("\n\n[NMAP] ERRO CRÍTICO: O comando 'nmap' não foi encontrado. Instale o Nmap no seu sistema.\n\n")
         return False
     except Exception as e:
-        logger.info(f"[nmap_scan_worker] Erro ao executar Nmap para o IP {ip_address}: {e}")
+        logger.error(f"[nmap_scan_worker] Erro ao executar Nmap para o IP {ip_address}: {e}")
         return False
 
 # --- Funções de Interface (Assíncronas) ---
 
 async def get_mac_to_ip_map_async() -> dict:
     """Interface assíncrona que chama a função trabalhadora numa thread separada."""
-    #logger.info("[nmap_scan_async] Agendando atualização de mapa MAC->IP...")
     loop = asyncio.get_running_loop()
     mac_ip_map = await loop.run_in_executor(None, _worker_get_mac_to_ip_map)
     return mac_ip_map
 
 async def is_host_online_async(ip_address: str) -> bool:
     """Interface assíncrona que chama a verificação ativa do Nmap numa thread separada."""
-    #logger.info(f"[nmap_scan_async] Agendando verificação ativa do IP: {ip_address} com Nmap...")
     loop = asyncio.get_running_loop()
     is_online = await loop.run_in_executor(None, _worker_is_host_online, ip_address)
     
@@ -2353,7 +2446,7 @@ async def is_host_online_async(ip_address: str) -> bool:
 ARQUIVO: app/presence.py
 ========================================
 # ==============================================================================
-# ARQUIVO: presence.py (Versão Assíncrona)
+# ARQUIVO: presence.py (Versão Assíncrona e Robusta)
 # ==============================================================================
 import time
 # Importa as novas funções assíncronas do módulo de scan
@@ -2369,52 +2462,65 @@ CACHE_TTL_SECONDS = 15 # Define a validade do cache (em segundos)
 
 async def check_presence(mac: str) -> bool:
     """
-    Versão ASSÍNCRONA que verifica a presença de um MAC com uma lógica de
-    cache-miss para máxima fiabilidade e performance, sem bloquear o servidor.
+    Versão robusta que verifica a presença e re-confirma o MAC para evitar
+    falsos positivos causados por cache ARP obsoleto e reatribuição de IP por DHCP.
     """
     global _mac_ip_map_cache, _cache_last_updated
     
-    #logger.info(f"[presence_async] Verificando presença do MAC: {mac}")
     target_mac = mac.lower()
     now = time.time()
     
-    # 1. Verifica se o cache expirou
+    # PASSO 1: Tenta encontrar o IP do ativo
     if not _mac_ip_map_cache or (now - _cache_last_updated > CACHE_TTL_SECONDS):
-        #logger.info("[presence_async] Cache do mapa MAC->IP expirado. Atualizando...")
         _mac_ip_map_cache = await get_mac_to_ip_map_async()
         _cache_last_updated = now
         
-    # 2. Tenta encontrar o IP no cache atual
     target_ip = _mac_ip_map_cache.get(target_mac)
     
-    # 3. Lógica de Cache-Miss: Se não encontrou, o cache pode estar desatualizado.
-    #    Força uma nova leitura da rede para garantir.
+    # Lógica de Cache-Miss: Se não encontrou, força uma nova atualização.
     if not target_ip:
-        #logger.info(f"[presence_async] MAC {target_mac} não encontrado no cache. Forçando atualização da rede...")
         _mac_ip_map_cache = await get_mac_to_ip_map_async()
         _cache_last_updated = now
-        
-        # Tenta encontrar o IP novamente no mapa recém-criado
         target_ip = _mac_ip_map_cache.get(target_mac)
 
-    # 4. Se encontrou um IP (seja no cache ou após a atualização), faz a verificação ativa
-    if target_ip:
-        return await is_host_online_async(target_ip)
+    # Se mesmo após a atualização o MAC não tem um IP, ele está offline.
+    if not target_ip:
+        logger.debug(f"[presence_async] MAC {target_mac} não encontrado no mapa da rede. Considerado offline.")
+        return False
+
+    # PASSO 2: Verifica se o IP está respondendo
+    is_online = await is_host_online_async(target_ip)
+    if not is_online:
+        logger.debug(f"[presence_async] IP {target_ip} não respondeu ao Nmap. Considerado offline.")
+        return False
+        
+    # PASSO 3: Se o IP respondeu, verifica se o MAC ainda pertence a ele.
+    # Isso protege contra o caso de outro dispositivo ter assumido o IP.
+    logger.debug(f"[presence_async] IP {target_ip} está online. Re-verificando o MAC associado...")
     
-    # 5. Se mesmo após forçar a atualização o MAC não foi encontrado, ele está offline
-    logger.debug(f"[presence_async] MAC {target_mac} não foi encontrado no mapa da rede. Considerado offline.")
-    return False
+    # Força uma nova leitura da tabela ARP, que foi recentemente atualizada pelo Nmap no passo anterior.
+    current_mac_map = await get_mac_to_ip_map_async()
+    
+    # Inverte o mapa para facilitar a busca por IP
+    ip_to_mac_map = {ip: mac for mac, ip in current_mac_map.items()}
+    
+    current_mac_for_ip = ip_to_mac_map.get(target_ip)
+    
+    if not current_mac_for_ip:
+        logger.warning(f"[presence_async] IP {target_ip} está online, mas não foi encontrado na tabela ARP mais recente. Inconsistência de rede.")
+        return False
+        
+    if current_mac_for_ip == target_mac:
+        logger.debug(f"[presence_async] SUCESSO: O MAC para o IP {target_ip} foi confirmado como {target_mac}.")
+        return True
+    else:
+        logger.warning(f"[presence_async] FALHA DE VERIFICAÇÃO: O IP {target_ip} está online, mas agora pertence ao MAC {current_mac_for_ip} (esperado: {target_mac}).")
+        return False
 
 
 ========================================
 ARQUIVO: app/services.py
 ========================================
-# ==============================================================================
-# ARQUIVO: services.py (Versão Refatorada para a Arquitetura RTLS)
-# FUNÇÃO:  Orquestra as ações de negócio, garantindo a consistência entre o
-#          agregador, o banco de dados e os sistemas externos.
-# ==============================================================================
-
 import asyncio
 import logging
 from datetime import datetime, timezone, timedelta 
@@ -2424,7 +2530,7 @@ FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 from sqlalchemy.orm import Session, joinedload
 
 from . import mqtt_client
-from . import aggregator  # Permite que os serviços interajam com o estado do agregador
+from . import aggregator
 from .connection_manager import manager
 from .dispatcher import dispatch_event
 from .models import Asset, Embarcado, Quarto, ReceivedEvent, SessionLocal
@@ -2437,108 +2543,113 @@ logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list, asset_map: dict):
     """
-    (VERSÃO FINAL REVISADA) Ponto de entrada para persistir e despachar mudanças.
-    Cria eventos no DB, tenta enviar para o sistema externo via dispatcher e
-    atualiza o status do evento local em caso de falha no envio.
+    (VERSÃO CORRIGIDA) Processa mudanças, garantindo que o ID Connecta seja usado
+    no payload despachado para o sistema final.
     """
     if not changes:
         return
 
-    events_created = []
-    assets_to_update = []
+    # --- INÍCIO DA MUDANÇA ---
+    # 1. Cria um mapa de consulta {nome_do_quarto: connecta_id} para ser usado depois.
+    #    Isso é feito uma vez para evitar múltiplas consultas ao DB.
+    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).all()
+    quarto_nome_to_connecta_id_map = {
+        e.quarto.nome: e.connecta_id 
+        for e in embarcados if e.quarto and e.connecta_id
+    }
+    # --- FIM DA MUDANÇA ---
 
+    events_to_dispatch = []
+    
     try:
-        # --- ETAPA 1: Preparar todas as mudanças e eventos em memória ---
+        # ETAPA 1 (sem alterações)
         for change in changes:
+            # ... (a lógica para criar o ReceivedEvent e salvar no SEU DB continua igual)
             asset_id = change.get("asset_id")
             if not asset_id: continue
 
             asset = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
             if not asset: continue
 
-            assets_to_update.append({"asset": asset, "new_quarto_id": change.get("new_quarto_id")})
-            
-            new_quarto_id = change.get("new_quarto_id")
-            action = "GET" if new_quarto_id is not None else "OUT"
+            action = change.get("action", "GET")
+            status = change.get("status", "OK")
             
             quarto_evento_obj = None
-            if action == "GET":
-                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first()
-            else: # action == "OUT"
+            quarto_context_id = change.get("quarto_context_id")
+            
+            if action == "OUT":
                 if asset.quarto:
                     quarto_evento_obj = asset.quarto
+            elif quarto_context_id:
+                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_context_id).first()
 
             event = ReceivedEvent(
                 esp_id=change.get("source_esp_id", "server"),
                 ativo=asset.mac_beacon,
-                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else None,
+                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else "N/A",
                 andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
-                action=action,
-                status=change.get("status", "OK"),
-                status_detail=change.get("details"),
-                rssi=change.get("rssi"),
-                wifi=change.get("wifi_signal"),
+                action=action, status=status, status_detail=change.get("details"),
+                rssi=change.get("rssi"), wifi=change.get("wifi_signal"),
                 data_on=datetime.now(timezone.utc),
                 raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
             )
-            events_created.append(event)
             db.add(event)
+            events_to_dispatch.append(event)
+            
+            if status == "Confirmado" or action == "OUT":
+                asset.quarto_id = change.get("new_quarto_id")
 
-        # --- ETAPA 2: Persistir todas as mudanças no banco de dados ---
-        for item in assets_to_update:
-            item["asset"].quarto_id = item["new_quarto_id"]
-        
         db.commit()
 
-        # --- ETAPA 3: Tentar despachar os eventos e registrar falhas ---
-        logger.info(f"Lote de {len(changes)} mudanças processado. Notificando sistemas.")
+        # --- ETAPA 2: Tentar despachar os eventos ---
+        logger.info(f"Lote de {len(changes)} mudanças processado. Despachando eventos.")
         loop = asyncio.get_running_loop()
 
-        for event in events_created:
-            # Apenas eventos GET (Confirmado ou OK) devem ser despachados
-            if event.action == "GET":
-                db.refresh(event) # Garante que o ID do evento está carregado
+        for event in events_to_dispatch:
+            if event.action in ["GET", "OUT", "ALERTA"]:
+                db.refresh(event)
                 
-                data_utc_aware = event.data_on.replace(tzinfo=timezone.utc)
-                data_zulu = data_utc_aware.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-                # --- FIM DA CORREÇÃO ---
+                data_zulu = event.data_on.replace(tzinfo=timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+                status_to_dispatch = event.action
+                if event.status in ["Pendente", "Confirmado"]:
+                    status_to_dispatch = "GET"
+
+                # --- INÍCIO DA MUDANÇA ---
+                # 2. Usa o mapa para encontrar o ID Connecta.
+                #    Se não encontrar, usa o nome do quarto como fallback para não quebrar.
+                quarto_nome_original = event.quarto_nome
+                
+                # Usa o mapa para encontrar o ID Connecta correspondente
+                connecta_id_para_enviar = quarto_nome_to_connecta_id_map.get(quarto_nome_original) # Retornará None se não encontrar
 
                 dispatch_payload = {
-                    "quarto": event.quarto_nome,
+                    "quarto": quarto_nome_original, # <-- Volta a enviar o nome do quarto
+                    "id_connecta": connecta_id_para_enviar, # <-- NOVO CAMPO com o ID
                     "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
                     "modelo": asset_map.get(event.ativo, {}).get("modelo"),
-                    "status": "GET",
-                    "dataOn": data_zulu, # Usa a variável corrigida
-                    "wifi":   event.wifi
+                    "status": status_to_dispatch,
+                    "dataOn": data_zulu,
+                    "wifi":   event.wifi,
+                    "etapa": event.status
                 }
                 
-                if DISPATCH_DELAY_SEC > 0:
-                    logger.info(f"Aguardando {DISPATCH_DELAY_SEC}s antes de despachar o evento ID {event.id}...")
-                    await asyncio.sleep(DISPATCH_DELAY_SEC)
-                    
-                logger.info(f"A despachar evento ID {event.id}: {dispatch_payload}")
+                # ... (resto da função de dispatch, tratamento de erro, etc. continua igual)
                 dispatch_successful = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 
                 if not dispatch_successful:
-                    logger.error(f"FALHA FINAL ao despachar evento ID {event.id}. Atualizando status para ERRO.")
-                    # Re-query o evento em uma sessão fresca para atualização segura
-                    update_db = SessionLocal()
-                    try:
-                        event_to_update = update_db.query(ReceivedEvent).get(event.id)
-                        if event_to_update:
-                            event_to_update.status = "Erro"
-                            event_to_update.status_detail = "Falha no envio para o servidor final após 5 tentativas."
-                            update_db.commit()
-                    finally:
-                        update_db.close()
-
-        # --- ETAPA 4: Atualizar caches e notificar a interface ---
-        for item in assets_to_update:
-            aggregator.update_asset_cache(
-                mac_beacon=item["asset"].mac_beacon, 
-                new_quarto_id=item["new_quarto_id"]
-            )
+                     logger.error(f"FALHA FINAL ao despachar evento ID {event.id}. Atualizando status para ERRO.")
+                     update_db = SessionLocal()
+                     try:
+                         event_to_update = update_db.query(ReceivedEvent).get(event.id)
+                         if event_to_update:
+                             event_to_update.status = "Erro"
+                             event_to_update.status_detail = "Falha no envio para o servidor final após 5 tentativas."
+                             update_db.commit()
+                     finally:
+                         update_db.close()
         
+        aggregator.flag_for_reload()
         await manager.broadcast("ATUALIZAR_ESTADO")
 
     except Exception as e:
@@ -2557,18 +2668,21 @@ async def force_asset_removal(db: Session, asset_id: int, details: str):
 
     logger.info(f"[SERVICE] Forçando remoção do ativo '{asset.nome_ativo}' do quarto ID {asset.quarto_id}.")
     
-    # 1. Limpa o estado do ativo na memória do agregador para evitar inconsistências.
     aggregator.clear_asset_candidate_state(asset.mac_beacon)
 
-    # 2. Usa a função principal para processar a "saída" de forma consistente.
     change_info = [{
         "asset_id": asset.id,
-        "new_quarto_id": None, # Define o novo quarto como NULO
+        "new_quarto_id": None,
         "source_esp_id": "service_forced_removal",
+        "action": "OUT",
         "rssi": -999,
         "details": details
     }]
-    await batch_update_asset_assignments(db, change_info, asset_map={})
+    
+    # Adiciona o asset_map ao chamado para evitar erros
+    asset_map_info = { asset.mac_beacon: {"nome_ativo": asset.nome_ativo, "modelo": asset.modelo} }
+    await batch_update_asset_assignments(db, change_info, asset_map_info)
+
 
 async def release_assets_for_offline_esp(db: Session, esp_id: str):
     """
@@ -2586,24 +2700,24 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str):
         return
 
     changes_to_commit = []
+    asset_map_info = {}
     for asset in assets_no_quarto:
         logger.info(f"[LIVENESS] Preparando para libertar ativo '{asset.nome_ativo}'...")
         
-        # 1. Limpa o estado de cada ativo na memória do agregador.
         aggregator.clear_asset_candidate_state(asset.mac_beacon)
 
-        # 2. Prepara a informação de "saída" para cada ativo.
         changes_to_commit.append({
             "asset_id": asset.id,
             "new_quarto_id": None,
             "source_esp_id": "liveness_check",
+            "action": "OUT",
             "rssi": -999,
             "details": f"Ativo libertado porque a ESP '{esp_id}' do quarto '{quarto_nome}' ficou offline."
         })
+        asset_map_info[asset.mac_beacon] = {"nome_ativo": asset.nome_ativo, "modelo": asset.modelo}
 
-    # 3. Processa todas as saídas de uma só vez através da função principal.
     if changes_to_commit:
         logger.info(f"[LIVENESS] Processando a saída de {len(changes_to_commit)} ativos do quarto {quarto_nome}.")
-        await batch_update_asset_assignments(db, changes_to_commit, asset_map={})
+        await batch_update_asset_assignments(db, changes_to_commit, asset_map_info)
 
 
