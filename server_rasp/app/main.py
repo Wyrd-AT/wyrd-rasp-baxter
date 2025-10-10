@@ -161,6 +161,22 @@ class AdminAuth(AuthenticationBackend):
 
 authentication_backend = AdminAuth(secret_key="W753y@r159d")
 
+def get_base_context(request: Request) -> dict:
+    """ Gera um dicionário de contexto base para todas as templates. """
+    return {
+        "request": request,
+        "ui_features": {
+            "show_rtls_historico": settings.get('show_rtls_historico', 'true').lower() == 'true',
+            "show_rtls_embarcados": settings.get('show_rtls_embarcados', 'true').lower() == 'true',
+            "show_rtls_assets": settings.get('show_rtls_assets', 'true').lower() == 'true',
+            "show_rtls_quartos": settings.get('show_rtls_quartos', 'true').lower() == 'true',
+            "show_rtls_planta": settings.get('show_rtls_planta', 'true').lower() == 'true',
+            "show_rfid_inventario": settings.get('show_rfid_inventario', 'true').lower() == 'true',
+            "show_rfid_cadastro": settings.get('show_rfid_cadastro', 'true').lower() == 'true',
+            "show_rfid_catalogo": settings.get('show_rfid_catalogo', 'true').lower() == 'true',
+        }
+    }
+
 def seed_database():
     db = SessionLocal()
     try:
@@ -744,7 +760,10 @@ def view_planta(request: Request, db: Session = Depends(get_db)):
     """
     Renderiza a página da planta baixa interativa.
     """
-    return templates.TemplateResponse("planta_baixa.html", {"request": request})
+    context = get_base_context(request)
+
+    context.update({"request": request})
+    return templates.TemplateResponse("planta_baixa.html", context)
 
 @app.get("/api/planta/dados", name="get_planta_dados")
 def get_planta_dados(db: Session = Depends(get_db)):
@@ -808,6 +827,7 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
     """
     Exibe o dashboard de status dos quartos, agora carregando também os andares.
     """
+    context = get_base_context(request)
     # A query foi atualizada para carregar o andar junto com o quarto e os ativos
     quartos_com_assets = db.query(Quarto).options(
         joinedload(Quarto.assets),
@@ -831,11 +851,13 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
                 asset.data_entrada_str = "Horário de entrada não registrado"
         
         quarto.assets.sort(key=lambda b: b.data_entrada_obj)
-
-    return templates.TemplateResponse("quartos_list.html", {
+    
+    context.update({
         "request": request,
         "quartos": quartos_com_assets
     })
+
+    return templates.TemplateResponse("quartos_list.html", context)
 
 @app.post("/quartos/{quarto_id}/edit", name="update_quarto")
 def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: Session = Depends(get_db)):
@@ -860,6 +882,7 @@ def list_embarcados(
     sort_by: Optional[str] = Query("id_esp"),
     order: Optional[str] = Query("asc")
 ):
+    context = get_base_context(request)
     # A query agora precisa carregar o andar junto com o quarto
     query = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar))
     
@@ -906,8 +929,7 @@ def list_embarcados(
     assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
     available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
-    # A LINHA MAIS IMPORTANTE: enviando a variável que faltava
-    return templates.TemplateResponse("embarcados_list.html", {
+    context.update({
         "request": request,
         "embarcados": embarcados,
         "available_quartos": available_quartos,
@@ -918,6 +940,8 @@ def list_embarcados(
         "rssi_thresholds": json.dumps(rssi_thresholds),
         "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
+
+    return templates.TemplateResponse("embarcados_list.html", context)
 
 @app.post("/embarcados/new", name="create_embarcado")
 def create_embarcado(
@@ -951,6 +975,7 @@ def create_embarcado(
 
 @app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
 def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    context = get_base_context(request)
     emb_para_editar = db.query(Embarcado).get(embarcado_id)
     
     assigned_quarto_ids = {
@@ -962,8 +987,8 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
     
     available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
-    # Adicionando a variável que faltava
-    return templates.TemplateResponse("embarcados_list.html", {
+   
+    context.update({
         "request": request,
         "embarcados": db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar)).order_by(Embarcado.id_esp).all(),
         "available_quartos": available_quartos,
@@ -974,6 +999,8 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
         "rssi_thresholds": json.dumps({ "global": 0, "individuais": {} }),
         "current_filters": {"search": None, "sort_by": "id_esp", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
     })
+
+    return templates.TemplateResponse("embarcados_list.html", context)
 
 # Em main.py
 
@@ -1024,6 +1051,7 @@ def list_assets(
     sort_by: Optional[str] = Query("nome_ativo"),
     order: Optional[str] = Query("asc")
 ):
+    context = get_base_context(request)
     query = db.query(Asset).options(joinedload(Asset.quarto))
     
     # Lógica de busca
@@ -1051,12 +1079,13 @@ def list_assets(
 
     assets = query.all()
     
-    # Enviando a variável que faltava para o template
-    return templates.TemplateResponse("assets_list.html", {
+    context.update({
         "request": request, "assets": assets,
         "form_action": request.url_for("create_asset"), "asset": None, 
         "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
+
+    return templates.TemplateResponse("assets_list.html", context)
 
 @app.post("/assets", name="create_asset")
 def create_asset(
@@ -1088,8 +1117,9 @@ def create_asset(
 
 @app.get("/assets/{asset_id}/edit", name="edit_asset")
 def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
-    # A única mudança é adicionar o "current_filters" no dicionário
-    return templates.TemplateResponse("assets_list.html", {
+    context = get_base_context(request)
+    
+    context.update({
         "request": request, 
         "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
         "form_action": request.url_for("update_asset", asset_id=asset_id),
@@ -1097,6 +1127,8 @@ def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
         "search": None,
         "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
     })
+
+    return templates.TemplateResponse("assets_list.html", context)
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")
 def update_asset(
@@ -1143,6 +1175,7 @@ def list_events(
     filter_action: Optional[str] = Query(None), filter_status: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None), db: Session = Depends(get_db)
 ):
+    context = get_base_context(request)
     # O mapa de embarcados já não é necessário aqui, a lógica fica mais simples
     asset_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
 
@@ -1175,7 +1208,7 @@ def list_events(
         e.data_str = data_local.strftime("%d/%m/%Y")
         e.hora_str = data_local.strftime("%H:%M:%S")
 
-    return templates.TemplateResponse("events_list.html", {
+    context.update({
         "request": request, "events": events, "page": page, "has_next": total > page * EVENT_PAGE_SIZE,
         "all_assets": db.query(Asset.nome_ativo, Asset.mac_beacon).distinct().order_by(Asset.nome_ativo).all(),
         "all_action_options": [("GET", "Conectar"), ("OUT", "Desconectar")],
@@ -1183,6 +1216,8 @@ def list_events(
         "all_quartos": sorted([q.nome for q in db.query(Quarto).order_by(Quarto.nome).all()]),
         "current_filters": {"ativo": filter_ativo, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
     })
+
+    return templates.TemplateResponse("events_list.html", context)
 
 @app.get("/events/download", name="download_events_csv")
 def download_events_csv(
@@ -1378,6 +1413,7 @@ def inventory_page(
     datacenter_id: Optional[str] = Query(None),
     view: str = Query("current") # Reintroduzindo o parâmetro 'view'
 ):
+    context = get_base_context(request)
     all_datacenters = db.query(DataCenter).order_by(DataCenter.id).all()
     dc_id_int = int(datacenter_id) if datacenter_id and datacenter_id.isdigit() else None
 
@@ -1429,13 +1465,15 @@ def inventory_page(
             elif codigo not in set_atual and codigo in set_anterior: status = "Deletado"
             context_data["comparativo_snapshots"].append({ "codigo_rfid": codigo, "item_atual": map_atual.get(codigo, "---"), "item_anterior": map_anterior.get(codigo, "---"), "status": status })
 
-    return templates.TemplateResponse("inventario_list.html", {
+    context.update({
         "request": request, "all_datacenters": all_datacenters, "current_dc_id": dc_id_int,
         "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior,
         "rfid_serial_port": settings.get('serial_port', 'Não configurada'),
         "current_view": view,
         **context_data
-    })
+    }
+    )
+    return templates.TemplateResponse("inventario_list.html", context)
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")
 def inventory_save(
@@ -1580,8 +1618,10 @@ async def check_background_tasks_health():
 
 @app.get("/cadastro", name="cadastro_page")
 def cadastro_page(request: Request):
+    context = get_base_context(request)
     """Renderiza a nova página de Cadastro e Gestão."""
-    return templates.TemplateResponse("cadastro.html", {"request": request})
+    context.update({"request": request})
+    return templates.TemplateResponse("cadastro.html", context)
 
 
 # --- API para Fabricantes ---
@@ -1836,6 +1876,8 @@ def list_equipamentos(
     search: Optional[str] = Query(None), sort_by: Optional[str] = Query("nome_equip"), order: Optional[str] = Query("asc"),
     filter_localizacao_id: Optional[str] = Query(None), filter_modelo_id: Optional[str] = Query(None), filter_bastidor_id: Optional[str] = Query(None)
 ):
+    context = get_base_context(request)
+
     current_filters = {
         "search": search, "sort_by": sort_by, "order": order,
         "localizacao_id": int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None,
@@ -1854,10 +1896,11 @@ def list_equipamentos(
         bastidores_query = bastidores_query.filter(Bastidor.localizacao_id == current_filters["localizacao_id"])
     all_bastidores = bastidores_query.all()
 
-    return templates.TemplateResponse("equipamentos_list.html", {
+    context.update({
         "request": request, "equipamentos": equipamentos, "current_filters": current_filters,
         "all_localizacoes": all_localizacoes, "all_modelos": all_modelos, "all_bastidores": all_bastidores,
     })
+    return templates.TemplateResponse("equipamentos_list.html", context)
 
 @app.get("/equipamentos/download", name="download_equipamentos_csv")
 def download_equipamentos_csv(

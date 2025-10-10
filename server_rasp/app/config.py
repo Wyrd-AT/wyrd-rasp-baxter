@@ -18,7 +18,7 @@ def load_configuration():
         logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
         config['Network'] = {
             'IP': '0.0.0.0',
-            'PORT': '9500'
+            'PORT': '8080'
         }
         config['MQTT'] = {
             'MQTT_BROKER_HOST': '127.0.0.1',
@@ -35,6 +35,17 @@ def load_configuration():
 
         config['RFID'] = {
             'SERIAL_PORT': 'COM3'  # Define um padrão razoável para Windows
+        }
+
+        config['UI_FEATURES'] = {
+            'show_rtls_historico': 'true',
+            'show_rtls_embarcados': 'true',
+            'show_rtls_assets': 'true',
+            'show_rtls_quartos': 'true',
+            'show_rtls_planta': 'true',
+            'show_rfid_inventario': 'true',
+            'show_rfid_cadastro': 'true',
+            'show_rfid_catalogo': 'true'
         }
         
         with open(CONFIG_FILE, 'w') as configfile:
