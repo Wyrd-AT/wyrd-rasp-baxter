@@ -86,7 +86,7 @@ class AdminAuth(AuthenticationBackend):
 
 authentication_backend = AdminAuth(secret_key="W753y@r159d")
 
-app = FastAPI(title="Wyrd-Baxter Connect")
+app = FastAPI(title="Wyrd-RTLS")
 
 admin = Admin(app, engine, authentication_backend=authentication_backend)
 
@@ -470,7 +470,7 @@ async def batch_update_esp_status():
 
 def get_global_settings(db: Session) -> dict:
     settings_from_db = db.query(GlobalSetting).all()
-    defaults = {"rssi_threshold": "-60", "inercia_chegada": "500", "inercia_saida": "15000"}
+    defaults = {"rssi_threshold": "-60", "inercia_chegada": "5000", "inercia_saida": "15000", "conflict_margin_db": "10"}
     db_settings = {s.key: s.value for s in settings_from_db}
     return {**defaults, **db_settings}
 

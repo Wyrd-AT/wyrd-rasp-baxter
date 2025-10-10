@@ -75,8 +75,8 @@ class Quarto(Base):
     quarto_imagem_url = Column(String, nullable=True)
     
     andar = relationship("Andar", back_populates="quartos")
-    embarcados = relationship("Embarcado", back_populates="quarto")
-    assets = relationship("Asset", back_populates="quarto")
+    embarcados = relationship("Embarcado", back_populates="quarto", cascade="all, delete-orphan")
+    assets     = relationship("Asset", back_populates="quarto")
 
     def __str__(self):
         return self.nome
