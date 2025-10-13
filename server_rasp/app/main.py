@@ -14,6 +14,9 @@ import time
 import uvicorn
 import csv
 from io import StringIO
+import io
+import openpyxl
+from openpyxl.utils import get_column_letter
 import json
 import sys
 import os
@@ -397,7 +400,7 @@ def handle_login(request: Request, username: str = Form(...), password: str = Fo
     """
     # A lógica de autenticação pode ser adicionada aqui no futuro.
     # Por agora, qualquer login redireciona para a página de quartos.
-    return RedirectResponse(url=request.url_for("list_quartos"), status_code=303)
+    return RedirectResponse(url=request.url_for("cadastro_page"), status_code=303)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -1617,10 +1620,22 @@ async def check_background_tasks_health():
 # ===================================================================
 
 @app.get("/cadastro", name="cadastro_page")
-def cadastro_page(request: Request):
+def cadastro_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    edit_id: Optional[int] = Query(None) # NOVO: Aceita um ID para edição
+):
     context = get_base_context(request)
-    """Renderiza a nova página de Cadastro e Gestão."""
-    context.update({"request": request})
+    equipamento_para_editar = None
+
+    if edit_id:
+        equipamento_para_editar = db.query(Equipamento).get(edit_id)
+        if not equipamento_para_editar:
+            raise HTTPException(status_code=404, detail="Equipamento não encontrado para edição.")
+
+    # Adiciona o equipamento (ou None) ao contexto
+    context["equipamento_para_editar"] = equipamento_para_editar
+    
     return templates.TemplateResponse("cadastro.html", context)
 
 
@@ -1651,15 +1666,77 @@ def update_fabricante(fab_id: int, fabricante_in: FabricanteCreate, db: Session 
 
 @app.delete("/api/fabricantes/{fab_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_fabricante(fab_id: int, db: Session = Depends(get_db)):
-    fab_db = db.query(Fabricante).get(fab_id)
+    # Carrega o fabricante e seus modelos de equipamento associados
+    fab_db = db.query(Fabricante).options(joinedload(Fabricante.equipamento_tipos)).get(fab_id)
     if not fab_db:
         raise HTTPException(status_code=404, detail="Fabricante não encontrado.")
-    if fab_db.equipamentos:
-        raise HTTPException(status_code=400, detail="Não é possível excluir. Este fabricante está em uso por equipamentos.")
+
+    # --- LÓGICA CORRIGIDA ---
+    # Verifica se existe algum "Modelo de Equipamento" associado diretamente a este fabricante.
+    if fab_db.equipamento_tipos:
+        nomes_modelos = ", ".join([tipo.nome for tipo in fab_db.equipamento_tipos[:3]])
+        mensagem = (
+            f"Não é possível excluir. Este fabricante está em uso por modelos de equipamento como: {nomes_modelos}."
+            " Por favor, edite ou exclua esses modelos primeiro."
+        )
+        raise HTTPException(status_code=409, detail=mensagem)
+
+    # Se a verificação passar, a exclusão é segura
     db.delete(fab_db)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+# Rota para ATUALIZAR uma Localização
+@app.put("/api/localizacoes/{loc_id}", response_model=DataCenterSchema)
+def update_localizacao(loc_id: int, dc_in: DataCenterCreate, db: Session = Depends(get_db)):
+    loc_db = db.query(DataCenter).get(loc_id)
+    if not loc_db:
+        raise HTTPException(status_code=404, detail="Localização não encontrada.")
+    
+    # Atualiza todos os campos
+    for key, value in dc_in.model_dump().items():
+        setattr(loc_db, key, value)
+    
+    db.commit()
+    db.refresh(loc_db)
+    return loc_db
+
+# Rota para ATUALIZAR um Bastidor
+@app.put("/api/bastidores/{b_id}", response_model=BastidorSchema)
+def update_bastidor(b_id: int, bastidor_in: BastidorCreate, db: Session = Depends(get_db)):
+    bastidor_db = db.query(Bastidor).get(b_id)
+    if not bastidor_db:
+        raise HTTPException(status_code=404, detail="Bastidor não encontrado.")
+    
+    bastidor_db.codigo_bast = bastidor_in.codigo_bast
+    bastidor_db.localizacao_id = bastidor_in.localizacao_id
+    
+    db.commit()
+    db.refresh(bastidor_db)
+    return bastidor_db
+
+# SUBSTITUA a sua função delete_localizacao por esta
+@app.delete("/api/localizacoes/{loc_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_localizacao(loc_id: int, db: Session = Depends(get_db)):
+    # Carrega a localização e seus bastidores associados
+    loc_db = db.query(DataCenter).options(joinedload(DataCenter.bastidores)).get(loc_id)
+    if not loc_db:
+        raise HTTPException(status_code=404, detail="Localização não encontrada.")
+
+    # --- LÓGICA CORRIGIDA ---
+    # Verifica se existe algum "Bastidor" associado diretamente a esta localização.
+    if loc_db.bastidores:
+        codigos_bastidores = ", ".join([b.codigo_bast for b in loc_db.bastidores[:3]])
+        mensagem = (
+            f"Não é possível excluir. Esta localização contém bastidores como: {codigos_bastidores}."
+            " Por favor, mova ou exclua esses bastidores primeiro."
+        )
+        raise HTTPException(status_code=409, detail=mensagem)
+
+    # Se a verificação passar, a exclusão é segura
+    db.delete(loc_db)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 class RfidStatusResponse(BaseModel):
     status: str
@@ -1667,24 +1744,28 @@ class RfidStatusResponse(BaseModel):
     equipamento_nome: Optional[str] = None
 
 @app.get("/api/rfid-status/{codigo_rfid}", response_model=RfidStatusResponse)
-def get_rfid_tag_status(codigo_rfid: str, db: Session = Depends(get_db)):
-    """
-    Verifica o status de uma etiqueta RFID no banco de dados.
-    """
+def get_rfid_tag_status(
+    codigo_rfid: str,
+    db: Session = Depends(get_db),
+    # NOVO: Parâmetro opcional para o ID do equipamento em edição
+    current_equip_id: Optional[int] = Query(None)
+):
+    """ Verifica o status de uma etiqueta RFID, ignorando opcionalmente o equipamento atual. """
     product = db.query(Product).options(joinedload(Product.equipamento)).filter(Product.codigo_rfid == codigo_rfid).first()
 
+    # Caso 1: A etiqueta não existe no banco de dados.
     if not product:
-        return {
-            "status": "NOVO",
-            "message": "Esta etiqueta é nova e pode ser cadastrada."
-        }
+        return { "status": "NOVO", "message": "Esta etiqueta é nova e pode ser cadastrada." }
     
+    # Caso 2: A etiqueta existe, mas não está associada a nenhum equipamento.
     if not product.equipamento:
-        return {
-            "status": "NAO_ASSOCIADO",
-            "message": "Etiqueta já existe no sistema, mas está livre para associação."
-        }
-    
+        return { "status": "NAO_ASSOCIADO", "message": "Etiqueta existe e está livre para associação." }
+
+    # Caso 3: A etiqueta está associada ao PRÓPRIO equipamento que estamos editando.
+    if current_equip_id and product.equipamento.id == current_equip_id:
+        return { "status": "SELF", "message": "Mantendo a etiqueta associada a este equipamento." }
+        
+    # Caso 4 (Erro): A etiqueta está associada a um OUTRO equipamento.
     return {
         "status": "ASSOCIADO",
         "message": f"ATENÇÃO: Etiqueta já em uso pelo equipamento:",
@@ -1732,13 +1813,18 @@ def create_bastidor(bastidor_in: BastidorCreate, db: Session = Depends(get_db)):
     db.refresh(novo_bastidor)
     return novo_bastidor
 
+# SUBSTITUA a sua função delete_bastidor por esta
 @app.delete("/api/bastidores/{b_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_bastidor(b_id: int, db: Session = Depends(get_db)):
-    bastidor_db = db.query(Bastidor).get(b_id)
+    bastidor_db = db.query(Bastidor).options(joinedload(Bastidor.equipamento_instancias)).get(b_id)
     if not bastidor_db:
         raise HTTPException(status_code=404, detail="Bastidor não encontrado.")
-    if bastidor_db.equipamentos:
-        raise HTTPException(status_code=400, detail="Não é possível excluir. Este bastidor já contém equipamentos.")
+    
+    if bastidor_db.equipamento_instancias:
+        nomes_exemplo = ", ".join([inst.nome_equip for inst in bastidor_db.equipamento_instancias[:3]])
+        mensagem = f"Não é possível excluir. Este bastidor está em uso por instâncias como: {nomes_exemplo}. Mova ou exclua essas instâncias primeiro."
+        raise HTTPException(status_code=409, detail=mensagem)
+        
     db.delete(bastidor_db)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -1902,12 +1988,57 @@ def list_equipamentos(
     })
     return templates.TemplateResponse("equipamentos_list.html", context)
 
-@app.get("/equipamentos/download", name="download_equipamentos_csv")
-def download_equipamentos_csv(
+@app.post("/equipamentos/instancia/{equip_id}/update", name="update_equipamento_instancia")
+def update_equipamento_instancia(
+    equip_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    # Recebe os dados do formulário
+    nome_equip: str = Form(...),
+    equipamento_tipo_id: int = Form(...),
+    bastidor_id: int = Form(...),
+    codigo_rfid: str = Form(...)
+):
+    equip_db = db.query(Equipamento).get(equip_id)
+    if not equip_db:
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado.")
+
+    # Validações para evitar duplicatas (ignorando o item atual)
+    if db.query(Equipamento).filter(Equipamento.nome_equip == nome_equip, Equipamento.id != equip_id).first():
+        raise HTTPException(status_code=409, detail="Outro equipamento já usa este nome (hostname).")
+    if db.query(Product).filter(Product.codigo_rfid == codigo_rfid, Product.equipamento_id != equip_id).first():
+        raise HTTPException(status_code=409, detail="Outro equipamento já usa este código RFID.")
+
+    # Atualiza os campos
+    equip_db.nome_equip = nome_equip
+    equip_db.equipamento_tipo_id = equipamento_tipo_id
+    equip_db.bastidor_id = bastidor_id
+    if equip_db.product:
+        equip_db.product.codigo_rfid = codigo_rfid
+    
+    db.commit()
+    return RedirectResponse(url=request.url_for("list_equipamentos"), status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.delete("/api/equipamentos/instancia/{equip_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_equipamento_instancia(equip_id: int, db: Session = Depends(get_db)):
+    equip_db = db.query(Equipamento).get(equip_id)
+    if not equip_db:
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado.")
+    
+    db.delete(equip_db)
+    db.commit()
+    logger.info(f"Instância de equipamento '{equip_db.nome_equip}' (ID: {equip_id}) foi excluída.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/equipamentos/download-xlsx", name="download_equipamentos_xlsx")
+def download_equipamentos_xlsx(
     db: Session = Depends(get_db),
     search: Optional[str] = Query(None), sort_by: Optional[str] = Query("nome_equip"), order: Optional[str] = Query("asc"),
     filter_localizacao_id: Optional[str] = Query(None), filter_modelo_id: Optional[str] = Query(None), filter_bastidor_id: Optional[str] = Query(None)
 ):
+    # Reutiliza a mesma lógica de filtros que já temos
     current_filters = {
         "search": search, "sort_by": sort_by, "order": order,
         "localizacao_id": int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None,
@@ -1918,50 +2049,59 @@ def download_equipamentos_csv(
     equipamentos_query = _query_equipamentos(db, current_filters)
     equipamentos = equipamentos_query.all()
 
-    def iter_csv():
-        output = StringIO()
-        writer = csv.writer(output)
-        
-        # Escreve o cabeçalho com todas as colunas
-        header = [
-            "HOSTNAME", "CODIGO_RFID", "NOME_MODELO", "FABRICANTE", "MODELO_PN",
-            "TECNOLOGIA", "TIPO", "ESTADO_CV", "ESTADO_OP", "BASTIDOR",
-            "LOCALIZACAO", "MUNICIPIO", "UF", "PISO", "SALA", "ENDERECO"
-        ]
-        writer.writerow(header)
-        yield output.getvalue()
-        output.seek(0)
-        output.truncate(0)
+    # --- LÓGICA DE GERAÇÃO DO ARQUIVO XLSX ---
+    stream = io.BytesIO()
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Catalogo_Equipamentos"
 
-        # Escreve os dados de cada equipamento
-        for equip in equipamentos:
-            row = [
-                equip.nome_equip,
-                equip.product.codigo_rfid if equip.product else "",
-                equip.equipamento_tipo.nome if equip.equipamento_tipo else "",
-                equip.equipamento_tipo.fabricante.nome if equip.equipamento_tipo and equip.equipamento_tipo.fabricante else "",
-                equip.equipamento_tipo.modelo if equip.equipamento_tipo else "",
-                equip.equipamento_tipo.tecnologia_equip if equip.equipamento_tipo else "",
-                equip.equipamento_tipo.tipo_equip if equip.equipamento_tipo else "",
-                equip.equipamento_tipo.estado_cv_equip if equip.equipamento_tipo else "",
-                equip.equipamento_tipo.estado_op_equip if equip.equipamento_tipo else "",
-                equip.bastidor.codigo_bast if equip.bastidor else "",
-                equip.bastidor.localizacao.nome if equip.bastidor and equip.bastidor.localizacao else "",
-                equip.bastidor.localizacao.municipio if equip.bastidor and equip.bastidor.localizacao else "",
-                equip.bastidor.localizacao.uf_abrv if equip.bastidor and equip.bastidor.localizacao else "",
-                equip.bastidor.localizacao.piso if equip.bastidor and equip.bastidor.localizacao else "",
-                equip.bastidor.localizacao.sala if equip.bastidor and equip.bastidor.localizacao else "",
-                equip.bastidor.localizacao.endereco_completo if equip.bastidor and equip.bastidor.localizacao else ""
-            ]
-            writer.writerow(row)
-            yield output.getvalue()
-            output.seek(0)
-            output.truncate(0)
+    # Define e escreve o cabeçalho
+    header = [
+        "HOSTNAME", "CODIGO_RFID", "NOME_MODELO", "FABRICANTE", "MODELO_PN",
+        "TECNOLOGIA", "TIPO", "ESTADO_CV", "ESTADO_OP", "BASTIDOR",
+        "LOCALIZACAO", "MUNICIPIO", "UF", "PISO", "SALA", "ENDERECO"
+    ]
+    sheet.append(header)
+
+    # Deixa o cabeçalho em negrito
+    for cell in sheet[1]:
+        cell.font = openpyxl.styles.Font(bold=True)
+
+    # Escreve os dados de cada equipamento
+    for equip in equipamentos:
+        row = [
+            equip.nome_equip,
+            equip.product.codigo_rfid if equip.product else "",
+            equip.equipamento_tipo.nome if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.fabricante.nome if equip.equipamento_tipo and equip.equipamento_tipo.fabricante else "",
+            equip.equipamento_tipo.modelo if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.tecnologia_equip if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.tipo_equip if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.estado_cv_equip if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.estado_op_equip if equip.equipamento_tipo else "",
+            equip.bastidor.codigo_bast if equip.bastidor else "",
+            equip.bastidor.localizacao.nome if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.municipio if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.uf_abrv if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.piso if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.sala if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.endereco_completo if equip.bastidor and equip.bastidor.localizacao else ""
+        ]
+        sheet.append(row)
+
+    # Ajusta a largura das colunas automaticamente
+    for i, column_cells in enumerate(sheet.columns):
+        max_length = max(len(str(cell.value or "")) for cell in column_cells)
+        adjusted_width = (max_length + 2)
+        sheet.column_dimensions[get_column_letter(i + 1)].width = adjusted_width
+
+    workbook.save(stream)
+    stream.seek(0)
 
     return StreamingResponse(
-        iter_csv(),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=catalogo_equipamentos.csv"}
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=catalogo_equipamentos.xlsx"}
     )
 
 @app.on_event("startup")

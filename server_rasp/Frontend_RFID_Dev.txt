@@ -308,55 +308,80 @@ ARQUIVO: app/web/templates/cadastro.html
 </div>
 
 <div class="form-card">
-    <form id="new-instance-form">
-        <h3>Cadastrar Nova Instância de Equipamento</h3>
+    <form id="instance-form" method="post" 
+          action="{% if equipamento_para_editar %}{{ url_for('update_equipamento_instancia', equip_id=equipamento_para_editar.id) }}{% else %}{{ url_for('create_equipamento_instancia') }}{% endif %}">
+        
+        <h3>{% if equipamento_para_editar %}Editar Instância de Equipamento{% else %}Cadastrar Nova Instância{% endif %}</h3>
+
         <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
             <div class="form-group">
                 <label for="inst_equipamento_tipo_id">Modelo do Equipamento</label>
-                <select id="inst_equipamento_tipo_id" required><option value="">Carregando...</option></select>
+                <select id="inst_equipamento_tipo_id" name="equipamento_tipo_id" required>
+                    </select>
             </div>
             <div class="form-group">
                 <label for="inst_nome_equip">Hostname</label>
-                <input type="text" id="inst_nome_equip" required placeholder="Ex: SRV-DB01-SP">
+                <input type="text" id="inst_nome_equip" name="nome_equip" value="{{ equipamento_para_editar.nome_equip if equipamento_para_editar else '' }}" required>
             </div>
         </div>
+
         <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Localização Física</h4>
         <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="form-group"><label for="inst_localizacao_id">Localização</label><select id="inst_localizacao_id" required><option value="">Carregando...</option></select></div>
-            <div class="form-group"><label for="inst_bastidor_id">Bastidor (Rack)</label><select id="inst_bastidor_id" required><option value="">Selecione a localização</option></select></div>
-        </div>
-        <div id="tab-rfid" class="modal-tab-content">
-            <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Etiqueta RFID</h4>
             <div class="form-group">
-                <label for="inst_codigo_rfid">Código RFID</label>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <input type="text" id="inst_codigo_rfid" required style="flex-grow: 1;">
-                    <button type="button" id="read-single-tag-btn" class="btn-secondary" style="white-space: nowrap;">Ler Tag</button>
-                    <button type="button" id="check-reader-status-btn-cadastro" class="btn-secondary btn-sm">Verificar</button>
-                </div>
-                <small id="rfid-status-text" class="muted"></small>
+                <label for="inst_localizacao_id">Localização</label>
+                <select id="inst_localizacao_id" name="localizacao_id" required>
+                    </select>
             </div>
-        <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
-            <button type="submit" class="btn-primary">Salvar Nova Instância</button>
+            <div class="form-group">
+                <label for="inst_bastidor_id">Bastidor (Rack)</label>
+                <select id="inst_bastidor_id" name="bastidor_id" required>
+                    <option value="">Selecione a localização</option>
+                </select>
+            </div>
+        </div>
+
+        <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Etiqueta RFID</h4>
+        <div class="form-group">
+            <label for="inst_codigo_rfid">Código RFID</label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="inst_codigo_rfid" name="codigo_rfid" value="{{ equipamento_para_editar.product.codigo_rfid if equipamento_para_editar and equipamento_para_editar.product else '' }}" required style="flex-grow: 1;">
+                <button type="button" id="read-single-tag-btn" class="btn-secondary" style="white-space: nowrap;">Ler Tag</button>
+                <button type="button" id="check-reader-status-btn-cadastro" class="btn-secondary btn-sm">Verificar</button>
+            </div>
+            <small id="rfid-status-text" class="muted"></small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 10px;">
+            {% if equipamento_para_editar %}
+            <a href="{{ url_for('list_equipamentos') }}" class="btn-secondary">Cancelar</a>
+            {% endif %}
+            <button type="submit" id="save-instance-btn" class="btn-primary">
+                {% if equipamento_para_editar %}Atualizar Instância{% else %}Salvar Nova Instância{% endif %}
+            </button>
         </div>
     </form>
 </div>
 
 <hr style="margin: 2rem 0; border-top: 2px solid #eee;">
 
-<div class="content-header"><h2>Gerenciamento de Entidades</h2></div>
+<div class="content-header">
+    <h2>Gerenciamento de Entidades</h2>
+</div>
+
 <div class="management-container">
     <div class="management-nav">
-        <button class="nav-button" data-bs-target="#fabricantes-pane">Fabricantes</button>
         <button class="nav-button active" data-bs-target="#modelos-pane">Modelos de Equipamento</button>
+        <button class="nav-button" data-bs-target="#fabricantes-pane">Fabricantes</button>
         <button class="nav-button" data-bs-target="#localizacoes-pane">Localizações</button>
         <button class="nav-button" data-bs-target="#bastidores-pane">Bastidores (Racks)</button>
     </div>
+
     <div class="management-content">
         <div class="tab-pane active" id="modelos-pane">
             <div class="form-card">
                 <form id="form-equipamento-tipo">
-                    <h3>Adicionar Novo Modelo de Equipamento</h3>
+                    <h3>Adicionar Novo Modelo</h3>
+                    <input type="hidden" id="edit-tipo-id">
                     <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
                         <div class="form-group"><label>Nome do Modelo (Ex: Roteador ASR-9006)</label><input type="text" name="nome" class="form-control" required></div>
                         <div class="form-group"><label>Fabricante</label><select name="fabricante_id" class="form-control" required><option value="">Carregando...</option></select></div>
@@ -370,61 +395,74 @@ ARQUIVO: app/web/templates/cadastro.html
                         <div class="form-group"><label>Estado CV</label><input type="text" name="estado_cv_equip" class="form-control"></div>
                         <div class="form-group"><label>Estado OP</label><input type="text" name="estado_op_equip" class="form-control"></div>
                     </div>
-                    <div class="form-group" style="display: flex; justify-content: flex-end;"><button type="submit" class="btn-primary">Adicionar Modelo</button></div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end; gap: 10px;">
+                        <button type="button" id="cancel-edit-tipo-btn" class="btn-secondary" hidden>Cancelar</button>
+                        <button type="submit" class="btn-primary">Adicionar Modelo</button>
+                    </div>
                 </form>
                 <hr>
                 <h3>Modelos Cadastrados</h3>
                 <table class="data-table">
-                    <thead><tr><th>Nome</th><th>Fabricante</th><th>Modelo (Part No.)</th><th class="actions-cell">Ações</th></tr></thead>
+                    <thead><tr><th>Nome</th><th>Fabricante</th><th>Modelo (PN)</th><th class="actions-cell">Ações</th></tr></thead>
                     <tbody id="table-body-equipamento-tipo"></tbody>
                 </table>
             </div>
         </div>
         
-        <div class="tab-pane" id="localizacoes-pane">
-            <div class="form-card">
-                <form id="form-localizacao">
-                    <h3>Adicionar Nova Localização</h3>
-                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-                        <div class="form-group"><label for="loc-nome">Nome da Localização</label><input type="text" id="loc-nome" name="nome" required placeholder="Ex: Datacenter RJ"></div>
-                        <div class="form-group"><label for="loc-municipio">Município</label><input type="text" id="loc-municipio" name="municipio"></div>
-                        <div class="form-group"><label for="loc-uf">UF</label><input type="text" id="loc-uf" name="uf_abrv" maxlength="2"></div>
-                    </div>
-                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-                        <div class="form-group"><label for="loc-edf">EDF</label><input type="text" id="loc-edf" name="edf"></div>
-                        <div class="form-group"><label for="loc-piso">Piso</label><input type="text" id="loc-piso" name="piso"></div>
-                        <div class="form-group"><label for="loc-sala">Sala</label><input type="text" id="loc-sala" name="sala"></div>
-                    </div>
-                    <div class="form-group"><label for="loc-endereco">Endereço Completo</label><input type="text" id="loc-endereco" name="endereco_completo"></div>
-                    <div class="form-group" style="display: flex; justify-content: flex-end;"><button type="submit" class="btn-primary">Adicionar Localização</button></div>
-                </form>
-                <hr>
-                <h3>Localizações Cadastradas</h3>
-                <table class="data-table">
-                    <thead><tr><th>Nome</th><th>Município</th><th>UF</th><th class="actions-cell">Ações</th></tr></thead>
-                    <tbody id="table-body-localizacao"></tbody>
-                </table>
-            </div>
-        </div>
-
         <div class="tab-pane" id="fabricantes-pane">
             <div class="form-card">
                 <form id="form-fabricante" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: flex-end;">
-                    <div class="form-group" style="margin:0;"><label>Nome do Fabricante</label><input type="text" class="form-control" name="nome" required></div>
-                    <button type="submit" class="btn-primary">Adicionar</button>
+                    <input type="hidden" id="edit-fabricante-id">
+                    <div class="form-group" style="margin:0;"><label>Nome do Fabricante</label><input type="text" name="nome" class="form-control" required></div>
+                    <div style="display:flex; gap: 10px;">
+                        <button type="button" id="cancel-edit-fabricante-btn" class="btn-secondary" hidden>Cancelar</button>
+                        <button type="submit" class="btn-primary">Adicionar</button>
+                    </div>
                 </form>
                 <hr>
                 <h3>Fabricantes Cadastrados</h3>
                 <table class="data-table"><thead><tr><th>Nome</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-fabricante"></tbody></table>
             </div>
         </div>
+
+        <div class="tab-pane" id="localizacoes-pane">
+            <div class="form-card">
+                <form id="form-localizacao">
+                    <h3>Adicionar Nova Localização</h3>
+                    <input type="hidden" id="edit-localizacao-id">
+                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <div class="form-group"><label>Nome</label><input type="text" name="nome" required></div>
+                        <div class="form-group"><label>Município</label><input type="text" name="municipio"></div>
+                        <div class="form-group"><label>UF</label><input type="text" name="uf_abrv" maxlength="2"></div>
+                        <div class="form-group"><label>EDF</label><input type="text" name="edf"></div>
+                        <div class="form-group"><label>Piso</label><input type="text" name="piso"></div>
+                        <div class="form-group"><label>Sala</label><input type="text" name="sala"></div>
+                    </div>
+                    <div class="form-group"><label>Endereço Completo</label><input type="text" name="endereco_completo"></div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end; gap: 10px;">
+                        <button type="button" id="cancel-edit-localizacao-btn" class="btn-secondary" hidden>Cancelar</button>
+                        <button type="submit" class="btn-primary">Adicionar Localização</button>
+                    </div>
+                </form>
+                <hr>
+                <h3>Localizações Cadastradas</h3>
+                <table class="data-table"><thead><tr><th>Nome</th><th>Município</th><th>UF</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-localizacao"></tbody></table>
+            </div>
+        </div>
         
         <div class="tab-pane" id="bastidores-pane">
             <div class="form-card">
-                 <form id="form-bastidor" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: flex-end;">
-                    <div class="form-group" style="margin:0;"><label>Código do Bastidor</label><input type="text" class="form-control" name="codigo_bast" required></div>
-                    <div class="form-group" style="margin:0;"><label>Localização</label><select class="form-control" name="localizacao_id" required></select></div>
-                    <button type="submit" class="btn-primary">Adicionar</button>
+                 <form id="form-bastidor">
+                    <h3>Adicionar Novo Bastidor</h3>
+                    <input type="hidden" id="edit-bastidor-id">
+                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr; align-items: flex-end;">
+                        <div class="form-group"><label>Código do Bastidor</label><input type="text" class="form-control" name="codigo_bast" required></div>
+                        <div class="form-group"><label>Localização</label><select class="form-control" name="localizacao_id" required></select></div>
+                    </div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 1rem;">
+                        <button type="button" id="cancel-edit-bastidor-btn" class="btn-secondary" hidden>Cancelar</button>
+                        <button type="submit" class="btn-primary">Adicionar</button>
+                    </div>
                 </form>
                 <hr>
                 <h3>Bastidores Cadastrados</h3>
@@ -444,7 +482,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // ==========================================================
     // SEÇÃO 0: FUNÇÃO UTILITÁRIA GLOBAL
     // ==========================================================
-    async function populateSelect(url, selectElement, valueField, textField, prompt) {
+    async function populateSelect(url, selectElement, valueField, textField, prompt, selectedValue = null) {
         if (!selectElement) return;
         selectElement.innerHTML = `<option value="">Carregando...</option>`;
         try {
@@ -456,6 +494,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 const option = document.createElement('option');
                 option.value = item[valueField];
                 option.textContent = item[textField];
+                if (selectedValue && item[valueField] == selectedValue) {
+                    option.selected = true;
+                }
                 selectElement.appendChild(option);
             });
         } catch (error) {
@@ -465,122 +506,126 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ==========================================================
-    // SEÇÃO 1: LÓGICA DO FORMULÁRIO DE CADASTRO DE INSTÂNCIA
+    // SEÇÃO 1: LÓGICA DO FORMULÁRIO DE CADASTRO/EDIÇÃO DE INSTÂNCIA
     // ==========================================================
-    const newInstanceForm = document.getElementById('new-instance-form');
-    if (newInstanceForm) {
+    const instanceForm = document.getElementById('instance-form');
+    if (instanceForm) {
+        const isEditMode = !!("{{ equipamento_para_editar.id if equipamento_para_editar else '' }}");
         const tipoSelect = document.getElementById('inst_equipamento_tipo_id');
         const localizacaoSelect = document.getElementById('inst_localizacao_id');
         const bastidorSelect = document.getElementById('inst_bastidor_id');
 
-        populateSelect('/api/equipamento-tipos', tipoSelect, 'id', 'nome', 'Selecione um Modelo');
-        populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma Localização');
-
-        localizacaoSelect.addEventListener('change', () => {
-            populateSelect('/api/bastidores', bastidorSelect, 'id', 'codigo_bast', 'Selecione um Bastidor');
-        });
-
-        newInstanceForm.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const formData = {
-                equipamento_tipo_id: parseInt(tipoSelect.value),
-                nome_equip: document.getElementById('inst_nome_equip').value,
-                bastidor_id: parseInt(bastidorSelect.value),
-                codigo_rfid: document.getElementById('inst_codigo_rfid').value,
-            };
-            try {
-                const response = await fetch('/api/equipamentos/instancia', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData)
-                });
-                if (!response.ok) throw new Error((await response.json()).detail);
-                alert('Instância de equipamento cadastrada com sucesso!');
-                newInstanceForm.reset();
-                bastidorSelect.innerHTML = '<option value="">Selecione a localização</option>';
-            } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
-        });
-    }
-
-    // ==========================================================
-    // SEÇÃO 2: LÓGICA DO BOTÃO "LER TAG ÚNICA"
-    // ==========================================================
-    const readTagBtn = document.getElementById('read-single-tag-btn');
-    const rfidInput = document.getElementById('inst_codigo_rfid'); // Corrigido para o ID correto
-    const rfidStatusText = document.getElementById('rfid-status-text'); // Corrigido
-    
-    if(readTagBtn) {
-        let rfidSocket = null;
-
-        function connectRfidSocket() {
-            if (rfidSocket && rfidSocket.readyState === WebSocket.OPEN) return;
-
-            const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
-
-            rfidSocket.onopen = () => {
-                readTagBtn.disabled = false;
-                rfidStatusText.textContent = "Leitor pronto.";
-                rfidStatusText.style.color = '#6c757d';
-            };
-
-            rfidSocket.onmessage = async (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'scan_status' || data.type === 'scan_error') {
-                    rfidStatusText.textContent = data.message;
-                    rfidStatusText.style.color = data.type === 'scan_error' ? '#dc3545' : '#6c757d';
-                    if (data.message !== "Aguardando leitura da tag...") {
-                        readTagBtn.disabled = false;
-                        readTagBtn.textContent = "Ler Tag";
-                    }
+        async function initializeForm() {
+            if (isEditMode) {
+                const selectedTipoId = "{{ equipamento_para_editar.equipamento_tipo_id if equipamento_para_editar else '' }}";
+                const selectedLocalizacaoId = "{{ equipamento_para_editar.bastidor.localizacao_id if equipamento_para_editar and equipamento_para_editar.bastidor else '' }}";
+                const selectedBastidorId = "{{ equipamento_para_editar.bastidor_id if equipamento_para_editar else '' }}";
+                await populateSelect('/api/equipamento-tipos', tipoSelect, 'id', 'nome', 'Selecione um Modelo', selectedTipoId);
+                await populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma Localização', selectedLocalizacaoId);
+                if (selectedLocalizacaoId) {
+                    bastidorSelect.disabled = false;
+                    const url = `/api/bastidores?localizacao_id=${selectedLocalizacaoId}`;
+                    await populateSelect(url, bastidorSelect, 'id', 'codigo_bast', 'Selecione um Bastidor', selectedBastidorId);
                 }
-                if (data.type === 'tag_scanned') {
-                    const tagId = data.tag_id;
-                    rfidInput.value = tagId;
-                    try {
-                        rfidStatusText.textContent = "Verificando status...";
-                        const response = await fetch(`/api/rfid-status/${tagId}`);
-                        const statusResult = await response.json();
-                        rfidStatusText.textContent = statusResult.message;
-                        if (statusResult.status === 'ASSOCIADO') {
-                            rfidStatusText.style.color = '#dc3545';
-                            rfidStatusText.innerHTML += ` <strong>${statusResult.equipamento_nome}</strong>`;
-                        } else {
-                            rfidStatusText.style.color = '#198754';
-                        }
-                    } catch (error) {
-                        rfidStatusText.textContent = "Não foi possível verificar o status da tag.";
-                        rfidStatusText.style.color = '#dc3545';
-                    }
-                    readTagBtn.disabled = false;
-                    readTagBtn.textContent = "Ler Tag";
-                }
-            };
-
-            rfidSocket.onclose = () => {
-                readTagBtn.disabled = true;
-                rfidStatusText.textContent = "Leitor desconectado. Tente recarregar a página.";
-                rfidStatusText.style.color = '#dc3545';
-            };
+            } else {
+                populateSelect('/api/equipamento-tipos', tipoSelect, 'id', 'nome', 'Selecione um Modelo');
+                populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma Localização');
+            }
         }
 
-        readTagBtn.addEventListener('click', () => {
-            if (!rfidSocket || rfidSocket.readyState !== WebSocket.OPEN) {
-                connectRfidSocket();
-                setTimeout(() => readTagBtn.click(), 1000); // Tenta de novo após 1s
-                return;
+        localizacaoSelect.addEventListener('change', () => {
+            const localizacaoId = localizacaoSelect.value;
+            bastidorSelect.innerHTML = '<option value="">Selecione a localização</option>';
+            bastidorSelect.disabled = true;
+            if (localizacaoId) {
+                bastidorSelect.disabled = false;
+                const url = `/api/bastidores?localizacao_id=${localizacaoId}`;
+                populateSelect(url, bastidorSelect, 'id', 'codigo_bast', 'Selecione um Bastidor');
             }
-            readTagBtn.disabled = true;
-            readTagBtn.textContent = 'Lendo...';
-            rfidStatusText.textContent = "Aproxime a tag da pistola...";
-            rfidStatusText.style.color = '#0466C8';
-            rfidSocket.send(JSON.stringify({ action: "read_single_tag" }));
         });
 
-        // Conecta na primeira vez que a página carrega
-        connectRfidSocket();
+        if (!isEditMode) {
+            instanceForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const formData = {
+                    equipamento_tipo_id: parseInt(tipoSelect.value),
+                    nome_equip: document.getElementById('inst_nome_equip').value,
+                    bastidor_id: parseInt(bastidorSelect.value),
+                    codigo_rfid: document.getElementById('inst_codigo_rfid').value,
+                };
+                try {
+                    const response = await fetch("{{ url_for('create_equipamento_instancia') }}", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    if (!response.ok) throw new Error((await response.json()).detail);
+                    alert('Instância cadastrada com sucesso!');
+                    instanceForm.reset();
+                    bastidorSelect.innerHTML = '<option value="">Selecione a localização</option>';
+                    bastidorSelect.disabled = true;
+                } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
+            });
+        }
+        initializeForm();
     }
 
+    // ==========================================================
+    // SEÇÃO 2: LÓGICA DO "LER TAG ÚNICA" E VALIDAÇÃO
+    // ==========================================================
+    const readTagBtn = document.getElementById('read-single-tag-btn');
+    const rfidInput = document.getElementById('inst_codigo_rfid');
+    const rfidStatusText = document.getElementById('rfid-status-text');
+    const saveInstanceBtn = document.getElementById('save-instance-btn');
+    const checkReaderBtn = document.getElementById('check-reader-status-btn-cadastro');
+    let rfidSocket = null;
+
+    const editModeEquipId = "{{ equipamento_para_editar.id if equipamento_para_editar else '' }}";
+
+    async function checkRfidStatus(tagId) {
+        if (!tagId) { rfidStatusText.textContent = ""; saveInstanceBtn.disabled = true; return; }
+        try {
+            rfidStatusText.textContent = "Verificando status...";
+            let apiUrl = `/api/rfid-status/${tagId}`;
+            if (editModeEquipId) { apiUrl += `?current_equip_id=${editModeEquipId}`; }
+            const response = await fetch(apiUrl);
+            const statusResult = await response.json();
+            rfidStatusText.textContent = statusResult.message;
+            if (statusResult.status === 'ASSOCIADO') {
+                rfidStatusText.style.color = '#333'; rfidStatusText.innerHTML += ` <strong>${statusResult.equipamento_nome}</strong>`;
+                saveInstanceBtn.disabled = true;
+            } else {
+                rfidStatusText.style.color = '#198754'; saveInstanceBtn.disabled = false;
+            }
+        } catch (error) {
+            rfidStatusText.textContent = "Não foi possível verificar o status."; rfidStatusText.style.color = '#333';
+            saveInstanceBtn.disabled = true;
+        }
+    }
+
+    function connectRfidSocket() {
+        if (rfidSocket && rfidSocket.readyState === WebSocket.OPEN) return;
+        const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
+        rfidSocket.onopen = () => { readTagBtn.disabled = false; checkReaderBtn.disabled = false; rfidStatusText.textContent = "Leitor pronto."; };
+        rfidSocket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'reader_status') { rfidStatusText.textContent = data.message; rfidStatusText.style.color = data.status === 'OK' ? '#198754' : '#333'; }
+            if (data.type === 'scan_status' || data.type === 'scan_error') { rfidStatusText.textContent = data.message; if (data.message !== "Aguardando leitura da tag...") { readTagBtn.disabled = false; readTagBtn.textContent = "Ler Tag"; } }
+            if (data.type === 'tag_scanned') { rfidInput.value = data.tag_id; checkRfidStatus(data.tag_id); readTagBtn.disabled = false; readTagBtn.textContent = "Ler Tag"; }
+        };
+        rfidSocket.onclose = () => { readTagBtn.disabled = true; checkReaderBtn.disabled = true; rfidStatusText.textContent = "Leitor desconectado."; };
+    }
+
+    if (readTagBtn) {
+        readTagBtn.addEventListener('click', () => {
+            if (!rfidSocket || rfidSocket.readyState !== WebSocket.OPEN) { connectRfidSocket(); return; }
+            readTagBtn.disabled = true; readTagBtn.textContent = 'Lendo...'; rfidStatusText.textContent = "Aproxime a tag...";
+            rfidSocket.send(JSON.stringify({ action: "read_single_tag" }));
+        });
+        checkReaderBtn.addEventListener('click', () => {
+            if (rfidSocket && rfidSocket.readyState === WebSocket.OPEN) { rfidSocket.send(JSON.stringify({ action: "check_health" })); }
+        });
+        rfidInput.addEventListener('blur', () => { checkRfidStatus(rfidInput.value.trim()); });
+        if (editModeEquipId) { checkRfidStatus(rfidInput.value.trim()); }
+        connectRfidSocket();
+    }
 
     // ==========================================================
     // SEÇÃO 3: LÓGICA DAS ABAS DE GERENCIAMENTO
@@ -589,7 +634,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const navButtons = document.querySelectorAll('.management-nav .nav-button');
     const tabPanes = document.querySelectorAll('.management-content .tab-pane');
-    navButtons.forEach(button => {;
+    navButtons.forEach(button => {
         button.addEventListener('click', (event) => {
             navButtons.forEach(btn => btn.classList.remove('active'));
             tabPanes.forEach(pane => pane.classList.remove('active'));
@@ -604,6 +649,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const { entityName, apiUrl, tableBodyId, formId, renderRow, onUpdate } = config;
         const tableBody = document.getElementById(tableBodyId);
         const form = document.getElementById(formId);
+        const editIdInput = document.getElementById('edit-tipo-id');
+        const cancelBtn = document.getElementById('cancel-edit-tipo-btn');
         const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="2">Carregando...</td></tr>`;
             const response = await fetch(apiUrl); const items = await response.json(); tableBody.innerHTML = '';
@@ -627,128 +674,408 @@ document.addEventListener('DOMContentLoaded', function () {
                     else { alert(`Erro: ${(await response.json()).detail}`); }
                 }
             }
-            if (target.classList.contains('btn-edit')) { /* Lógica de Edição para CRUDs simples */ }
+            if (target.classList.contains('btn-edit')) {
+                const currentName = target.dataset.name;
+                const newName = prompt(`Digite o novo nome para "${currentName}":`, currentName);
+                if (newName && newName.trim() && newName !== currentName) {
+                    try {
+                        const response = await fetch(`${apiUrl}/${id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ nome: newName.trim() })
+                        });
+                        if (!response.ok) throw new Error((await response.json()).detail);
+                        await loadItems();
+                        if (onUpdate) onUpdate();
+                    } catch (error) { alert(`Erro ao editar: ${error.message}`); }
+                }
+            }
         });
         await loadItems();
     }
 
+    async function manageFabricantes(config) {
+        // 1. Seleciona todos os elementos do DOM
+        const { onUpdate } = config || {};
+        const tableBody = document.getElementById('table-body-fabricante');
+        const form = document.getElementById('form-fabricante');
+        const apiUrl = '/api/fabricantes';
+        const editIdInput = document.getElementById('edit-fabricante-id');
+        const cancelBtn = document.getElementById('cancel-edit-fabricante-btn');
+        const submitBtn = form.querySelector('button[type="submit"]');
+        // Adicionado para podermos alterar o título, assumindo que há um <h3> no form
+        const formTitle = form.querySelector('h3') || { textContent: '' }; // Fallback seguro
+
+        // 2. Função para resetar o formulário para o modo de criação
+        const resetFormToCreateMode = () => {
+            form.reset();
+            editIdInput.value = '';
+            formTitle.textContent = 'Adicionar Novo Fabricante'; // Restaura o título
+            submitBtn.textContent = 'Adicionar';
+            cancelBtn.hidden = true;
+        };
+
+        // 3. Função para carregar e renderizar os itens na tabela
+        const loadItems = async () => {
+            tableBody.innerHTML = `<tr><td colspan="2">Carregando...</td></tr>`;
+            try {
+                const response = await fetch(apiUrl);
+                const items = await response.json();
+                tableBody.innerHTML = '';
+                if (items.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="2">Nenhum fabricante cadastrado.</td></tr>`;
+                } else {
+                    items.forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${item.nome}</td>
+                            <td class="actions-cell">
+                                <button class="btn-secondary btn-sm btn-edit" data-id="${item.id}" data-name="${item.nome}">Editar</button>
+                                <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
+                            </td>`;
+                        tableBody.appendChild(tr);
+                    });
+                }
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="2">Erro ao carregar fabricantes.</td></tr>`;
+            }
+        };
+
+        // 4. Lógica de submissão do formulário (CRIAR ou ATUALIZAR)
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form).entries());
+            const editId = editIdInput.value;
+
+            const method = editId ? 'PUT' : 'POST';
+            const url = editId ? `${apiUrl}/${editId}` : apiUrl;
+
+            try {
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                
+                resetFormToCreateMode();
+                await loadItems();
+                if (onUpdate) onUpdate(); // Avisa outras partes do sistema que a lista mudou
+            } catch (error) {
+                alert(`Erro ao salvar: ${error.message}`);
+            }
+        });
+
+        // 5. Lógica de clique na tabela (EDITAR ou EXCLUIR)
+        tableBody.addEventListener('click', (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+
+            // Lógica para o botão Excluir
+            if (target.classList.contains('btn-delete')) {
+                if (confirm('Tem certeza que deseja excluir este fabricante?')) {
+                    fetch(`${apiUrl}/${id}`, { method: 'DELETE' })
+                        .then(async response => {
+                            if (!response.ok) throw new Error((await response.json()).detail);
+                            loadItems();
+                            if (onUpdate) onUpdate();
+                        })
+                        .catch(error => alert(`Erro ao excluir: ${error.message}`));
+                }
+            }
+            
+            // Lógica para o botão Editar
+            if (target.classList.contains('btn-edit')) {
+                const currentName = target.dataset.name;
+                
+                // Preenche o formulário
+                form.querySelector('[name="nome"]').value = currentName;
+
+                // Entra em modo de edição
+                editIdInput.value = id;
+                formTitle.textContent = `Editando Fabricante: ${currentName}`;
+                submitBtn.textContent = 'Atualizar';
+                cancelBtn.hidden = false;
+            }
+        });
+
+        // 6. Lógica do botão Cancelar
+        cancelBtn.addEventListener('click', resetFormToCreateMode);
+
+        // 7. Inicialização
+        await loadItems();
+    }
     // Gerenciador para "Modelos de Equipamento"
     async function manageEquipamentoTipos() {
-        const tableBody = document.getElementById('table-body-equipamento-tipo');
+        // 1. Seleciona todos os elementos do DOM necessários
         const form = document.getElementById('form-equipamento-tipo');
+        const tableBody = document.getElementById('table-body-equipamento-tipo');
         const fabricanteSelect = form.querySelector('select[name="fabricante_id"]');
+        const editIdInput = document.getElementById('edit-tipo-id');
+        const cancelBtn = document.getElementById('cancel-edit-tipo-btn');
+        const formTitle = form.querySelector('h3');
+        const submitBtn = form.querySelector('button[type="submit"]');
         let fabricantes = [];
 
-        const updateFabricanteDropdown = async () => {
-            await populateSelect('/api/fabricantes', fabricanteSelect, 'id', 'nome', 'Selecione');
-            const response = await fetch('/api/fabricantes'); fabricantes = await response.json();
+        // 2. Função auxiliar para resetar o formulário para o modo de criação
+        const resetFormToCreateMode = () => {
+            form.reset();
+            editIdInput.value = '';
+            formTitle.textContent = 'Adicionar Novo Modelo de Equipamento';
+            submitBtn.textContent = 'Adicionar Modelo';
+            cancelBtn.hidden = true;
         };
 
+        // 3. Função para carregar a lista de fabricantes no dropdown
+        const updateFabricanteDropdown = async () => {
+            await populateSelect('/api/fabricantes', fabricanteSelect, 'id', 'nome', 'Selecione...');
+            const response = await fetch('/api/fabricantes');
+            fabricantes = await response.json();
+        };
+
+        // 4. Função principal para carregar e renderizar os modelos na tabela
         const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="4">Carregando...</td></tr>`;
-            const response = await fetch('/api/equipamento-tipos'); const items = await response.json(); tableBody.innerHTML = '';
-            items.forEach(item => {
-                const fab = fabricantes.find(f => f.id === item.fabricante_id);
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${item.nome}</td><td>${fab ? fab.nome : 'N/A'}</td><td>${item.modelo || '---'}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
-                tableBody.appendChild(tr);
-            });
+            try {
+                const response = await fetch('/api/equipamento-tipos');
+                const items = await response.json();
+                tableBody.innerHTML = '';
+                items.forEach(item => {
+                    const fab = fabricantes.find(f => f.id === item.fabricante_id);
+                    const tr = document.createElement('tr');
+                    // IMPORTANTE: O botão de editar agora armazena todos os dados do item
+                    tr.innerHTML = `
+                        <td>${item.nome}</td>
+                        <td>${fab ? fab.nome : 'N/A'}</td>
+                        <td>${item.modelo || '---'}</td>
+                        <td class="actions-cell">
+                            <button class="btn-secondary btn-sm btn-edit" data-item='${JSON.stringify(item)}'>Editar</button>
+                            <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
+                        </td>`;
+                    tableBody.appendChild(tr);
+                });
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="4">Erro ao carregar modelos.</td></tr>`;
+            }
         };
+
+        // 5. Lógica de submissão do formulário (CRIAR ou ATUALIZAR)
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = Object.fromEntries(new FormData(form).entries());
             data.fabricante_id = parseInt(data.fabricante_id);
-            const response = await fetch('/api/equipamento-tipos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-            if (response.ok) { form.reset(); await loadItems(); populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo'); }
-            else { alert(`Erro: ${(await response.json()).detail}`); }
-        });
-        tableBody.addEventListener('click', async (e) => {
-             const target = e.target.closest('button.btn-delete');
-             if (target && confirm('Excluir este modelo?')) {
-                const id = target.dataset.id;
-                const response = await fetch(`/api/equipamento-tipos/${id}`, { method: 'DELETE' });
-                if(response.ok) { await loadItems(); populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo'); } else { alert(`Erro: ${(await response.json()).detail}`); }
+            const editId = editIdInput.value;
+
+            const method = editId ? 'PUT' : 'POST';
+            const url = editId ? `/api/equipamento-tipos/${editId}` : '/api/equipamento-tipos';
+
+            try {
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                
+                resetFormToCreateMode();
+                await loadItems();
+                // Atualiza o dropdown do formulário principal de instâncias
+                populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo');
+            } catch (error) {
+                alert(`Erro ao salvar: ${error.message}`);
             }
         });
+
+        // 6. Lógica de clique na tabela (EDITAR ou EXCLUIR)
+        tableBody.addEventListener('click', (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+
+            // Lógica para o botão Excluir
+            if (target.classList.contains('btn-delete')) {
+                if (confirm('Tem certeza que deseja excluir este modelo?')) {
+                    fetch(`/api/equipamento-tipos/${id}`, { method: 'DELETE' })
+                        .then(async response => {
+                            if (!response.ok) throw new Error((await response.json()).detail);
+                            loadItems();
+                            populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo');
+                        })
+                        .catch(error => alert(`Erro ao excluir: ${error.message}`));
+                }
+            }
+
+            // Lógica para o botão Editar
+            if (target.classList.contains('btn-edit')) {
+                const item = JSON.parse(target.dataset.item);
+                
+                // Preenche o formulário com os dados do item
+                form.querySelector('[name="nome"]').value = item.nome;
+                form.querySelector('[name="fabricante_id"]').value = item.fabricante_id;
+                form.querySelector('[name="modelo"]').value = item.modelo || '';
+                form.querySelector('[name="tecnologia_equip"]').value = item.tecnologia_equip || '';
+                form.querySelector('[name="tipo_equip"]').value = item.tipo_equip || '';
+                form.querySelector('[name="estado_cv_equip"]').value = item.estado_cv_equip || '';
+                form.querySelector('[name="estado_op_equip"]').value = item.estado_op_equip || '';
+                
+                // Entra em modo de edição
+                editIdInput.value = item.id;
+                formTitle.textContent = `Editando Modelo: ${item.nome}`;
+                submitBtn.textContent = 'Atualizar Modelo';
+                cancelBtn.hidden = false;
+            }
+        });
+
+        // 7. Lógica para o botão Cancelar
+        cancelBtn.addEventListener('click', resetFormToCreateMode);
+        
+        // 8. Inicialização
         await updateFabricanteDropdown();
         await loadItems();
-        return { updateFabricanteDropdown, loadItems }; // Retorna funções para serem chamadas por outros gerenciadores
+
+        // 9. Retorna as funções que podem ser úteis para outros gerenciadores
+        return { updateFabricanteDropdown, loadItems };
     }
 
-    // ==========================================================
-    // === FUNÇÃO DE GERENCIAMENTO DE LOCALIZAÇÕES (CORRIGIDA) ===
-    // ==========================================================
+    // Gerenciador para Localizações
     async function manageLocalizacoes(config) {
+        // 1. Seleciona todos os elementos do DOM necessários
         const { onUpdate } = config || {};
         const tableBody = document.getElementById('table-body-localizacao');
         const form = document.getElementById('form-localizacao');
         const apiUrl = '/api/localizacoes';
+        const editIdInput = document.getElementById('edit-localizacao-id');
+        const cancelBtn = document.getElementById('cancel-edit-localizacao-btn');
+        const formTitle = form.querySelector('h3');
+        const submitBtn = form.querySelector('button[type="submit"]');
 
+        // 2. Função para resetar o formulário para o modo de criação
+        const resetFormToCreateMode = () => {
+            form.reset();
+            editIdInput.value = '';
+            formTitle.textContent = 'Adicionar Nova Localização';
+            submitBtn.textContent = 'Adicionar Localização';
+            cancelBtn.hidden = true;
+        };
+
+        // 3. Função para carregar e renderizar os itens na tabela
         const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="4">Carregando...</td></tr>`;
             try {
                 const response = await fetch(apiUrl);
                 const items = await response.json();
                 tableBody.innerHTML = '';
-                if (items.length === 0) { tableBody.innerHTML = `<tr><td colspan="4">Nenhuma localização cadastrada.</td></tr>`; }
-                else {
+                if (items.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="4">Nenhuma localização cadastrada.</td></tr>`;
+                } else {
                     items.forEach(item => {
                         const tr = document.createElement('tr');
+                        // O botão de editar agora armazena o objeto inteiro
                         tr.innerHTML = `
                             <td>${item.nome}</td>
                             <td>${item.municipio || '---'}</td>
                             <td>${item.uf_abrv || '---'}</td>
                             <td class="actions-cell">
+                                <button class="btn-secondary btn-sm btn-edit" data-item='${JSON.stringify(item)}'>Editar</button>
                                 <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
                             </td>`;
                         tableBody.appendChild(tr);
                     });
                 }
-            } catch (error) { tableBody.innerHTML = `<tr><td colspan="4">Erro ao carregar.</td></tr>`; }
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="4">Erro ao carregar.</td></tr>`;
+            }
         };
 
+        // 4. Lógica de submissão do formulário (CRIAR ou ATUALIZAR)
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = Object.fromEntries(new FormData(form).entries());
+            const editId = editIdInput.value;
+
+            const method = editId ? 'PUT' : 'POST';
+            const url = editId ? `${apiUrl}/${editId}` : apiUrl;
+
             try {
-                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
                 if (!response.ok) throw new Error((await response.json()).detail);
-                form.reset();
+                
+                resetFormToCreateMode();
                 await loadItems();
-                if (onUpdate) onUpdate(); // Chama a função de callback para atualizar outros forms
-            } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
-        });
-        
-        tableBody.addEventListener('click', async (e) => {
-            const target = e.target.closest('button.btn-delete');
-            if (target && confirm('Excluir esta localização?')) {
-                const id = target.dataset.id;
-                try {
-                    const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
-                    if (!response.ok) throw new Error((await response.json()).detail);
-                    await loadItems();
-                    if (onUpdate) onUpdate();
-                } catch (error) { alert(`Erro: ${error.message}`); }
+                if (onUpdate) onUpdate(); // Avisa outras partes do sistema que a lista mudou
+            } catch (error) {
+                alert(`Erro ao salvar: ${error.message}`);
             }
         });
+
+        // 5. Lógica de clique na tabela (EDITAR ou EXCLUIR)
+        tableBody.addEventListener('click', async (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+
+            if (target.classList.contains('btn-delete')) {
+                if (confirm('Excluir esta localização? Isso pode afetar bastidores e equipamentos.')) {
+                    try {
+                        const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
+                        if (!response.ok) throw new Error((await response.json()).detail);
+                        await loadItems();
+                        if (onUpdate) onUpdate();
+                    } catch (error) {
+                        alert(`Erro: ${error.message}`);
+                    }
+                }
+            }
+            
+            if (target.classList.contains('btn-edit')) {
+                const item = JSON.parse(target.dataset.item);
+
+                // Preenche o formulário com todos os dados do item
+                form.querySelector('[name="nome"]').value = item.nome;
+                form.querySelector('[name="municipio"]').value = item.municipio || '';
+                form.querySelector('[name="uf_abrv"]').value = item.uf_abrv || '';
+                form.querySelector('[name="edf"]').value = item.edf || '';
+                form.querySelector('[name="piso"]').value = item.piso || '';
+                form.querySelector('[name="sala"]').value = item.sala || '';
+                form.querySelector('[name="endereco_completo"]').value = item.endereco_completo || '';
+                
+                // Entra em modo de edição
+                editIdInput.value = item.id;
+                formTitle.textContent = `Editando Localização: ${item.nome}`;
+                submitBtn.textContent = 'Atualizar Localização';
+                cancelBtn.hidden = false;
+            }
+        });
+
+        // 6. Lógica do botão Cancelar
+        cancelBtn.addEventListener('click', resetFormToCreateMode);
+
+        // 7. Inicialização
         await loadItems();
     }
     
     // Gerenciador para Bastidores
     async function manageBastidores() {
+        // 1. Seleciona todos os elementos do DOM
         const tableBody = document.getElementById('table-body-bastidor');
         const form = document.getElementById('form-bastidor');
         const localizacaoSelect = form.querySelector('select[name="localizacao_id"]');
+        const editIdInput = document.getElementById('edit-bastidor-id');
+        const cancelBtn = document.getElementById('cancel-edit-bastidor-btn');
+        const formTitle = form.querySelector('h3');
+        const submitBtn = form.querySelector('button[type="submit"]');
         let localizacoes = [];
 
-        // Função interna para atualizar o dropdown, usando nossa função segura
+        // 2. Função para resetar o formulário para o modo de criação
+        const resetFormToCreateMode = () => {
+            form.reset();
+            editIdInput.value = '';
+            formTitle.textContent = 'Adicionar Novo Bastidor';
+            submitBtn.textContent = 'Adicionar';
+            cancelBtn.hidden = true;
+        };
+
+        // 3. Função para carregar/atualizar o dropdown de localizações
         const updateLocalizacaoDropdown = async () => {
             await populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione...');
-            // Guarda a lista de localizações para usar na tabela
             const response = await fetch('/api/localizacoes');
             localizacoes = await response.json();
         };
 
+        // 4. Função para carregar e renderizar os bastidores na tabela
         const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="3">Carregando...</td></tr>`;
             const response = await fetch('/api/bastidores');
@@ -757,62 +1084,97 @@ document.addEventListener('DOMContentLoaded', function () {
             items.forEach(item => {
                 const loc = localizacoes.find(l => l.id === item.localizacao_id);
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${item.codigo_bast}</td><td>${loc ? loc.nome : 'N/A'}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
+                // O botão de editar agora armazena o objeto inteiro
+                tr.innerHTML = `
+                    <td>${item.codigo_bast}</td>
+                    <td>${loc ? loc.nome : 'N/A'}</td>
+                    <td class="actions-cell">
+                        <button class="btn-secondary btn-sm btn-edit" data-item='${JSON.stringify(item)}'>Editar</button>
+                        <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
+                    </td>`;
                 tableBody.appendChild(tr);
             });
         };
         
+        // 5. Lógica de submissão do formulário (CRIAR ou ATUALIZAR)
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = {
                 codigo_bast: form.querySelector('input[name="codigo_bast"]').value,
                 localizacao_id: parseInt(localizacaoSelect.value)
             };
-            const response = await fetch('/api/bastidores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-            if (response.ok) { form.reset(); await loadItems(); } 
-            else { alert(`Erro: ${(await response.json()).detail}`); }
-        });
+            const editId = editIdInput.value;
 
-        tableBody.addEventListener('click', async (e) => {
-            const target = e.target.closest('button.btn-delete');
-            if (target && confirm('Excluir este bastidor?')) {
-                const id = target.dataset.id;
-                const response = await fetch(`/api/bastidores/${id}`, { method: 'DELETE' });
-                if(response.ok) { await loadItems(); }
-                else { alert(`Erro: ${(await response.json()).detail}`); }
+            const method = editId ? 'PUT' : 'POST';
+            const url = editId ? `/api/bastidores/${editId}` : '/api/bastidores';
+            
+            try {
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                resetFormToCreateMode();
+                await loadItems();
+            } catch (error) {
+                alert(`Erro ao salvar: ${error.message}`);
             }
         });
 
+        // 6. Lógica de clique na tabela (EDITAR ou EXCLUIR)
+        tableBody.addEventListener('click', (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+
+            // Lógica para o botão Excluir
+            if (target.classList.contains('btn-delete')) {
+                if (confirm('Excluir este bastidor?')) {
+                    fetch(`/api/bastidores/${id}`, { method: 'DELETE' })
+                        .then(async response => {
+                            if (!response.ok) throw new Error((await response.json()).detail);
+                            loadItems();
+                        })
+                        .catch(error => alert(`Erro ao excluir: ${error.message}`));
+                }
+            }
+
+            // Lógica para o botão Editar
+            if (target.classList.contains('btn-edit')) {
+                const item = JSON.parse(target.dataset.item);
+
+                // Preenche o formulário com os dados do item
+                form.querySelector('[name="codigo_bast"]').value = item.codigo_bast;
+                form.querySelector('[name="localizacao_id"]').value = item.localizacao_id;
+
+                // Entra em modo de edição
+                editIdInput.value = item.id;
+                formTitle.textContent = `Editando Bastidor: ${item.codigo_bast}`;
+                submitBtn.textContent = 'Atualizar';
+                cancelBtn.hidden = false;
+            }
+        });
+
+        // 7. Lógica do botão Cancelar
+        cancelBtn.addEventListener('click', resetFormToCreateMode);
+
+        // 8. Inicialização
         await updateLocalizacaoDropdown();
         await loadItems();
 
-        // Retorna a função de atualização para que outros possam chamá-la
+        // 9. Retorna a função de atualização para que outros possam chamá-la
         return { updateLocalizacaoDropdown };
     }
     
     // --- INICIALIZAÇÃO DE TODOS OS GERENCIADORES ---
     (async () => {
-        const bastidorManager = await manageBastidores();
         const tipoManager = await manageEquipamentoTipos();
+        const bastidorManager = await manageBastidores();
+        
+        await manageFabricantes({
+            onUpdate: async () => { await tipoManager.updateFabricanteDropdown(); }
+        });
         await manageLocalizacoes({
             onUpdate: async () => {
                 populateSelect('/api/localizacoes', document.getElementById('inst_localizacao_id'), 'id', 'nome', 'Selecione');
                 await bastidorManager.updateLocalizacaoDropdown();
-            }
-        });
-        await createSimpleCrudManager({
-            entityName: 'fabricante',
-            apiUrl: '/api/fabricantes',
-            tableBodyId: 'table-body-fabricante',
-            formId: 'form-fabricante',
-            renderRow: (item) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${item.nome}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
-                return tr;
-            },
-            onUpdate: async () => {
-                populateSelect('/api/fabricantes', document.querySelector('#form-equipamento-tipo select[name="fabricante_id"]'), 'id', 'nome', 'Selecione');
-                await tipoManager.loadItems();
             }
         });
     })();
@@ -854,7 +1216,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Se for uma mensagem de status do leitor, exibe para o usuário
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 rfidStatusText.textContent = data.message;
-                rfidStatusText.style.color = data.type === 'scan_error' ? '#dc3545' : '#6c757d';
+                rfidStatusText.style.color = data.type === 'scan_error' ? '#333' : '#6c757d';
 
                 if (data.message !== "Aguardando leitura da tag...") {
                     readTagBtn.disabled = false;
@@ -875,7 +1237,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     rfidStatusText.textContent = statusResult.message;
                     if (statusResult.status === 'ASSOCIADO') {
-                        rfidStatusText.style.color = '#dc3545'; // Vermelho para alerta
+                        rfidStatusText.style.color = '#333'; // Vermelho para alerta
                         rfidStatusText.innerHTML += ` <strong>${statusResult.equipamento_nome}</strong>`;
                     } else {
                         rfidStatusText.style.color = '#198754'; // Verde para sucesso
@@ -883,7 +1245,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 } catch (error) {
                     rfidStatusText.textContent = "Não foi possível verificar o status da tag.";
-                    rfidStatusText.style.color = '#dc3545';
+                    rfidStatusText.style.color = '#333';
                 }
                 // --- FIM DA NOVA LÓGICA ---
 
@@ -895,7 +1257,7 @@ document.addEventListener('DOMContentLoaded', function () {
         rfidSocket.onerror = (error) => {
             console.error("[RFID Single Read] ERRO na conexão WebSocket:", error);
             statusDiv.textContent = "Erro na conexão com o servidor.";
-            statusDiv.style.color = '#dc3545';
+            statusDiv.style.color = '#333';
             readBtn.disabled = true;
         };
 
@@ -1313,6 +1675,7 @@ ARQUIVO: app/web/templates/equipamentos_list.html
 
   /* Evita cabeçalho com link estourar */
   .data-table th a{ display:inline-block; text-decoration:none; color:inherit; }
+  
 </style>
 
 <div class="content-header">
@@ -1322,6 +1685,8 @@ ARQUIVO: app/web/templates/equipamentos_list.html
             <input type="text" name="search" placeholder="Pesquisar..." value="{{ current_filters.search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
+
+        <a href="{{ url_for('download_equipamentos_xlsx') }}?{{ request.url.query }}" class="btn-primary">Baixar Planilha</a>
     </div>
 </div>
 
@@ -1357,6 +1722,7 @@ ARQUIVO: app/web/templates/equipamentos_list.html
     <table class="data-table">
         <thead>
             <tr>
+                <th style="width: 80px; text-align: center;">AÇÕES</th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'nome_equip' and current_filters.order == 'desc' else 'desc' %}
                 <th><a href="{{ request.url.replace_query_params(sort_by='nome_equip', order=sort_order) }}">HOSTNAME{% if current_filters.sort_by == 'nome_equip' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
                 
@@ -1393,6 +1759,15 @@ ARQUIVO: app/web/templates/equipamentos_list.html
         <tbody>
             {% for equip in equipamentos %}
             <tr>
+                <td style="text-align: center;">
+                    <div class="actions-menu-container">
+                        <button class="actions-menu-trigger" title="Abrir menu de ações">&#8942;</button>
+                        <div class="actions-dropdown">
+                            <a href="{{ url_for('cadastro_page') }}?edit_id={{ equip.id }}" class="menu-item-link">Editar</a>
+                            <button type="button" class="menu-item-btn delete btn-delete" data-id="{{ equip.id }}" data-name="{{ equip.nome_equip }}">Excluir</button>
+                        </div>
+                    </div>
+                </td>
                 <td><strong>{{ equip.nome_equip or '---' }}</strong></td>
                 <td><code>{{ equip.product.codigo_rfid if equip.product else '---' }}</code></td>
                 <td>{{ equip.equipamento_tipo.nome if equip.equipamento_tipo else '---' }}</td>
@@ -1424,20 +1799,70 @@ ARQUIVO: app/web/templates/equipamentos_list.html
 {{ super() }}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+
+    // --- PARTE 1: LÓGICA DOS FILTROS DEPENDENTES ---
     const localizacaoFilter = document.getElementById('filter_localizacao');
     const bastidorFilter = document.getElementById('filter_bastidor');
     const filtersForm = document.getElementById('filters-form');
 
-    localizacaoFilter.addEventListener('change', async function() {
-        const localizacaoId = this.value;
-        
-        // Limpa o filtro de bastidor antes de submeter o formulário
-        // para evitar enviar um ID de bastidor que não pertence à nova localização
-        bastidorFilter.value = "";
+    if (localizacaoFilter && filtersForm) {
+        localizacaoFilter.addEventListener('change', async function() {
+            // Limpa o filtro de bastidor antes de submeter o formulário
+            if (bastidorFilter) {
+                bastidorFilter.value = "";
+            }
+            // Submete o formulário para recarregar a página com a localização filtrada
+            filtersForm.submit();
+        });
+    }
 
-        // Submete o formulário para recarregar a página com a localização filtrada
-        // e a lista de bastidores correta.
-        filtersForm.submit();
+    // --- PARTE 2: LÓGICA DO MENU DE AÇÕES E EXCLUSÃO ---
+    const tableBody = document.querySelector('.data-table tbody');
+    if (tableBody) {
+        // Lógica para abrir/fechar o menu de três pontinhos
+        tableBody.addEventListener('click', function(event) {
+            const trigger = event.target.closest('.actions-menu-trigger');
+            if (trigger) {
+                event.stopPropagation();
+                const currentDropdown = trigger.nextElementSibling;
+                // Fecha outros menus que possam estar abertos
+                document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                    if (d !== currentDropdown) d.classList.remove('show');
+                });
+                // Alterna o menu atual
+                currentDropdown.classList.toggle('show');
+            }
+        });
+
+        // Lógica para o botão DELETAR
+        tableBody.addEventListener('click', async function(event) {
+            const deleteButton = event.target.closest('.btn-delete');
+            if (deleteButton) {
+                const equipId = deleteButton.dataset.id;
+                const equipName = deleteButton.dataset.name;
+                if (confirm(`Tem certeza que deseja excluir o equipamento "${equipName}"? Esta ação não pode ser desfeita.`)) {
+                    try {
+                        const response = await fetch(`/api/equipamentos/instancia/${equipId}`, {
+                            method: 'DELETE',
+                        });
+                        if (response.status === 204) {
+                            alert('Equipamento excluído com sucesso.');
+                            window.location.reload();
+                        } else {
+                            const errorData = await response.json();
+                            throw new Error(errorData.detail || 'Erro ao excluir o equipamento.');
+                        }
+                    } catch (error) {
+                        alert(`Erro: ${error.message}`);
+                    }
+                }
+            }
+        });
+    }
+
+    // Fecha todos os menus de ação se o usuário clicar em qualquer outro lugar
+    window.addEventListener('click', () => {
+        document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
     });
 });
 </script>
@@ -1668,6 +2093,15 @@ ARQUIVO: app/web/templates/inventario_list.html
 {% block title %}Inventário e Auditoria{% endblock %}
 
 {% block content %}
+
+<style>
+    .pending-items-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 8px 16px; /* Espaçamento vertical e horizontal */
+    }
+</style>
+
 <div class="content-header">
     <h1>Inventário e Auditoria</h1>
     <div class="header-actions">
@@ -1679,31 +2113,32 @@ ARQUIVO: app/web/templates/inventario_list.html
     <div class="filters-toolbar">
         <div class="filter-group-left">
             <form id="datacenter-form" method="get" action="{{ url_for('list_inventario') }}">
+                <input type="hidden" name="view" value="{{ current_view }}">
                 <select name="datacenter_id" id="datacenter-select" class="filter-dropdown-main" onchange="this.form.submit()">
                     {% for dc in all_datacenters %}
-                    <option value="{{ dc.id }}" {% if current_dc_id and dc.id == current_dc_id|int %}selected{% endif %}>
-                        {{ dc.nome }}
-                    </option>
+                    <option value="{{ dc.id }}" {% if current_dc_id and dc.id == current_dc_id|int %}selected{% endif %}>{{ dc.nome }}</option>
                     {% endfor %}
                 </select>
             </form>
         </div>
     </div>
     <div class="view-toggle">
-        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=comparison" class="btn-toggle {% if current_view == 'comparison' %}active{% endif %}">Comparativo</a>
         <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=current" class="btn-toggle {% if current_view == 'current' %}active{% endif %}">Inventário Atual</a>
+        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=master_audit" class="btn-toggle {% if current_view == 'master_audit' %}active{% endif %}">Auditoria Mestra</a>
+        <a href="{{ url_for('list_inventario') }}?datacenter_id={{ current_dc_id }}&view=snapshot_comparison" class="btn-toggle {% if current_view == 'snapshot_comparison' %}active{% endif %}">Comparativo de Scans</a>
     </div>
 </div>
 
 <div class="form-card" style="margin-top: 1.5rem;">
     <h3>Leitura por Pistola RFID</h3>
-    <span style="font-size: 0.8rem; color: #6c757d; font-weight: 500; background-color: #f1f3f5; padding: 2px 6px; border-radius: 4px;"
-          title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
-        Porta: {{ rfid_serial_port }}
-    </span>
-    <button type="button" id="check-reader-status-btn" class="btn-secondary btn-sm">Verificar Leitor</button>
-    <div id="scan-status" class="muted" style="margin-bottom: 10px;">Status: Ocioso</div>
-
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 0.8rem; color: #6c757d; font-weight: 500; background-color: #f1f3f5; padding: 2px 6px; border-radius: 4px;"
+              title="Para alterar a porta, edite o arquivo config.ini e reinicie a aplicação.">
+            Porta: {{ rfid_serial_port }}
+        </span>
+        <button type="button" id="check-reader-status-btn" class="btn-secondary btn-sm">Verificar Leitor</button>
+    </div>
+    <div id="scan-status" class="muted" style="margin-bottom: 10px; margin-top: 5px;">Status: Ocioso</div>
     <div style="display: flex; gap: 10px; margin-bottom: 15px;">
         <button id="start-scan-btn" class="btn-primary">Iniciar Leitura por Gatilho</button>
         <button id="stop-scan-btn" class="btn-secondary" disabled>Finalizar e Salvar</button>
@@ -1715,123 +2150,68 @@ ARQUIVO: app/web/templates/inventario_list.html
     </div>
 </div>
 
-{% if current_view == 'comparison' %}
-
-    {# --- NOVO: Lógica para decidir qual relatório mostrar --- #}
-
-    {# Relatório 1: Comparação Mestra (para o primeiro scan) #}
-    {% if comparison_mode == 'master' %}
-        <div class="list-container-full-width">
-            <div class="list-header">
-                <h3>Relatório de Auditoria Inicial (vs. Catálogo Mestre)</h3>
-                <div class="muted">
-                    {% if snapshot_atual %}
-                        Comparando o Catálogo Mestre com o primeiro scan de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m/%Y %H:%M") }}</strong>.
-                    {% else %}
-                        Nenhum scan foi realizado neste datacenter para comparação.
-                    {% endif %}
-                </div>
-            </div>
-            <h4 style="margin-top: 2rem; color: #dc3545;">✖ Itens Faltando ({{ itens_faltando|length }})</h4>
-            <table class="data-table">
-                <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
-                <tbody>
-                    {% for item in itens_faltando %}
-                    <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-                    {% else %}
-                    <tr><td colspan="2" class="muted">Nenhum item faltando.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <h4 style="margin-top: 2rem; color: #0d6efd;">? Itens Novos / Não Catalogados ({{ itens_novos|length }})</h4>
-            <table class="data-table">
-                <thead><tr><th>NOME (SE ASSOCIADO)</th><th>CÓDIGO RFID</th></tr></thead>
-                <tbody>
-                    {% for item in itens_novos %}
-                    <tr><td>{{ item.nome_equip }}</td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-                    {% else %}
-                    <tr><td colspan="2" class="muted">Nenhum item novo encontrado.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <h4 style="margin-top: 2rem; color: #198754;">✔ Itens Encontrados ({{ itens_encontrados|length }})</h4>
-            <table class="data-table">
-                <thead><tr><th>NOME DO EQUIPAMENTO (HOSTNAME)</th><th>CÓDIGO RFID</th></tr></thead>
-                <tbody>
-                    {% for item in itens_encontrados %}
-                    <tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>
-                    {% else %}
-                    <tr><td colspan="2" class="muted">Nenhum item esperado foi encontrado.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-    {# Relatório 2: Comparação de Rotina (entre snapshots) #}
-    {% elif comparison_mode == 'snapshot' %}
-        <div class="list-container-full-width">
-            <div class="list-header">
-                <h3>Comparativo de Rotina (entre scans)</h3>
-                <div class="muted">
-                    Comparando o scan de <strong>{{ snapshot_atual.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong> com o scan anterior de <strong>{{ snapshot_anterior.created_on.astimezone().strftime("%d/%m %H:%M") }}</strong>.
-                </div>
-            </div>
-            <table class="data-table">
-                <thead><tr><th>ITEM ATUAL</th><th>ITEM ANTERIOR</th><th>MUDANÇA</th></tr></thead>
-                <tbody>
-                    {% for row in tabela_unificada %} 
-                    <tr>
-                        <td>{{ row.item_atual }}</td>
-                        <td>{{ row.item_anterior }}</td>
-                        <td style="font-weight: 500;">
-                            {% if row.status == 'Adicionado' %}<span style="color: #28a745;">{{ row.status }}</span> 
-                            {% elif row.status == 'Deletado' %}<span style="color: #dc3545;">{{ row.status }}</span> 
-                            {% else %}<span style="color: #333;">{{ row.status }}</span>{% endif %} 
-                        </td>
-                    </tr>
-                    {% else %} 
-                    <tr><td colspan="3" class="muted">Nenhum item para comparar.</td></tr> 
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    
-    {% else %}
-        <div class="list-container-full-width">
-            <div class="list-header">
-                <h3>Relatório de Comparação</h3>
-                <p class="muted">Realize um inventário neste datacenter para gerar um relatório de comparação.</p>
-            </div>
-        </div>
-    {% endif %}
-
-{% endif %}
+<hr style="margin: 2rem 0;">
 
 {% if current_view == 'current' %}
 <div class="list-container-full-width">
-    <div class="list-header">
-        <h3>Inventário Atual ({{ count_atual }})</h3>
-        {% if snapshot_atual %}<div class="muted">Realizado em {{ snapshot_atual.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") }}</div>{% endif %}
-    </div>
+    <div class="list-header"><h3>Último Scan Realizado</h3></div>
     <table class="data-table">
-        <thead>
-            <tr>
-                <th>CÓDIGO RFID</th>
-                <th>EQUIPAMENTO ASSOCIADO</th>
-                <th>DATA DE CRIAÇÃO</th> 
-            </tr>
-        </thead>
+        <thead><tr><th>CÓDIGO RFID</th><th>EQUIPAMENTO ASSOCIADO</th><th>DATA DO SCAN</th></tr></thead>
         <tbody>
             {% for row in inventario_atual %}
-            <tr>
-                <td><code>{{ row.codigo_rfid }}</code></td> 
-                <td>{{ row.tipo }}</td> <td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td> 
-            </tr>
+            <tr><td><code>{{ row.codigo_rfid }}</code></td><td>{{ row.nome_equip }}</td><td>{{ row.created_on.astimezone().strftime("%d/%m/%Y %H:%M:%S") if row.created_on else '---' }}</td></tr>
             {% else %}
-            <tr><td colspan="3" class="muted">Nenhum item no inventário atual.</td></tr>
+            <tr><td colspan="3" class="muted">Nenhum scan encontrado para este datacenter.</td></tr>
             {% endfor %}
         </tbody>
     </table>
+</div>
+
+{% elif current_view == 'master_audit' %}
+<div class="list-container-full-width">
+    <div class="list-header"><h3>Relatório de Auditoria (Último Scan vs. Catálogo Mestre)</h3></div>
+    <h4 style="margin-top: 1.5rem;">✖ Itens Faltando ({{ itens_faltando|length }})</h4>
+    <table class="data-table">
+        <thead><tr><th>HOSTNAME</th><th>CÓDIGO RFID</th></tr></thead><tbody>
+        {% for item in itens_faltando %}<tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>{% else %}<tr><td colspan="2" class="muted">Nenhum.</td></tr>{% endfor %}
+    </tbody></table>
+    <h4 style="margin-top: 1.5rem;">? Itens Novos / Não Catalogados ({{ itens_novos|length }})</h4>
+    <table class="data-table">
+        <thead><tr><th>NOME (SE ASSOCIADO)</th><th>CÓDIGO RFID</th></tr></thead><tbody>
+        {% for item in itens_novos %}<tr><td>{{ item.nome_equip }}</td><td><code>{{ item.codigo_rfid }}</code></td></tr>{% else %}<tr><td colspan="2" class="muted">Nenhum.</td></tr>{% endfor %}
+    </tbody></table>
+    <h4 style="margin-top: 1.5rem;">✔ Itens Encontrados ({{ itens_encontrados|length }})</h4>
+    <table class="data-table">
+        <thead><tr><th>HOSTNAME</th><th>CÓDIGO RFID</th></tr></thead><tbody>
+        {% for item in itens_encontrados %}<tr><td><strong>{{ item.nome_equip }}</strong></td><td><code>{{ item.codigo_rfid }}</code></td></tr>{% else %}<tr><td colspan="2" class="muted">Nenhum.</td></tr>{% endfor %}
+    </tbody></table>
+</div>
+
+{% elif current_view == 'snapshot_comparison' %}
+<div class="list-container-full-width">
+    <div class="list-header"><h3>Comparativo de Rotina (Último Scan vs. Scan Anterior)</h3></div>
+    {% if snapshot_anterior %}
+        <table class="data-table">
+            <thead><tr><th>ITEM ATUAL</th><th>ITEM ANTERIOR</th><th>MUDANÇA</th></tr></thead>
+            <tbody>
+                {% for row in comparativo_snapshots %} 
+                <tr>
+                    <td>{{ row.item_atual }}</td><td>{{ row.item_anterior }}</td><td style="font-weight: 500;">
+                        {% if row.status == 'Adicionado' %}
+                            <span style="color: #28a745;">{{ row.status }}</span> 
+                        {% elif row.status == 'Deletado' %}
+                            <span style="color: #dc3545;">{{ row.status }}</span> 
+                        {% else %}
+                            <span style="color: #333;">{{ row.status }}</span>
+                        {% endif %} 
+                    </td>
+                </tr>
+                {% else %}<tr><td colspan="3" class="muted">Nenhuma mudança detectada.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="muted" style="margin-top: 1rem;">É necessário ter pelo menos dois scans neste datacenter para gerar este comparativo.</p>
+    {% endif %}
 </div>
 {% endif %}
 
@@ -1842,18 +2222,21 @@ ARQUIVO: app/web/templates/inventario_list.html
 {{ super() }}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    // Script da Pistola RFID
     const startBtn = document.getElementById('start-scan-btn');
     const stopBtn = document.getElementById('stop-scan-btn');
     const cancelBtn = document.getElementById('cancel-scan-btn'); 
-    const checkBtn = document.getElementById('check-reader-status-btn')
     const statusDiv = document.getElementById('scan-status');
     const tagsListDiv = document.getElementById('scanned-tags-list');
     const dcSelect = document.getElementById('datacenter-select');
     const countSpan = document.getElementById('scanned-tags-count');
+    const checkBtn = document.getElementById('check-reader-status-btn');
     let scannedTagsCount = 0;
 
     function resetScanUI() {
         statusDiv.textContent = "Status: Conectado e pronto.";
+        statusDiv.style.color = '#6c757d';
+        statusDiv.style.fontWeight = 'normal';
         tagsListDiv.innerHTML = '<div class="muted">Aguardando início da leitura...</div>';
         scannedTagsCount = 0;
         countSpan.textContent = `(0)`;
@@ -1866,33 +2249,22 @@ document.addEventListener('DOMContentLoaded', function () {
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
         
-        rfidSocket.onopen = () => { resetScanUI(); checkBtn.disabled = false;};
+        rfidSocket.onopen = () => { resetScanUI(); checkBtn.disabled = false; };
         rfidSocket.onclose = () => { 
             statusDiv.textContent = "Status: Desconectado. Recarregue a página.";
-            startBtn.disabled = true; 
-            stopBtn.disabled = true; 
-            checkBtn.disabled = true;
-            cancelBtn.disabled = true;
+            startBtn.disabled = true; stopBtn.disabled = true; cancelBtn.disabled = true; checkBtn.disabled = true;
         };
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
             if (data.type === 'reader_status') {
                 statusDiv.textContent = data.message;
-                statusDiv.style.color = data.status === 'OK' ? '#198754' : '#dc3545';
+                statusDiv.style.color = data.status === 'OK' ? '#198754' : '#333';
                 statusDiv.style.fontWeight = data.status === 'ERROR' ? 'bold' : 'normal';
-            }
-            if (data.type === 'hardware_error') {
-                statusDiv.textContent = data.message;
-                statusDiv.style.color = '#dc3545';
-                statusDiv.style.fontWeight = 'bold';
-                startBtn.disabled = true; stopBtn.disabled = true; cancelBtn.disabled = true;
-                return;
             }
             if (data.type === 'scan_status' || data.type === 'scan_error') {
                 statusDiv.textContent = `Status: ${data.message}`;
                 if (data.message.toLowerCase().includes("finalizada") || data.message.toLowerCase().includes("erro") || data.message.toLowerCase().includes("cancelada")) {
                     resetScanUI();
-                    statusDiv.textContent = "Status: Conectado e pronto.";
                 }
             }
             if (data.type === 'tag_scanned') {
@@ -1904,28 +2276,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 countSpan.textContent = `(${scannedTagsCount})`;
             }
         };
-        
+
         checkBtn.addEventListener('click', () => {
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 rfidSocket.send(JSON.stringify({ action: "check_health" }));
             }
         });
-
         startBtn.addEventListener('click', () => {
             const datacenterId = dcSelect.value;
             if (!datacenterId) { alert("Por favor, selecione um datacenter primeiro."); return; }
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 scannedTagsCount = 0;
                 countSpan.textContent = `(0)`;
-                rfidSocket.send(JSON.stringify({ action: "start_scan", datacenter_id: parseInt(datacenterId) }));
-                statusDiv.textContent = "Status: Iniciando...";
-                startBtn.disabled = true;
-                stopBtn.disabled = false;
-                cancelBtn.disabled = false; 
-                tagsListDiv.innerHTML = '<div class="muted">Aguardando confirmação do scan...</div>';
-            } else { alert("Erro: Conexão com o servidor de scan não está aberta."); }
+                rfidSocket.send(JSON.stringify({ action: "start_scan", mode: 'multiple', datacenter_id: parseInt(datacenterId) }));
+                startBtn.disabled = true; stopBtn.disabled = false; cancelBtn.disabled = false; 
+                tagsListDiv.innerHTML = '';
+            }
         });
-
         stopBtn.addEventListener('click', () => {
             if (rfidSocket.readyState === WebSocket.OPEN) {
                 rfidSocket.send(JSON.stringify({ action: "stop_scan", datacenter_id: parseInt(dcSelect.value) }));
@@ -1937,6 +2304,19 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
+
+    // Script para as Abas de Visualização
+    const tabButtons = document.querySelectorAll('#inventory-tabs .nav-link');
+    const tabPanes = document.querySelectorAll('.tab-content .tab-pane');
+    tabButtons.forEach(button => {
+        button.addEventListener('click', (event) => {
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabPanes.forEach(pane => pane.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            const targetPaneId = event.currentTarget.getAttribute('data-bs-target');
+            document.querySelector(targetPaneId).classList.add('active');
+        });
+    });
 });
 </script>
 {% endblock %}
@@ -2261,39 +2641,63 @@ ARQUIVO: app/web/templates/sidebar.html
         </div>
     </div>
     <nav class="sidebar-nav">
-        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/hist.svg') }})"></span>
-            <span class="nav-text">Histórico</span>
-        </a>
 
-        <a href="{{ url_for('list_embarcados') }}" class="nav-item {% if 'embarcados' in request.url.path %}active{% endif %}" title="Embarcados">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/emb.svg') }})"></span>
-            <span class="nav-text">Embarcados</span>
-        </a>
+    {% if ui_features.show_rtls_historico %}
+    <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/hist.svg') }})"></span>
+        <span class="nav-text">Histórico</span>
+    </a>
+    {% endif %}
 
-        <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'assets' in request.url.path %}active{% endif %}" title="Ativos">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
-            <span class="nav-text">Ativos</span>
-        </a>
-        <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
-            <span class="nav-text">Quartos</span>
-        <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
-            <span class="nav-text">Planta</span>
-        <a href="{{ url_for('cadastro_page') }}" class="nav-item {% if 'cadastro' in request.url.path %}active{% endif %}" title="Cadastro e Gestão">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/catalogo.svg') }});"></span>
-            <span class="nav-text">Cadastro e Gestão</span>
-        </a>
-        <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}" title="Inventário e Auditoria">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }});"></span>
-            <span class="nav-text">Inventário e Auditoria</span>
-        </a>
-        <a href="{{ url_for('list_equipamentos') }}" class="nav-item {% if 'equipamentos' in request.url.path %}active{% endif %}" title="Catálogo de Equipamentos">
-            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/list.svg') }});"></span>
-            <span class="nav-text">Catálogo de Equipamentos</span>
-        </a>
-    </nav>
+    {% if ui_features.show_rtls_embarcados %}
+    <a href="{{ url_for('list_embarcados') }}" class="nav-item {% if 'embarcados' in request.url.path %}active{% endif %}" title="Embarcados">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/emb.svg') }})"></span>
+        <span class="nav-text">Embarcados</span>
+    </a>
+    {% endif %}
+
+    {% if ui_features.show_rtls_assets %}
+    <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'assets' in request.url.path %}active{% endif %}" title="Ativos">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
+        <span class="nav-text">Ativos</span>
+    </a>
+    {% endif %}
+
+    {% if ui_features.show_rtls_quartos %}
+    <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
+        <span class="nav-text">Quartos</span>
+    </a>
+    {% endif %}
+    
+    {% if ui_features.show_rtls_planta %}
+    <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
+        <span class="nav-text">Planta</span>
+    </a>
+    {% endif %}
+
+    {% if ui_features.show_rfid_cadastro %}
+    <a href="{{ url_for('cadastro_page') }}" class="nav-item {% if 'cadastro' in request.url.path %}active{% endif %}" title="Cadastro e Gestão">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/catalogo.svg') }});"></span>
+        <span class="nav-text">Cadastro RFID</span>
+    </a>
+    {% endif %}
+
+    {% if ui_features.show_rfid_catalogo %}
+    <a href="{{ url_for('list_equipamentos') }}" class="nav-item {% if 'equipamentos' in request.url.path %}active{% endif %}" title="Catálogo de Equipamentos">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/list.svg') }});"></span>
+        <span class="nav-text">Catálogo RFID</span>
+    </a>
+    {% endif %}
+
+    {% if ui_features.show_rfid_inventario %}
+    <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}" title="Inventário e Auditoria">
+        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }});"></span>
+        <span class="nav-text">Inventário RFID</span>
+    </a>
+    {% endif %}
+</nav>
     <button id="sidebar-toggle-btn" title="Alternar menu">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 18 9 12 15 6"></polyline>

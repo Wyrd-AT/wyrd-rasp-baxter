@@ -29,6 +29,7 @@
 
   /* Evita cabeçalho com link estourar */
   .data-table th a{ display:inline-block; text-decoration:none; color:inherit; }
+  
 </style>
 
 <div class="content-header">
@@ -39,7 +40,7 @@
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
         </form>
 
-        <a href="{{ url_for('download_equipamentos_csv') }}?{{ request.url.query }}" class="btn-primary">Baixar CSV</a>
+        <a href="{{ url_for('download_equipamentos_xlsx') }}?{{ request.url.query }}" class="btn-primary">Baixar Planilha</a>
     </div>
 </div>
 
@@ -75,6 +76,7 @@
     <table class="data-table">
         <thead>
             <tr>
+                <th style="width: 80px; text-align: center;">AÇÕES</th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'nome_equip' and current_filters.order == 'desc' else 'desc' %}
                 <th><a href="{{ request.url.replace_query_params(sort_by='nome_equip', order=sort_order) }}">HOSTNAME{% if current_filters.sort_by == 'nome_equip' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}</a></th>
                 
@@ -111,6 +113,15 @@
         <tbody>
             {% for equip in equipamentos %}
             <tr>
+                <td style="text-align: center;">
+                    <div class="actions-menu-container">
+                        <button class="actions-menu-trigger" title="Abrir menu de ações">&#8942;</button>
+                        <div class="actions-dropdown">
+                            <a href="{{ url_for('cadastro_page') }}?edit_id={{ equip.id }}" class="menu-item-link">Editar</a>
+                            <button type="button" class="menu-item-btn delete btn-delete" data-id="{{ equip.id }}" data-name="{{ equip.nome_equip }}">Excluir</button>
+                        </div>
+                    </div>
+                </td>
                 <td><strong>{{ equip.nome_equip or '---' }}</strong></td>
                 <td><code>{{ equip.product.codigo_rfid if equip.product else '---' }}</code></td>
                 <td>{{ equip.equipamento_tipo.nome if equip.equipamento_tipo else '---' }}</td>
@@ -142,20 +153,70 @@
 {{ super() }}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+
+    // --- PARTE 1: LÓGICA DOS FILTROS DEPENDENTES ---
     const localizacaoFilter = document.getElementById('filter_localizacao');
     const bastidorFilter = document.getElementById('filter_bastidor');
     const filtersForm = document.getElementById('filters-form');
 
-    localizacaoFilter.addEventListener('change', async function() {
-        const localizacaoId = this.value;
-        
-        // Limpa o filtro de bastidor antes de submeter o formulário
-        // para evitar enviar um ID de bastidor que não pertence à nova localização
-        bastidorFilter.value = "";
+    if (localizacaoFilter && filtersForm) {
+        localizacaoFilter.addEventListener('change', async function() {
+            // Limpa o filtro de bastidor antes de submeter o formulário
+            if (bastidorFilter) {
+                bastidorFilter.value = "";
+            }
+            // Submete o formulário para recarregar a página com a localização filtrada
+            filtersForm.submit();
+        });
+    }
 
-        // Submete o formulário para recarregar a página com a localização filtrada
-        // e a lista de bastidores correta.
-        filtersForm.submit();
+    // --- PARTE 2: LÓGICA DO MENU DE AÇÕES E EXCLUSÃO ---
+    const tableBody = document.querySelector('.data-table tbody');
+    if (tableBody) {
+        // Lógica para abrir/fechar o menu de três pontinhos
+        tableBody.addEventListener('click', function(event) {
+            const trigger = event.target.closest('.actions-menu-trigger');
+            if (trigger) {
+                event.stopPropagation();
+                const currentDropdown = trigger.nextElementSibling;
+                // Fecha outros menus que possam estar abertos
+                document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                    if (d !== currentDropdown) d.classList.remove('show');
+                });
+                // Alterna o menu atual
+                currentDropdown.classList.toggle('show');
+            }
+        });
+
+        // Lógica para o botão DELETAR
+        tableBody.addEventListener('click', async function(event) {
+            const deleteButton = event.target.closest('.btn-delete');
+            if (deleteButton) {
+                const equipId = deleteButton.dataset.id;
+                const equipName = deleteButton.dataset.name;
+                if (confirm(`Tem certeza que deseja excluir o equipamento "${equipName}"? Esta ação não pode ser desfeita.`)) {
+                    try {
+                        const response = await fetch(`/api/equipamentos/instancia/${equipId}`, {
+                            method: 'DELETE',
+                        });
+                        if (response.status === 204) {
+                            alert('Equipamento excluído com sucesso.');
+                            window.location.reload();
+                        } else {
+                            const errorData = await response.json();
+                            throw new Error(errorData.detail || 'Erro ao excluir o equipamento.');
+                        }
+                    } catch (error) {
+                        alert(`Erro: ${error.message}`);
+                    }
+                }
+            }
+        });
+    }
+
+    // Fecha todos os menus de ação se o usuário clicar em qualquer outro lugar
+    window.addEventListener('click', () => {
+        document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
     });
 });
 </script>

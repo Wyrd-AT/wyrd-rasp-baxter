@@ -20,58 +20,80 @@
 </div>
 
 <div class="form-card">
-    <form id="new-instance-form">
-        <h3>Cadastrar Nova Instância de Equipamento</h3>
+    <form id="instance-form" method="post" 
+          action="{% if equipamento_para_editar %}{{ url_for('update_equipamento_instancia', equip_id=equipamento_para_editar.id) }}{% else %}{{ url_for('create_equipamento_instancia') }}{% endif %}">
+        
+        <h3>{% if equipamento_para_editar %}Editar Instância de Equipamento{% else %}Cadastrar Nova Instância{% endif %}</h3>
+
         <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
             <div class="form-group">
                 <label for="inst_equipamento_tipo_id">Modelo do Equipamento</label>
-                <select id="inst_equipamento_tipo_id" required><option value="">Carregando...</option></select>
+                <select id="inst_equipamento_tipo_id" name="equipamento_tipo_id" required>
+                    </select>
             </div>
             <div class="form-group">
                 <label for="inst_nome_equip">Hostname</label>
-                <input type="text" id="inst_nome_equip" required placeholder="Ex: SRV-DB01-SP">
+                <input type="text" id="inst_nome_equip" name="nome_equip" value="{{ equipamento_para_editar.nome_equip if equipamento_para_editar else '' }}" required>
             </div>
         </div>
+
         <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Localização Física</h4>
         <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="form-group"><label for="inst_localizacao_id">Localização</label><select id="inst_localizacao_id" required><option value="">Carregando...</option></select></div>
+            <div class="form-group">
+                <label for="inst_localizacao_id">Localização</label>
+                <select id="inst_localizacao_id" name="localizacao_id" required>
+                    </select>
+            </div>
             <div class="form-group">
                 <label for="inst_bastidor_id">Bastidor (Rack)</label>
-                <select id="inst_bastidor_id" required disabled><option value="">Selecione a localização</option></select>
+                <select id="inst_bastidor_id" name="bastidor_id" required>
+                    <option value="">Selecione a localização</option>
+                </select>
             </div>
         </div>
-        <div id="tab-rfid" class="modal-tab-content">
-            <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Etiqueta RFID</h4>
-            <div class="form-group">
-                <label for="inst_codigo_rfid">Código RFID</label>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <input type="text" id="inst_codigo_rfid" required style="flex-grow: 1;">
-                    <button type="button" id="read-single-tag-btn" class="btn-secondary" style="white-space: nowrap;">Ler Tag</button>
-                    <button type="button" id="check-reader-status-btn-cadastro" class="btn-secondary btn-sm">Verificar</button>
-                </div>
-                <small id="rfid-status-text" class="muted"></small>
+
+        <h4 style="margin-top: 1.5rem; font-size: 1rem; color: #495057;">Etiqueta RFID</h4>
+        <div class="form-group">
+            <label for="inst_codigo_rfid">Código RFID</label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="inst_codigo_rfid" name="codigo_rfid" value="{{ equipamento_para_editar.product.codigo_rfid if equipamento_para_editar and equipamento_para_editar.product else '' }}" required style="flex-grow: 1;">
+                <button type="button" id="read-single-tag-btn" class="btn-secondary" style="white-space: nowrap;">Ler Tag</button>
+                <button type="button" id="check-reader-status-btn-cadastro" class="btn-secondary btn-sm">Verificar</button>
             </div>
-        <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end;">
-            <button type="submit" id="save-instance-btn" class="btn-primary">Salvar Nova Instância</button>
+            <small id="rfid-status-text" class="muted"></small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 10px;">
+            {% if equipamento_para_editar %}
+            <a href="{{ url_for('list_equipamentos') }}" class="btn-secondary">Cancelar</a>
+            {% endif %}
+            <button type="submit" id="save-instance-btn" class="btn-primary">
+                {% if equipamento_para_editar %}Atualizar Instância{% else %}Salvar Nova Instância{% endif %}
+            </button>
         </div>
     </form>
 </div>
 
 <hr style="margin: 2rem 0; border-top: 2px solid #eee;">
 
-<div class="content-header"><h2>Gerenciamento de Entidades</h2></div>
+<div class="content-header">
+    <h2>Gerenciamento de Entidades</h2>
+</div>
+
 <div class="management-container">
     <div class="management-nav">
-        <button class="nav-button" data-bs-target="#fabricantes-pane">Fabricantes</button>
         <button class="nav-button active" data-bs-target="#modelos-pane">Modelos de Equipamento</button>
+        <button class="nav-button" data-bs-target="#fabricantes-pane">Fabricantes</button>
         <button class="nav-button" data-bs-target="#localizacoes-pane">Localizações</button>
         <button class="nav-button" data-bs-target="#bastidores-pane">Bastidores (Racks)</button>
     </div>
+
     <div class="management-content">
         <div class="tab-pane active" id="modelos-pane">
             <div class="form-card">
                 <form id="form-equipamento-tipo">
-                    <h3>Adicionar Novo Modelo de Equipamento</h3>
+                    <h3>Adicionar Novo Modelo</h3>
+                    <input type="hidden" id="edit-tipo-id">
                     <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
                         <div class="form-group"><label>Nome do Modelo (Ex: Roteador ASR-9006)</label><input type="text" name="nome" class="form-control" required></div>
                         <div class="form-group"><label>Fabricante</label><select name="fabricante_id" class="form-control" required><option value="">Carregando...</option></select></div>
@@ -85,61 +107,74 @@
                         <div class="form-group"><label>Estado CV</label><input type="text" name="estado_cv_equip" class="form-control"></div>
                         <div class="form-group"><label>Estado OP</label><input type="text" name="estado_op_equip" class="form-control"></div>
                     </div>
-                    <div class="form-group" style="display: flex; justify-content: flex-end;"><button type="submit" class="btn-primary">Adicionar Modelo</button></div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end; gap: 10px;">
+                        <button type="button" id="cancel-edit-tipo-btn" class="btn-secondary" hidden>Cancelar</button>
+                        <button type="submit" class="btn-primary">Adicionar Modelo</button>
+                    </div>
                 </form>
                 <hr>
                 <h3>Modelos Cadastrados</h3>
                 <table class="data-table">
-                    <thead><tr><th>Nome</th><th>Fabricante</th><th>Modelo (Part No.)</th><th class="actions-cell">Ações</th></tr></thead>
+                    <thead><tr><th>Nome</th><th>Fabricante</th><th>Modelo (PN)</th><th class="actions-cell">Ações</th></tr></thead>
                     <tbody id="table-body-equipamento-tipo"></tbody>
                 </table>
             </div>
         </div>
         
-        <div class="tab-pane" id="localizacoes-pane">
-            <div class="form-card">
-                <form id="form-localizacao">
-                    <h3>Adicionar Nova Localização</h3>
-                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-                        <div class="form-group"><label for="loc-nome">Nome da Localização</label><input type="text" id="loc-nome" name="nome" required placeholder="Ex: Datacenter RJ"></div>
-                        <div class="form-group"><label for="loc-municipio">Município</label><input type="text" id="loc-municipio" name="municipio"></div>
-                        <div class="form-group"><label for="loc-uf">UF</label><input type="text" id="loc-uf" name="uf_abrv" maxlength="2"></div>
-                    </div>
-                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
-                        <div class="form-group"><label for="loc-edf">EDF</label><input type="text" id="loc-edf" name="edf"></div>
-                        <div class="form-group"><label for="loc-piso">Piso</label><input type="text" id="loc-piso" name="piso"></div>
-                        <div class="form-group"><label for="loc-sala">Sala</label><input type="text" id="loc-sala" name="sala"></div>
-                    </div>
-                    <div class="form-group"><label for="loc-endereco">Endereço Completo</label><input type="text" id="loc-endereco" name="endereco_completo"></div>
-                    <div class="form-group" style="display: flex; justify-content: flex-end;"><button type="submit" class="btn-primary">Adicionar Localização</button></div>
-                </form>
-                <hr>
-                <h3>Localizações Cadastradas</h3>
-                <table class="data-table">
-                    <thead><tr><th>Nome</th><th>Município</th><th>UF</th><th class="actions-cell">Ações</th></tr></thead>
-                    <tbody id="table-body-localizacao"></tbody>
-                </table>
-            </div>
-        </div>
-
         <div class="tab-pane" id="fabricantes-pane">
             <div class="form-card">
                 <form id="form-fabricante" style="display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: flex-end;">
-                    <div class="form-group" style="margin:0;"><label>Nome do Fabricante</label><input type="text" class="form-control" name="nome" required></div>
-                    <button type="submit" class="btn-primary">Adicionar</button>
+                    <input type="hidden" id="edit-fabricante-id">
+                    <div class="form-group" style="margin:0;"><label>Nome do Fabricante</label><input type="text" name="nome" class="form-control" required></div>
+                    <div style="display:flex; gap: 10px;">
+                        <button type="button" id="cancel-edit-fabricante-btn" class="btn-secondary" hidden>Cancelar</button>
+                        <button type="submit" class="btn-primary">Adicionar</button>
+                    </div>
                 </form>
                 <hr>
                 <h3>Fabricantes Cadastrados</h3>
                 <table class="data-table"><thead><tr><th>Nome</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-fabricante"></tbody></table>
             </div>
         </div>
+
+        <div class="tab-pane" id="localizacoes-pane">
+            <div class="form-card">
+                <form id="form-localizacao">
+                    <h3>Adicionar Nova Localização</h3>
+                    <input type="hidden" id="edit-localizacao-id">
+                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <div class="form-group"><label>Nome</label><input type="text" name="nome" required></div>
+                        <div class="form-group"><label>Município</label><input type="text" name="municipio"></div>
+                        <div class="form-group"><label>UF</label><input type="text" name="uf_abrv" maxlength="2"></div>
+                        <div class="form-group"><label>EDF</label><input type="text" name="edf"></div>
+                        <div class="form-group"><label>Piso</label><input type="text" name="piso"></div>
+                        <div class="form-group"><label>Sala</label><input type="text" name="sala"></div>
+                    </div>
+                    <div class="form-group"><label>Endereço Completo</label><input type="text" name="endereco_completo"></div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end; gap: 10px;">
+                        <button type="button" id="cancel-edit-localizacao-btn" class="btn-secondary" hidden>Cancelar</button>
+                        <button type="submit" class="btn-primary">Adicionar Localização</button>
+                    </div>
+                </form>
+                <hr>
+                <h3>Localizações Cadastradas</h3>
+                <table class="data-table"><thead><tr><th>Nome</th><th>Município</th><th>UF</th><th class="actions-cell">Ações</th></tr></thead><tbody id="table-body-localizacao"></tbody></table>
+            </div>
+        </div>
         
         <div class="tab-pane" id="bastidores-pane">
             <div class="form-card">
-                 <form id="form-bastidor" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: flex-end;">
-                    <div class="form-group" style="margin:0;"><label>Código do Bastidor</label><input type="text" class="form-control" name="codigo_bast" required></div>
-                    <div class="form-group" style="margin:0;"><label>Localização</label><select class="form-control" name="localizacao_id" required></select></div>
-                    <button type="submit" class="btn-primary">Adicionar</button>
+                 <form id="form-bastidor">
+                    <h3>Adicionar Novo Bastidor</h3>
+                    <input type="hidden" id="edit-bastidor-id">
+                    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr; align-items: flex-end;">
+                        <div class="form-group"><label>Código do Bastidor</label><input type="text" class="form-control" name="codigo_bast" required></div>
+                        <div class="form-group"><label>Localização</label><select class="form-control" name="localizacao_id" required></select></div>
+                    </div>
+                    <div class="form-group" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 1rem;">
+                        <button type="button" id="cancel-edit-bastidor-btn" class="btn-secondary" hidden>Cancelar</button>
+                        <button type="submit" class="btn-primary">Adicionar</button>
+                    </div>
                 </form>
                 <hr>
                 <h3>Bastidores Cadastrados</h3>
@@ -159,7 +194,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // ==========================================================
     // SEÇÃO 0: FUNÇÃO UTILITÁRIA GLOBAL
     // ==========================================================
-    async function populateSelect(url, selectElement, valueField, textField, prompt) {
+    async function populateSelect(url, selectElement, valueField, textField, prompt, selectedValue = null) {
         if (!selectElement) return;
         selectElement.innerHTML = `<option value="">Carregando...</option>`;
         try {
@@ -171,6 +206,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 const option = document.createElement('option');
                 option.value = item[valueField];
                 option.textContent = item[textField];
+                if (selectedValue && item[valueField] == selectedValue) {
+                    option.selected = true;
+                }
                 selectElement.appendChild(option);
             });
         } catch (error) {
@@ -180,23 +218,37 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ==========================================================
-    // SEÇÃO 1: LÓGICA DO FORMULÁRIO DE CADASTRO DE INSTÂNCIA
+    // SEÇÃO 1: LÓGICA DO FORMULÁRIO DE CADASTRO/EDIÇÃO DE INSTÂNCIA
     // ==========================================================
-    const newInstanceForm = document.getElementById('new-instance-form');
-    if (newInstanceForm) {
+    const instanceForm = document.getElementById('instance-form');
+    if (instanceForm) {
+        const isEditMode = !!("{{ equipamento_para_editar.id if equipamento_para_editar else '' }}");
         const tipoSelect = document.getElementById('inst_equipamento_tipo_id');
         const localizacaoSelect = document.getElementById('inst_localizacao_id');
         const bastidorSelect = document.getElementById('inst_bastidor_id');
 
-        populateSelect('/api/equipamento-tipos', tipoSelect, 'id', 'nome', 'Selecione um Modelo');
-        populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma Localização');
+        async function initializeForm() {
+            if (isEditMode) {
+                const selectedTipoId = "{{ equipamento_para_editar.equipamento_tipo_id if equipamento_para_editar else '' }}";
+                const selectedLocalizacaoId = "{{ equipamento_para_editar.bastidor.localizacao_id if equipamento_para_editar and equipamento_para_editar.bastidor else '' }}";
+                const selectedBastidorId = "{{ equipamento_para_editar.bastidor_id if equipamento_para_editar else '' }}";
+                await populateSelect('/api/equipamento-tipos', tipoSelect, 'id', 'nome', 'Selecione um Modelo', selectedTipoId);
+                await populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma Localização', selectedLocalizacaoId);
+                if (selectedLocalizacaoId) {
+                    bastidorSelect.disabled = false;
+                    const url = `/api/bastidores?localizacao_id=${selectedLocalizacaoId}`;
+                    await populateSelect(url, bastidorSelect, 'id', 'codigo_bast', 'Selecione um Bastidor', selectedBastidorId);
+                }
+            } else {
+                populateSelect('/api/equipamento-tipos', tipoSelect, 'id', 'nome', 'Selecione um Modelo');
+                populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione uma Localização');
+            }
+        }
 
         localizacaoSelect.addEventListener('change', () => {
             const localizacaoId = localizacaoSelect.value;
-            
             bastidorSelect.innerHTML = '<option value="">Selecione a localização</option>';
             bastidorSelect.disabled = true;
-
             if (localizacaoId) {
                 bastidorSelect.disabled = false;
                 const url = `/api/bastidores?localizacao_id=${localizacaoId}`;
@@ -204,129 +256,88 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
 
-        newInstanceForm.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const formData = {
-                equipamento_tipo_id: parseInt(tipoSelect.value),
-                nome_equip: document.getElementById('inst_nome_equip').value,
-                bastidor_id: parseInt(bastidorSelect.value),
-                codigo_rfid: document.getElementById('inst_codigo_rfid').value,
-            };
-            try {
-                const response = await fetch('/api/equipamentos/instancia', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData)
-                });
-                if (!response.ok) throw new Error((await response.json()).detail);
-                alert('Instância de equipamento cadastrada com sucesso!');
-                newInstanceForm.reset();
-                bastidorSelect.innerHTML = '<option value="">Selecione a localização</option>';
-            } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
-        });
+        if (!isEditMode) {
+            instanceForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const formData = {
+                    equipamento_tipo_id: parseInt(tipoSelect.value),
+                    nome_equip: document.getElementById('inst_nome_equip').value,
+                    bastidor_id: parseInt(bastidorSelect.value),
+                    codigo_rfid: document.getElementById('inst_codigo_rfid').value,
+                };
+                try {
+                    const response = await fetch("{{ url_for('create_equipamento_instancia') }}", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    if (!response.ok) throw new Error((await response.json()).detail);
+                    alert('Instância cadastrada com sucesso!');
+                    instanceForm.reset();
+                    bastidorSelect.innerHTML = '<option value="">Selecione a localização</option>';
+                    bastidorSelect.disabled = true;
+                } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
+            });
+        }
+        initializeForm();
     }
 
     // ==========================================================
-    // SEÇÃO 2: LÓGICA DO BOTÃO "LER TAG ÚNICA" E VALIDAÇÃO DE STATUS
+    // SEÇÃO 2: LÓGICA DO "LER TAG ÚNICA" E VALIDAÇÃO
     // ==========================================================
     const readTagBtn = document.getElementById('read-single-tag-btn');
     const rfidInput = document.getElementById('inst_codigo_rfid');
     const rfidStatusText = document.getElementById('rfid-status-text');
     const saveInstanceBtn = document.getElementById('save-instance-btn');
+    const checkReaderBtn = document.getElementById('check-reader-status-btn-cadastro');
     let rfidSocket = null;
 
-    // Função central para verificar o status da tag e controlar o botão Salvar
+    const editModeEquipId = "{{ equipamento_para_editar.id if equipamento_para_editar else '' }}";
+
     async function checkRfidStatus(tagId) {
-        if (!tagId) {
-            rfidStatusText.textContent = "";
-            saveInstanceBtn.disabled = true;
-            return;
-        }
-
+        if (!tagId) { rfidStatusText.textContent = ""; saveInstanceBtn.disabled = true; return; }
         try {
-            rfidStatusText.textContent = "Verificando status da tag...";
-            rfidStatusText.style.color = '#6c757d';
-            const response = await fetch(`/api/rfid-status/${tagId}`);
+            rfidStatusText.textContent = "Verificando status...";
+            let apiUrl = `/api/rfid-status/${tagId}`;
+            if (editModeEquipId) { apiUrl += `?current_equip_id=${editModeEquipId}`; }
+            const response = await fetch(apiUrl);
             const statusResult = await response.json();
-
             rfidStatusText.textContent = statusResult.message;
             if (statusResult.status === 'ASSOCIADO') {
-                rfidStatusText.style.color = '#333'; // Cor neutra para o aviso
-                rfidStatusText.innerHTML += ` <strong>${statusResult.equipamento_nome}</strong>`;
-                saveInstanceBtn.disabled = true; // Desabilita o botão de salvar
+                rfidStatusText.style.color = '#333'; rfidStatusText.innerHTML += ` <strong>${statusResult.equipamento_nome}</strong>`;
+                saveInstanceBtn.disabled = true;
             } else {
-                rfidStatusText.style.color = '#198754'; // Verde
-                saveInstanceBtn.disabled = false; // Habilita o botão de salvar
+                rfidStatusText.style.color = '#198754'; saveInstanceBtn.disabled = false;
             }
         } catch (error) {
-            rfidStatusText.textContent = "Não foi possível verificar o status da tag.";
-            rfidStatusText.style.color = '#333';
-            saveInstanceBtn.disabled = true; // Desabilita por segurança
+            rfidStatusText.textContent = "Não foi possível verificar o status."; rfidStatusText.style.color = '#333';
+            saveInstanceBtn.disabled = true;
         }
     }
 
-    // Função para gerenciar a conexão WebSocket
     function connectRfidSocket() {
         if (rfidSocket && rfidSocket.readyState === WebSocket.OPEN) return;
-
         const ws_protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         rfidSocket = new WebSocket(`${ws_protocol}//${window.location.host}/ws/rfid`);
-
-        rfidSocket.onopen = () => {
-            readTagBtn.disabled = false;
-            rfidStatusText.textContent = "Leitor pronto.";
-            rfidStatusText.style.color = '#6c757d';
-        };
-
+        rfidSocket.onopen = () => { readTagBtn.disabled = false; checkReaderBtn.disabled = false; rfidStatusText.textContent = "Leitor pronto."; };
         rfidSocket.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if (data.type === 'scan_status' || data.type === 'scan_error') {
-                rfidStatusText.textContent = data.message;
-                rfidStatusText.style.color = '#333';
-                if (data.message !== "Aguardando leitura da tag...") {
-                    readTagBtn.disabled = false;
-                    readTagBtn.textContent = "Ler Tag";
-                }
-            }
-            if (data.type === 'tag_scanned') {
-                const tagId = data.tag_id;
-                rfidInput.value = tagId;
-                checkRfidStatus(tagId); // Chama a função central de verificação
-                readTagBtn.disabled = false;
-                readTagBtn.textContent = "Ler Tag";
-            }
+            if (data.type === 'reader_status') { rfidStatusText.textContent = data.message; rfidStatusText.style.color = data.status === 'OK' ? '#198754' : '#333'; }
+            if (data.type === 'scan_status' || data.type === 'scan_error') { rfidStatusText.textContent = data.message; if (data.message !== "Aguardando leitura da tag...") { readTagBtn.disabled = false; readTagBtn.textContent = "Ler Tag"; } }
+            if (data.type === 'tag_scanned') { rfidInput.value = data.tag_id; checkRfidStatus(data.tag_id); readTagBtn.disabled = false; readTagBtn.textContent = "Ler Tag"; }
         };
-
-        rfidSocket.onclose = () => {
-            readTagBtn.disabled = true;
-            rfidStatusText.textContent = "Leitor desconectado. Tente recarregar a página.";
-            rfidStatusText.style.color = '#333';
-        };
+        rfidSocket.onclose = () => { readTagBtn.disabled = true; checkReaderBtn.disabled = true; rfidStatusText.textContent = "Leitor desconectado."; };
     }
 
-    // Ação de clique no botão "Ler Tag"
-    readTagBtn.addEventListener('click', () => {
-        if (!rfidSocket || rfidSocket.readyState !== WebSocket.OPEN) {
-            connectRfidSocket();
-            setTimeout(() => readTagBtn.click(), 1000); // Tenta de novo após 1s
-            return;
-        }
-        readTagBtn.disabled = true;
-        readTagBtn.textContent = 'Lendo...';
-        rfidStatusText.textContent = "Aproxime a tag da pistola...";
-        rfidStatusText.style.color = '#0466C8';
-        rfidSocket.send(JSON.stringify({ action: "read_single_tag" }));
-    });
-
-    // Ação para quando o usuário DIGITA o código e sai do campo
-    rfidInput.addEventListener('blur', () => {
-        const tagId = rfidInput.value.trim();
-        checkRfidStatus(tagId);
-    });
-
-    // Inicia a conexão ao carregar a página
-    connectRfidSocket();
-
+    if (readTagBtn) {
+        readTagBtn.addEventListener('click', () => {
+            if (!rfidSocket || rfidSocket.readyState !== WebSocket.OPEN) { connectRfidSocket(); return; }
+            readTagBtn.disabled = true; readTagBtn.textContent = 'Lendo...'; rfidStatusText.textContent = "Aproxime a tag...";
+            rfidSocket.send(JSON.stringify({ action: "read_single_tag" }));
+        });
+        checkReaderBtn.addEventListener('click', () => {
+            if (rfidSocket && rfidSocket.readyState === WebSocket.OPEN) { rfidSocket.send(JSON.stringify({ action: "check_health" })); }
+        });
+        rfidInput.addEventListener('blur', () => { checkRfidStatus(rfidInput.value.trim()); });
+        if (editModeEquipId) { checkRfidStatus(rfidInput.value.trim()); }
+        connectRfidSocket();
+    }
 
     // ==========================================================
     // SEÇÃO 3: LÓGICA DAS ABAS DE GERENCIAMENTO
@@ -335,7 +346,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const navButtons = document.querySelectorAll('.management-nav .nav-button');
     const tabPanes = document.querySelectorAll('.management-content .tab-pane');
-    navButtons.forEach(button => {;
+    navButtons.forEach(button => {
         button.addEventListener('click', (event) => {
             navButtons.forEach(btn => btn.classList.remove('active'));
             tabPanes.forEach(pane => pane.classList.remove('active'));
@@ -350,6 +361,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const { entityName, apiUrl, tableBodyId, formId, renderRow, onUpdate } = config;
         const tableBody = document.getElementById(tableBodyId);
         const form = document.getElementById(formId);
+        const editIdInput = document.getElementById('edit-tipo-id');
+        const cancelBtn = document.getElementById('cancel-edit-tipo-btn');
         const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="2">Carregando...</td></tr>`;
             const response = await fetch(apiUrl); const items = await response.json(); tableBody.innerHTML = '';
@@ -373,128 +386,408 @@ document.addEventListener('DOMContentLoaded', function () {
                     else { alert(`Erro: ${(await response.json()).detail}`); }
                 }
             }
-            if (target.classList.contains('btn-edit')) { /* Lógica de Edição para CRUDs simples */ }
+            if (target.classList.contains('btn-edit')) {
+                const currentName = target.dataset.name;
+                const newName = prompt(`Digite o novo nome para "${currentName}":`, currentName);
+                if (newName && newName.trim() && newName !== currentName) {
+                    try {
+                        const response = await fetch(`${apiUrl}/${id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ nome: newName.trim() })
+                        });
+                        if (!response.ok) throw new Error((await response.json()).detail);
+                        await loadItems();
+                        if (onUpdate) onUpdate();
+                    } catch (error) { alert(`Erro ao editar: ${error.message}`); }
+                }
+            }
         });
         await loadItems();
     }
 
+    async function manageFabricantes(config) {
+        // 1. Seleciona todos os elementos do DOM
+        const { onUpdate } = config || {};
+        const tableBody = document.getElementById('table-body-fabricante');
+        const form = document.getElementById('form-fabricante');
+        const apiUrl = '/api/fabricantes';
+        const editIdInput = document.getElementById('edit-fabricante-id');
+        const cancelBtn = document.getElementById('cancel-edit-fabricante-btn');
+        const submitBtn = form.querySelector('button[type="submit"]');
+        // Adicionado para podermos alterar o título, assumindo que há um <h3> no form
+        const formTitle = form.querySelector('h3') || { textContent: '' }; // Fallback seguro
+
+        // 2. Função para resetar o formulário para o modo de criação
+        const resetFormToCreateMode = () => {
+            form.reset();
+            editIdInput.value = '';
+            formTitle.textContent = 'Adicionar Novo Fabricante'; // Restaura o título
+            submitBtn.textContent = 'Adicionar';
+            cancelBtn.hidden = true;
+        };
+
+        // 3. Função para carregar e renderizar os itens na tabela
+        const loadItems = async () => {
+            tableBody.innerHTML = `<tr><td colspan="2">Carregando...</td></tr>`;
+            try {
+                const response = await fetch(apiUrl);
+                const items = await response.json();
+                tableBody.innerHTML = '';
+                if (items.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="2">Nenhum fabricante cadastrado.</td></tr>`;
+                } else {
+                    items.forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${item.nome}</td>
+                            <td class="actions-cell">
+                                <button class="btn-secondary btn-sm btn-edit" data-id="${item.id}" data-name="${item.nome}">Editar</button>
+                                <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
+                            </td>`;
+                        tableBody.appendChild(tr);
+                    });
+                }
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="2">Erro ao carregar fabricantes.</td></tr>`;
+            }
+        };
+
+        // 4. Lógica de submissão do formulário (CRIAR ou ATUALIZAR)
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form).entries());
+            const editId = editIdInput.value;
+
+            const method = editId ? 'PUT' : 'POST';
+            const url = editId ? `${apiUrl}/${editId}` : apiUrl;
+
+            try {
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                
+                resetFormToCreateMode();
+                await loadItems();
+                if (onUpdate) onUpdate(); // Avisa outras partes do sistema que a lista mudou
+            } catch (error) {
+                alert(`Erro ao salvar: ${error.message}`);
+            }
+        });
+
+        // 5. Lógica de clique na tabela (EDITAR ou EXCLUIR)
+        tableBody.addEventListener('click', (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+
+            // Lógica para o botão Excluir
+            if (target.classList.contains('btn-delete')) {
+                if (confirm('Tem certeza que deseja excluir este fabricante?')) {
+                    fetch(`${apiUrl}/${id}`, { method: 'DELETE' })
+                        .then(async response => {
+                            if (!response.ok) throw new Error((await response.json()).detail);
+                            loadItems();
+                            if (onUpdate) onUpdate();
+                        })
+                        .catch(error => alert(`Erro ao excluir: ${error.message}`));
+                }
+            }
+            
+            // Lógica para o botão Editar
+            if (target.classList.contains('btn-edit')) {
+                const currentName = target.dataset.name;
+                
+                // Preenche o formulário
+                form.querySelector('[name="nome"]').value = currentName;
+
+                // Entra em modo de edição
+                editIdInput.value = id;
+                formTitle.textContent = `Editando Fabricante: ${currentName}`;
+                submitBtn.textContent = 'Atualizar';
+                cancelBtn.hidden = false;
+            }
+        });
+
+        // 6. Lógica do botão Cancelar
+        cancelBtn.addEventListener('click', resetFormToCreateMode);
+
+        // 7. Inicialização
+        await loadItems();
+    }
     // Gerenciador para "Modelos de Equipamento"
     async function manageEquipamentoTipos() {
-        const tableBody = document.getElementById('table-body-equipamento-tipo');
+        // 1. Seleciona todos os elementos do DOM necessários
         const form = document.getElementById('form-equipamento-tipo');
+        const tableBody = document.getElementById('table-body-equipamento-tipo');
         const fabricanteSelect = form.querySelector('select[name="fabricante_id"]');
+        const editIdInput = document.getElementById('edit-tipo-id');
+        const cancelBtn = document.getElementById('cancel-edit-tipo-btn');
+        const formTitle = form.querySelector('h3');
+        const submitBtn = form.querySelector('button[type="submit"]');
         let fabricantes = [];
 
-        const updateFabricanteDropdown = async () => {
-            await populateSelect('/api/fabricantes', fabricanteSelect, 'id', 'nome', 'Selecione');
-            const response = await fetch('/api/fabricantes'); fabricantes = await response.json();
+        // 2. Função auxiliar para resetar o formulário para o modo de criação
+        const resetFormToCreateMode = () => {
+            form.reset();
+            editIdInput.value = '';
+            formTitle.textContent = 'Adicionar Novo Modelo de Equipamento';
+            submitBtn.textContent = 'Adicionar Modelo';
+            cancelBtn.hidden = true;
         };
 
+        // 3. Função para carregar a lista de fabricantes no dropdown
+        const updateFabricanteDropdown = async () => {
+            await populateSelect('/api/fabricantes', fabricanteSelect, 'id', 'nome', 'Selecione...');
+            const response = await fetch('/api/fabricantes');
+            fabricantes = await response.json();
+        };
+
+        // 4. Função principal para carregar e renderizar os modelos na tabela
         const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="4">Carregando...</td></tr>`;
-            const response = await fetch('/api/equipamento-tipos'); const items = await response.json(); tableBody.innerHTML = '';
-            items.forEach(item => {
-                const fab = fabricantes.find(f => f.id === item.fabricante_id);
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${item.nome}</td><td>${fab ? fab.nome : 'N/A'}</td><td>${item.modelo || '---'}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
-                tableBody.appendChild(tr);
-            });
+            try {
+                const response = await fetch('/api/equipamento-tipos');
+                const items = await response.json();
+                tableBody.innerHTML = '';
+                items.forEach(item => {
+                    const fab = fabricantes.find(f => f.id === item.fabricante_id);
+                    const tr = document.createElement('tr');
+                    // IMPORTANTE: O botão de editar agora armazena todos os dados do item
+                    tr.innerHTML = `
+                        <td>${item.nome}</td>
+                        <td>${fab ? fab.nome : 'N/A'}</td>
+                        <td>${item.modelo || '---'}</td>
+                        <td class="actions-cell">
+                            <button class="btn-secondary btn-sm btn-edit" data-item='${JSON.stringify(item)}'>Editar</button>
+                            <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
+                        </td>`;
+                    tableBody.appendChild(tr);
+                });
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="4">Erro ao carregar modelos.</td></tr>`;
+            }
         };
+
+        // 5. Lógica de submissão do formulário (CRIAR ou ATUALIZAR)
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = Object.fromEntries(new FormData(form).entries());
             data.fabricante_id = parseInt(data.fabricante_id);
-            const response = await fetch('/api/equipamento-tipos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-            if (response.ok) { form.reset(); await loadItems(); populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo'); }
-            else { alert(`Erro: ${(await response.json()).detail}`); }
-        });
-        tableBody.addEventListener('click', async (e) => {
-             const target = e.target.closest('button.btn-delete');
-             if (target && confirm('Excluir este modelo?')) {
-                const id = target.dataset.id;
-                const response = await fetch(`/api/equipamento-tipos/${id}`, { method: 'DELETE' });
-                if(response.ok) { await loadItems(); populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo'); } else { alert(`Erro: ${(await response.json()).detail}`); }
+            const editId = editIdInput.value;
+
+            const method = editId ? 'PUT' : 'POST';
+            const url = editId ? `/api/equipamento-tipos/${editId}` : '/api/equipamento-tipos';
+
+            try {
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                
+                resetFormToCreateMode();
+                await loadItems();
+                // Atualiza o dropdown do formulário principal de instâncias
+                populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo');
+            } catch (error) {
+                alert(`Erro ao salvar: ${error.message}`);
             }
         });
+
+        // 6. Lógica de clique na tabela (EDITAR ou EXCLUIR)
+        tableBody.addEventListener('click', (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+
+            // Lógica para o botão Excluir
+            if (target.classList.contains('btn-delete')) {
+                if (confirm('Tem certeza que deseja excluir este modelo?')) {
+                    fetch(`/api/equipamento-tipos/${id}`, { method: 'DELETE' })
+                        .then(async response => {
+                            if (!response.ok) throw new Error((await response.json()).detail);
+                            loadItems();
+                            populateSelect('/api/equipamento-tipos', document.getElementById('inst_equipamento_tipo_id'), 'id', 'nome', 'Selecione um Modelo');
+                        })
+                        .catch(error => alert(`Erro ao excluir: ${error.message}`));
+                }
+            }
+
+            // Lógica para o botão Editar
+            if (target.classList.contains('btn-edit')) {
+                const item = JSON.parse(target.dataset.item);
+                
+                // Preenche o formulário com os dados do item
+                form.querySelector('[name="nome"]').value = item.nome;
+                form.querySelector('[name="fabricante_id"]').value = item.fabricante_id;
+                form.querySelector('[name="modelo"]').value = item.modelo || '';
+                form.querySelector('[name="tecnologia_equip"]').value = item.tecnologia_equip || '';
+                form.querySelector('[name="tipo_equip"]').value = item.tipo_equip || '';
+                form.querySelector('[name="estado_cv_equip"]').value = item.estado_cv_equip || '';
+                form.querySelector('[name="estado_op_equip"]').value = item.estado_op_equip || '';
+                
+                // Entra em modo de edição
+                editIdInput.value = item.id;
+                formTitle.textContent = `Editando Modelo: ${item.nome}`;
+                submitBtn.textContent = 'Atualizar Modelo';
+                cancelBtn.hidden = false;
+            }
+        });
+
+        // 7. Lógica para o botão Cancelar
+        cancelBtn.addEventListener('click', resetFormToCreateMode);
+        
+        // 8. Inicialização
         await updateFabricanteDropdown();
         await loadItems();
-        return { updateFabricanteDropdown, loadItems }; // Retorna funções para serem chamadas por outros gerenciadores
+
+        // 9. Retorna as funções que podem ser úteis para outros gerenciadores
+        return { updateFabricanteDropdown, loadItems };
     }
 
-    // ==========================================================
-    // === FUNÇÃO DE GERENCIAMENTO DE LOCALIZAÇÕES (CORRIGIDA) ===
-    // ==========================================================
+    // Gerenciador para Localizações
     async function manageLocalizacoes(config) {
+        // 1. Seleciona todos os elementos do DOM necessários
         const { onUpdate } = config || {};
         const tableBody = document.getElementById('table-body-localizacao');
         const form = document.getElementById('form-localizacao');
         const apiUrl = '/api/localizacoes';
+        const editIdInput = document.getElementById('edit-localizacao-id');
+        const cancelBtn = document.getElementById('cancel-edit-localizacao-btn');
+        const formTitle = form.querySelector('h3');
+        const submitBtn = form.querySelector('button[type="submit"]');
 
+        // 2. Função para resetar o formulário para o modo de criação
+        const resetFormToCreateMode = () => {
+            form.reset();
+            editIdInput.value = '';
+            formTitle.textContent = 'Adicionar Nova Localização';
+            submitBtn.textContent = 'Adicionar Localização';
+            cancelBtn.hidden = true;
+        };
+
+        // 3. Função para carregar e renderizar os itens na tabela
         const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="4">Carregando...</td></tr>`;
             try {
                 const response = await fetch(apiUrl);
                 const items = await response.json();
                 tableBody.innerHTML = '';
-                if (items.length === 0) { tableBody.innerHTML = `<tr><td colspan="4">Nenhuma localização cadastrada.</td></tr>`; }
-                else {
+                if (items.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="4">Nenhuma localização cadastrada.</td></tr>`;
+                } else {
                     items.forEach(item => {
                         const tr = document.createElement('tr');
+                        // O botão de editar agora armazena o objeto inteiro
                         tr.innerHTML = `
                             <td>${item.nome}</td>
                             <td>${item.municipio || '---'}</td>
                             <td>${item.uf_abrv || '---'}</td>
                             <td class="actions-cell">
+                                <button class="btn-secondary btn-sm btn-edit" data-item='${JSON.stringify(item)}'>Editar</button>
                                 <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
                             </td>`;
                         tableBody.appendChild(tr);
                     });
                 }
-            } catch (error) { tableBody.innerHTML = `<tr><td colspan="4">Erro ao carregar.</td></tr>`; }
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="4">Erro ao carregar.</td></tr>`;
+            }
         };
 
+        // 4. Lógica de submissão do formulário (CRIAR ou ATUALIZAR)
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = Object.fromEntries(new FormData(form).entries());
+            const editId = editIdInput.value;
+
+            const method = editId ? 'PUT' : 'POST';
+            const url = editId ? `${apiUrl}/${editId}` : apiUrl;
+
             try {
-                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
                 if (!response.ok) throw new Error((await response.json()).detail);
-                form.reset();
+                
+                resetFormToCreateMode();
                 await loadItems();
-                if (onUpdate) onUpdate(); // Chama a função de callback para atualizar outros forms
-            } catch (error) { alert(`Erro ao salvar: ${error.message}`); }
-        });
-        
-        tableBody.addEventListener('click', async (e) => {
-            const target = e.target.closest('button.btn-delete');
-            if (target && confirm('Excluir esta localização?')) {
-                const id = target.dataset.id;
-                try {
-                    const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
-                    if (!response.ok) throw new Error((await response.json()).detail);
-                    await loadItems();
-                    if (onUpdate) onUpdate();
-                } catch (error) { alert(`Erro: ${error.message}`); }
+                if (onUpdate) onUpdate(); // Avisa outras partes do sistema que a lista mudou
+            } catch (error) {
+                alert(`Erro ao salvar: ${error.message}`);
             }
         });
+
+        // 5. Lógica de clique na tabela (EDITAR ou EXCLUIR)
+        tableBody.addEventListener('click', async (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+
+            if (target.classList.contains('btn-delete')) {
+                if (confirm('Excluir esta localização? Isso pode afetar bastidores e equipamentos.')) {
+                    try {
+                        const response = await fetch(`${apiUrl}/${id}`, { method: 'DELETE' });
+                        if (!response.ok) throw new Error((await response.json()).detail);
+                        await loadItems();
+                        if (onUpdate) onUpdate();
+                    } catch (error) {
+                        alert(`Erro: ${error.message}`);
+                    }
+                }
+            }
+            
+            if (target.classList.contains('btn-edit')) {
+                const item = JSON.parse(target.dataset.item);
+
+                // Preenche o formulário com todos os dados do item
+                form.querySelector('[name="nome"]').value = item.nome;
+                form.querySelector('[name="municipio"]').value = item.municipio || '';
+                form.querySelector('[name="uf_abrv"]').value = item.uf_abrv || '';
+                form.querySelector('[name="edf"]').value = item.edf || '';
+                form.querySelector('[name="piso"]').value = item.piso || '';
+                form.querySelector('[name="sala"]').value = item.sala || '';
+                form.querySelector('[name="endereco_completo"]').value = item.endereco_completo || '';
+                
+                // Entra em modo de edição
+                editIdInput.value = item.id;
+                formTitle.textContent = `Editando Localização: ${item.nome}`;
+                submitBtn.textContent = 'Atualizar Localização';
+                cancelBtn.hidden = false;
+            }
+        });
+
+        // 6. Lógica do botão Cancelar
+        cancelBtn.addEventListener('click', resetFormToCreateMode);
+
+        // 7. Inicialização
         await loadItems();
     }
     
     // Gerenciador para Bastidores
     async function manageBastidores() {
+        // 1. Seleciona todos os elementos do DOM
         const tableBody = document.getElementById('table-body-bastidor');
         const form = document.getElementById('form-bastidor');
         const localizacaoSelect = form.querySelector('select[name="localizacao_id"]');
+        const editIdInput = document.getElementById('edit-bastidor-id');
+        const cancelBtn = document.getElementById('cancel-edit-bastidor-btn');
+        const formTitle = form.querySelector('h3');
+        const submitBtn = form.querySelector('button[type="submit"]');
         let localizacoes = [];
 
-        // Função interna para atualizar o dropdown, usando nossa função segura
+        // 2. Função para resetar o formulário para o modo de criação
+        const resetFormToCreateMode = () => {
+            form.reset();
+            editIdInput.value = '';
+            formTitle.textContent = 'Adicionar Novo Bastidor';
+            submitBtn.textContent = 'Adicionar';
+            cancelBtn.hidden = true;
+        };
+
+        // 3. Função para carregar/atualizar o dropdown de localizações
         const updateLocalizacaoDropdown = async () => {
             await populateSelect('/api/localizacoes', localizacaoSelect, 'id', 'nome', 'Selecione...');
-            // Guarda a lista de localizações para usar na tabela
             const response = await fetch('/api/localizacoes');
             localizacoes = await response.json();
         };
 
+        // 4. Função para carregar e renderizar os bastidores na tabela
         const loadItems = async () => {
             tableBody.innerHTML = `<tr><td colspan="3">Carregando...</td></tr>`;
             const response = await fetch('/api/bastidores');
@@ -503,62 +796,97 @@ document.addEventListener('DOMContentLoaded', function () {
             items.forEach(item => {
                 const loc = localizacoes.find(l => l.id === item.localizacao_id);
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${item.codigo_bast}</td><td>${loc ? loc.nome : 'N/A'}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
+                // O botão de editar agora armazena o objeto inteiro
+                tr.innerHTML = `
+                    <td>${item.codigo_bast}</td>
+                    <td>${loc ? loc.nome : 'N/A'}</td>
+                    <td class="actions-cell">
+                        <button class="btn-secondary btn-sm btn-edit" data-item='${JSON.stringify(item)}'>Editar</button>
+                        <button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button>
+                    </td>`;
                 tableBody.appendChild(tr);
             });
         };
         
+        // 5. Lógica de submissão do formulário (CRIAR ou ATUALIZAR)
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             const data = {
                 codigo_bast: form.querySelector('input[name="codigo_bast"]').value,
                 localizacao_id: parseInt(localizacaoSelect.value)
             };
-            const response = await fetch('/api/bastidores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-            if (response.ok) { form.reset(); await loadItems(); } 
-            else { alert(`Erro: ${(await response.json()).detail}`); }
-        });
+            const editId = editIdInput.value;
 
-        tableBody.addEventListener('click', async (e) => {
-            const target = e.target.closest('button.btn-delete');
-            if (target && confirm('Excluir este bastidor?')) {
-                const id = target.dataset.id;
-                const response = await fetch(`/api/bastidores/${id}`, { method: 'DELETE' });
-                if(response.ok) { await loadItems(); }
-                else { alert(`Erro: ${(await response.json()).detail}`); }
+            const method = editId ? 'PUT' : 'POST';
+            const url = editId ? `/api/bastidores/${editId}` : '/api/bastidores';
+            
+            try {
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (!response.ok) throw new Error((await response.json()).detail);
+                resetFormToCreateMode();
+                await loadItems();
+            } catch (error) {
+                alert(`Erro ao salvar: ${error.message}`);
             }
         });
 
+        // 6. Lógica de clique na tabela (EDITAR ou EXCLUIR)
+        tableBody.addEventListener('click', (e) => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = target.dataset.id;
+
+            // Lógica para o botão Excluir
+            if (target.classList.contains('btn-delete')) {
+                if (confirm('Excluir este bastidor?')) {
+                    fetch(`/api/bastidores/${id}`, { method: 'DELETE' })
+                        .then(async response => {
+                            if (!response.ok) throw new Error((await response.json()).detail);
+                            loadItems();
+                        })
+                        .catch(error => alert(`Erro ao excluir: ${error.message}`));
+                }
+            }
+
+            // Lógica para o botão Editar
+            if (target.classList.contains('btn-edit')) {
+                const item = JSON.parse(target.dataset.item);
+
+                // Preenche o formulário com os dados do item
+                form.querySelector('[name="codigo_bast"]').value = item.codigo_bast;
+                form.querySelector('[name="localizacao_id"]').value = item.localizacao_id;
+
+                // Entra em modo de edição
+                editIdInput.value = item.id;
+                formTitle.textContent = `Editando Bastidor: ${item.codigo_bast}`;
+                submitBtn.textContent = 'Atualizar';
+                cancelBtn.hidden = false;
+            }
+        });
+
+        // 7. Lógica do botão Cancelar
+        cancelBtn.addEventListener('click', resetFormToCreateMode);
+
+        // 8. Inicialização
         await updateLocalizacaoDropdown();
         await loadItems();
 
-        // Retorna a função de atualização para que outros possam chamá-la
+        // 9. Retorna a função de atualização para que outros possam chamá-la
         return { updateLocalizacaoDropdown };
     }
     
     // --- INICIALIZAÇÃO DE TODOS OS GERENCIADORES ---
     (async () => {
-        const bastidorManager = await manageBastidores();
         const tipoManager = await manageEquipamentoTipos();
+        const bastidorManager = await manageBastidores();
+        
+        await manageFabricantes({
+            onUpdate: async () => { await tipoManager.updateFabricanteDropdown(); }
+        });
         await manageLocalizacoes({
             onUpdate: async () => {
                 populateSelect('/api/localizacoes', document.getElementById('inst_localizacao_id'), 'id', 'nome', 'Selecione');
                 await bastidorManager.updateLocalizacaoDropdown();
-            }
-        });
-        await createSimpleCrudManager({
-            entityName: 'fabricante',
-            apiUrl: '/api/fabricantes',
-            tableBodyId: 'table-body-fabricante',
-            formId: 'form-fabricante',
-            renderRow: (item) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${item.nome}</td><td class="actions-cell"><button class="btn-danger btn-sm btn-delete" data-id="${item.id}">Excluir</button></td>`;
-                return tr;
-            },
-            onUpdate: async () => {
-                populateSelect('/api/fabricantes', document.querySelector('#form-equipamento-tipo select[name="fabricante_id"]'), 'id', 'nome', 'Selecione');
-                await tipoManager.loadItems();
             }
         });
     })();

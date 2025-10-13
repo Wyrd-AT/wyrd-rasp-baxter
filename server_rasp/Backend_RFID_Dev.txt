@@ -351,7 +351,7 @@ def load_configuration():
         logger.info(f"Arquivo '{CONFIG_FILE}' não encontrado. Criando com valores padrão.")
         config['Network'] = {
             'IP': '0.0.0.0',
-            'PORT': '9500'
+            'PORT': '8080'
         }
         config['MQTT'] = {
             'MQTT_BROKER_HOST': '127.0.0.1',
@@ -368,6 +368,17 @@ def load_configuration():
 
         config['RFID'] = {
             'SERIAL_PORT': 'COM3'  # Define um padrão razoável para Windows
+        }
+
+        config['UI_FEATURES'] = {
+            'show_rtls_historico': 'true',
+            'show_rtls_embarcados': 'true',
+            'show_rtls_assets': 'true',
+            'show_rtls_quartos': 'true',
+            'show_rtls_planta': 'true',
+            'show_rfid_inventario': 'true',
+            'show_rfid_cadastro': 'true',
+            'show_rfid_catalogo': 'true'
         }
         
         with open(CONFIG_FILE, 'w') as configfile:
@@ -566,6 +577,9 @@ import time
 import uvicorn
 import csv
 from io import StringIO
+import io
+import openpyxl
+from openpyxl.utils import get_column_letter
 import json
 import sys
 import os
@@ -712,6 +726,22 @@ class AdminAuth(AuthenticationBackend):
         return "token" in request.session
 
 authentication_backend = AdminAuth(secret_key="W753y@r159d")
+
+def get_base_context(request: Request) -> dict:
+    """ Gera um dicionário de contexto base para todas as templates. """
+    return {
+        "request": request,
+        "ui_features": {
+            "show_rtls_historico": settings.get('show_rtls_historico', 'true').lower() == 'true',
+            "show_rtls_embarcados": settings.get('show_rtls_embarcados', 'true').lower() == 'true',
+            "show_rtls_assets": settings.get('show_rtls_assets', 'true').lower() == 'true',
+            "show_rtls_quartos": settings.get('show_rtls_quartos', 'true').lower() == 'true',
+            "show_rtls_planta": settings.get('show_rtls_planta', 'true').lower() == 'true',
+            "show_rfid_inventario": settings.get('show_rfid_inventario', 'true').lower() == 'true',
+            "show_rfid_cadastro": settings.get('show_rfid_cadastro', 'true').lower() == 'true',
+            "show_rfid_catalogo": settings.get('show_rfid_catalogo', 'true').lower() == 'true',
+        }
+    }
 
 def seed_database():
     db = SessionLocal()
@@ -933,7 +963,7 @@ def handle_login(request: Request, username: str = Form(...), password: str = Fo
     """
     # A lógica de autenticação pode ser adicionada aqui no futuro.
     # Por agora, qualquer login redireciona para a página de quartos.
-    return RedirectResponse(url=request.url_for("list_quartos"), status_code=303)
+    return RedirectResponse(url=request.url_for("cadastro_page"), status_code=303)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -1296,7 +1326,10 @@ def view_planta(request: Request, db: Session = Depends(get_db)):
     """
     Renderiza a página da planta baixa interativa.
     """
-    return templates.TemplateResponse("planta_baixa.html", {"request": request})
+    context = get_base_context(request)
+
+    context.update({"request": request})
+    return templates.TemplateResponse("planta_baixa.html", context)
 
 @app.get("/api/planta/dados", name="get_planta_dados")
 def get_planta_dados(db: Session = Depends(get_db)):
@@ -1360,6 +1393,7 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
     """
     Exibe o dashboard de status dos quartos, agora carregando também os andares.
     """
+    context = get_base_context(request)
     # A query foi atualizada para carregar o andar junto com o quarto e os ativos
     quartos_com_assets = db.query(Quarto).options(
         joinedload(Quarto.assets),
@@ -1383,11 +1417,13 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
                 asset.data_entrada_str = "Horário de entrada não registrado"
         
         quarto.assets.sort(key=lambda b: b.data_entrada_obj)
-
-    return templates.TemplateResponse("quartos_list.html", {
+    
+    context.update({
         "request": request,
         "quartos": quartos_com_assets
     })
+
+    return templates.TemplateResponse("quartos_list.html", context)
 
 @app.post("/quartos/{quarto_id}/edit", name="update_quarto")
 def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: Session = Depends(get_db)):
@@ -1412,6 +1448,7 @@ def list_embarcados(
     sort_by: Optional[str] = Query("id_esp"),
     order: Optional[str] = Query("asc")
 ):
+    context = get_base_context(request)
     # A query agora precisa carregar o andar junto com o quarto
     query = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar))
     
@@ -1458,8 +1495,7 @@ def list_embarcados(
     assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
     available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
-    # A LINHA MAIS IMPORTANTE: enviando a variável que faltava
-    return templates.TemplateResponse("embarcados_list.html", {
+    context.update({
         "request": request,
         "embarcados": embarcados,
         "available_quartos": available_quartos,
@@ -1470,6 +1506,8 @@ def list_embarcados(
         "rssi_thresholds": json.dumps(rssi_thresholds),
         "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
+
+    return templates.TemplateResponse("embarcados_list.html", context)
 
 @app.post("/embarcados/new", name="create_embarcado")
 def create_embarcado(
@@ -1503,6 +1541,7 @@ def create_embarcado(
 
 @app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
 def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    context = get_base_context(request)
     emb_para_editar = db.query(Embarcado).get(embarcado_id)
     
     assigned_quarto_ids = {
@@ -1514,8 +1553,8 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
     
     available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
-    # Adicionando a variável que faltava
-    return templates.TemplateResponse("embarcados_list.html", {
+   
+    context.update({
         "request": request,
         "embarcados": db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar)).order_by(Embarcado.id_esp).all(),
         "available_quartos": available_quartos,
@@ -1526,6 +1565,8 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
         "rssi_thresholds": json.dumps({ "global": 0, "individuais": {} }),
         "current_filters": {"search": None, "sort_by": "id_esp", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
     })
+
+    return templates.TemplateResponse("embarcados_list.html", context)
 
 # Em main.py
 
@@ -1576,6 +1617,7 @@ def list_assets(
     sort_by: Optional[str] = Query("nome_ativo"),
     order: Optional[str] = Query("asc")
 ):
+    context = get_base_context(request)
     query = db.query(Asset).options(joinedload(Asset.quarto))
     
     # Lógica de busca
@@ -1603,12 +1645,13 @@ def list_assets(
 
     assets = query.all()
     
-    # Enviando a variável que faltava para o template
-    return templates.TemplateResponse("assets_list.html", {
+    context.update({
         "request": request, "assets": assets,
         "form_action": request.url_for("create_asset"), "asset": None, 
         "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
+
+    return templates.TemplateResponse("assets_list.html", context)
 
 @app.post("/assets", name="create_asset")
 def create_asset(
@@ -1640,8 +1683,9 @@ def create_asset(
 
 @app.get("/assets/{asset_id}/edit", name="edit_asset")
 def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
-    # A única mudança é adicionar o "current_filters" no dicionário
-    return templates.TemplateResponse("assets_list.html", {
+    context = get_base_context(request)
+    
+    context.update({
         "request": request, 
         "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
         "form_action": request.url_for("update_asset", asset_id=asset_id),
@@ -1649,6 +1693,8 @@ def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
         "search": None,
         "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
     })
+
+    return templates.TemplateResponse("assets_list.html", context)
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")
 def update_asset(
@@ -1695,6 +1741,7 @@ def list_events(
     filter_action: Optional[str] = Query(None), filter_status: Optional[str] = Query(None),
     time_filter: Optional[str] = Query(None), db: Session = Depends(get_db)
 ):
+    context = get_base_context(request)
     # O mapa de embarcados já não é necessário aqui, a lógica fica mais simples
     asset_map = {b.mac_beacon: b.nome_ativo for b in db.query(Asset).filter(Asset.mac_beacon.isnot(None)).all()}
 
@@ -1727,7 +1774,7 @@ def list_events(
         e.data_str = data_local.strftime("%d/%m/%Y")
         e.hora_str = data_local.strftime("%H:%M:%S")
 
-    return templates.TemplateResponse("events_list.html", {
+    context.update({
         "request": request, "events": events, "page": page, "has_next": total > page * EVENT_PAGE_SIZE,
         "all_assets": db.query(Asset.nome_ativo, Asset.mac_beacon).distinct().order_by(Asset.nome_ativo).all(),
         "all_action_options": [("GET", "Conectar"), ("OUT", "Desconectar")],
@@ -1735,6 +1782,8 @@ def list_events(
         "all_quartos": sorted([q.nome for q in db.query(Quarto).order_by(Quarto.nome).all()]),
         "current_filters": {"ativo": filter_ativo, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
     })
+
+    return templates.TemplateResponse("events_list.html", context)
 
 @app.get("/events/download", name="download_events_csv")
 def download_events_csv(
@@ -1927,105 +1976,70 @@ def delete_datacenter_api(dc_id: int, db: Session = Depends(get_db)):
 def inventory_page(
     request: Request,
     db: Session = Depends(get_db),
-    view: str = Query("current"),
-    datacenter_id: Optional[int] = Query(None)
+    datacenter_id: Optional[str] = Query(None),
+    view: str = Query("current") # Reintroduzindo o parâmetro 'view'
 ):
+    context = get_base_context(request)
     all_datacenters = db.query(DataCenter).order_by(DataCenter.id).all()
+    dc_id_int = int(datacenter_id) if datacenter_id and datacenter_id.isdigit() else None
 
-    if not datacenter_id and all_datacenters:
+    if not dc_id_int and all_datacenters:
         primeiro_dc_id = all_datacenters[0].id
         params = dict(request.query_params)
         params['datacenter_id'] = primeiro_dc_id
         redirect_url = request.url.replace(query=urlencode(params))
         return RedirectResponse(url=str(redirect_url))
 
-    # --- NOVA LÓGICA DE DECISÃO ---
-    snapshot_query = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == datacenter_id)
-    snapshot_count = snapshot_query.count()
-    
-    snapshots = snapshot_query.order_by(InventorySnapshot.created_on.desc()).limit(2).all()
+    snapshots = db.query(InventorySnapshot).filter(InventorySnapshot.datacenter_id == dc_id_int).order_by(InventorySnapshot.created_on.desc()).limit(2).all()
     snapshot_atual = snapshots[0] if snapshots else None
     snapshot_anterior = snapshots[1] if len(snapshots) > 1 else None
 
-    # Variáveis para o template
-    inventario_atual_formatado = []
-    tabela_unificada = []
-    itens_encontrados, itens_faltando, itens_novos = [], [], []
-    comparison_mode = None # Informa ao template qual relatório mostrar
+    # Inicializa todas as listas de dados
+    context_data = {
+        "inventario_atual": [], "comparativo_snapshots": [],
+        "itens_encontrados": [], "itens_faltando": [], "itens_novos": []
+    }
 
-    # --- Lógica da Visão "CURRENT" ---
     if view == "current" and snapshot_atual:
-        # (Esta parte não muda)
-        itens_query = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                        .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                        .outerjoin(Product.equipamento)\
-                        .filter(InventoryItem.snapshot_id == snapshot_atual.id)\
-                        .order_by(Product.codigo_rfid).all()
-        for codigo, nome_equip in itens_query:
-            inventario_atual_formatado.append({ "codigo_rfid": codigo, "nome_equip": nome_equip or "Não associado", "created_on": snapshot_atual.created_on })
+        # Lógica para Visão 1
+        itens_q = db.query(Product.codigo_rfid, Equipamento.nome_equip).join(InventoryItem, InventoryItem.product_id == Product.id).outerjoin(Product.equipamento).filter(InventoryItem.snapshot_id == snapshot_atual.id).order_by(Product.codigo_rfid).all()
+        context_data["inventario_atual"] = [{ "codigo_rfid": c, "nome_equip": n or "Não associado", "created_on": snapshot_atual.created_on } for c, n in itens_q]
+    
+    elif view == "master_audit" and snapshot_atual:
+        # Lógica para Visão 2
+        catalogo_q = db.query(Product.codigo_rfid, Equipamento.nome_equip).join(Equipamento, Product.equipamento_id == Equipamento.id).join(Bastidor, Equipamento.bastidor_id == Bastidor.id).filter(Bastidor.localizacao_id == dc_id_int).all()
+        mapa_catalogo = {c: n for c, n in catalogo_q}
+        itens_q = db.query(Product.codigo_rfid, Equipamento.nome_equip).join(InventoryItem, InventoryItem.product_id == Product.id).outerjoin(Product.equipamento).filter(InventoryItem.snapshot_id == snapshot_atual.id).all()
+        mapa_snapshot_atual = {c: n or "Não associado" for c, n in itens_q}
+        
+        set_catalogo, set_snapshot_atual = set(mapa_catalogo.keys()), set(mapa_snapshot_atual.keys())
+        context_data["itens_encontrados"] = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(set_catalogo.intersection(set_snapshot_atual)))]
+        context_data["itens_faltando"] = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(set_catalogo.difference(set_snapshot_atual)))]
+        context_data["itens_novos"] = [{"codigo_rfid": c, "nome_equip": mapa_snapshot_atual[c]} for c in sorted(list(set_snapshot_atual.difference(set_catalogo)))]
 
-    # --- Lógica da Visão "COMPARISON" ---
-    elif view == "comparison":
-        # Cenário 1: Primeiro inventário -> Compara com o Catálogo Mestre
-        if snapshot_count <= 1 and snapshot_atual:
-            comparison_mode = "master"
-            # (Lógica de Reconciliação Mestra que já fizemos)
-            query_catalogo = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                               .join(Equipamento, Product.equipamento_id == Equipamento.id)\
-                               .join(Bastidor, Equipamento.bastidor_id == Bastidor.id)\
-                               .filter(Bastidor.localizacao_id == datacenter_id).all()
-            mapa_catalogo = {codigo: nome for codigo, nome in query_catalogo}
-            set_catalogo = set(mapa_catalogo.keys())
+    elif view == "snapshot_comparison" and snapshot_atual and snapshot_anterior:
+        # Lógica para Visão 3
+        def get_data_from_snapshot(snapshot_id):
+            items = db.query(Product.codigo_rfid, Equipamento.nome_equip).join(InventoryItem, InventoryItem.product_id == Product.id).outerjoin(Product.equipamento).filter(InventoryItem.snapshot_id == snapshot_id).all()
+            return {codigo: (nome or "Não associado") for codigo, nome in items}
+        map_atual, map_anterior = get_data_from_snapshot(snapshot_atual.id), get_data_from_snapshot(snapshot_anterior.id)
+        set_atual, set_anterior = set(map_atual.keys()), set(map_anterior.keys())
+        todos_codigos = sorted(list(set_atual | set_anterior))
+        for codigo in todos_codigos:
+            status = "Mantido"
+            if codigo in set_atual and codigo not in set_anterior: status = "Adicionado"
+            elif codigo not in set_atual and codigo in set_anterior: status = "Deletado"
+            context_data["comparativo_snapshots"].append({ "codigo_rfid": codigo, "item_atual": map_atual.get(codigo, "---"), "item_anterior": map_anterior.get(codigo, "---"), "status": status })
 
-            query_snapshot = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                               .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                               .outerjoin(Product.equipamento)\
-                               .filter(InventoryItem.snapshot_id == snapshot_atual.id).all()
-            mapa_snapshot = {codigo: (nome or "Não associado") for codigo, nome in query_snapshot}
-            set_snapshot = set(mapa_snapshot.keys())
-
-            codigos_encontrados = set_catalogo.intersection(set_snapshot)
-            codigos_faltando = set_catalogo.difference(set_snapshot)
-            codigos_novos = set_snapshot.difference(set_catalogo)
-
-            itens_encontrados = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_encontrados))]
-            itens_faltando = [{"codigo_rfid": c, "nome_equip": mapa_catalogo[c]} for c in sorted(list(codigos_faltando))]
-            itens_novos = [{"codigo_rfid": c, "nome_equip": mapa_snapshot[c]} for c in sorted(list(codigos_novos))]
-
-        # Cenário 2: Inventários seguintes -> Compara com o Snapshot Anterior
-        elif snapshot_count > 1 and snapshot_atual and snapshot_anterior:
-            comparison_mode = "snapshot"
-            # (Esta é a lógica original de comparação entre dois snapshots)
-            def get_data_from_snapshot(snapshot_id):
-                items = db.query(Product.codigo_rfid, Equipamento.nome_equip)\
-                          .join(InventoryItem, InventoryItem.product_id == Product.id)\
-                          .outerjoin(Product.equipamento)\
-                          .filter(InventoryItem.snapshot_id == snapshot_id).all()
-                return {codigo: (nome or "Não associado") for codigo, nome in items}
-
-            map_atual = get_data_from_snapshot(snapshot_atual.id)
-            map_anterior = get_data_from_snapshot(snapshot_anterior.id)
-            
-            set_atual = set(map_atual.keys())
-            set_anterior = set(map_anterior.keys())
-            todos_codigos = sorted(list(set_atual | set_anterior))
-            
-            for codigo in todos_codigos:
-                status = "Mantido"
-                if codigo in set_atual and codigo not in set_anterior: status = "Adicionado"
-                elif codigo not in set_atual and codigo in set_anterior: status = "Deletado"
-                tabela_unificada.append({ "codigo_rfid": codigo, "item_atual": map_atual.get(codigo, "---"), "item_anterior": map_anterior.get(codigo, "---"), "status": status })
-
-    rfid_serial_port = settings.get('serial_port', 'Não configurada')
-
-    return templates.TemplateResponse("inventario_list.html", {
-        "request": request, "all_datacenters": all_datacenters, "current_dc_id": datacenter_id,
-        "inventario_atual": inventario_atual_formatado, "tabela_unificada": tabela_unificada,
+    context.update({
+        "request": request, "all_datacenters": all_datacenters, "current_dc_id": dc_id_int,
         "snapshot_atual": snapshot_atual, "snapshot_anterior": snapshot_anterior,
-        "current_view": view, "rfid_serial_port": rfid_serial_port,
-        "itens_encontrados": itens_encontrados, "itens_faltando": itens_faltando,
-        "itens_novos": itens_novos, "comparison_mode": comparison_mode
-    })
+        "rfid_serial_port": settings.get('serial_port', 'Não configurada'),
+        "current_view": view,
+        **context_data
+    }
+    )
+    return templates.TemplateResponse("inventario_list.html", context)
 
 @app.post("/inventario/salvar", name="save_inventory_snapshot")
 def inventory_save(
@@ -2169,9 +2183,23 @@ async def check_background_tasks_health():
 # ===================================================================
 
 @app.get("/cadastro", name="cadastro_page")
-def cadastro_page(request: Request):
-    """Renderiza a nova página de Cadastro e Gestão."""
-    return templates.TemplateResponse("cadastro.html", {"request": request})
+def cadastro_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    edit_id: Optional[int] = Query(None) # NOVO: Aceita um ID para edição
+):
+    context = get_base_context(request)
+    equipamento_para_editar = None
+
+    if edit_id:
+        equipamento_para_editar = db.query(Equipamento).get(edit_id)
+        if not equipamento_para_editar:
+            raise HTTPException(status_code=404, detail="Equipamento não encontrado para edição.")
+
+    # Adiciona o equipamento (ou None) ao contexto
+    context["equipamento_para_editar"] = equipamento_para_editar
+    
+    return templates.TemplateResponse("cadastro.html", context)
 
 
 # --- API para Fabricantes ---
@@ -2201,15 +2229,77 @@ def update_fabricante(fab_id: int, fabricante_in: FabricanteCreate, db: Session 
 
 @app.delete("/api/fabricantes/{fab_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_fabricante(fab_id: int, db: Session = Depends(get_db)):
-    fab_db = db.query(Fabricante).get(fab_id)
+    # Carrega o fabricante e seus modelos de equipamento associados
+    fab_db = db.query(Fabricante).options(joinedload(Fabricante.equipamento_tipos)).get(fab_id)
     if not fab_db:
         raise HTTPException(status_code=404, detail="Fabricante não encontrado.")
-    if fab_db.equipamentos:
-        raise HTTPException(status_code=400, detail="Não é possível excluir. Este fabricante está em uso por equipamentos.")
+
+    # --- LÓGICA CORRIGIDA ---
+    # Verifica se existe algum "Modelo de Equipamento" associado diretamente a este fabricante.
+    if fab_db.equipamento_tipos:
+        nomes_modelos = ", ".join([tipo.nome for tipo in fab_db.equipamento_tipos[:3]])
+        mensagem = (
+            f"Não é possível excluir. Este fabricante está em uso por modelos de equipamento como: {nomes_modelos}."
+            " Por favor, edite ou exclua esses modelos primeiro."
+        )
+        raise HTTPException(status_code=409, detail=mensagem)
+
+    # Se a verificação passar, a exclusão é segura
     db.delete(fab_db)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+# Rota para ATUALIZAR uma Localização
+@app.put("/api/localizacoes/{loc_id}", response_model=DataCenterSchema)
+def update_localizacao(loc_id: int, dc_in: DataCenterCreate, db: Session = Depends(get_db)):
+    loc_db = db.query(DataCenter).get(loc_id)
+    if not loc_db:
+        raise HTTPException(status_code=404, detail="Localização não encontrada.")
+    
+    # Atualiza todos os campos
+    for key, value in dc_in.model_dump().items():
+        setattr(loc_db, key, value)
+    
+    db.commit()
+    db.refresh(loc_db)
+    return loc_db
+
+# Rota para ATUALIZAR um Bastidor
+@app.put("/api/bastidores/{b_id}", response_model=BastidorSchema)
+def update_bastidor(b_id: int, bastidor_in: BastidorCreate, db: Session = Depends(get_db)):
+    bastidor_db = db.query(Bastidor).get(b_id)
+    if not bastidor_db:
+        raise HTTPException(status_code=404, detail="Bastidor não encontrado.")
+    
+    bastidor_db.codigo_bast = bastidor_in.codigo_bast
+    bastidor_db.localizacao_id = bastidor_in.localizacao_id
+    
+    db.commit()
+    db.refresh(bastidor_db)
+    return bastidor_db
+
+# SUBSTITUA a sua função delete_localizacao por esta
+@app.delete("/api/localizacoes/{loc_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_localizacao(loc_id: int, db: Session = Depends(get_db)):
+    # Carrega a localização e seus bastidores associados
+    loc_db = db.query(DataCenter).options(joinedload(DataCenter.bastidores)).get(loc_id)
+    if not loc_db:
+        raise HTTPException(status_code=404, detail="Localização não encontrada.")
+
+    # --- LÓGICA CORRIGIDA ---
+    # Verifica se existe algum "Bastidor" associado diretamente a esta localização.
+    if loc_db.bastidores:
+        codigos_bastidores = ", ".join([b.codigo_bast for b in loc_db.bastidores[:3]])
+        mensagem = (
+            f"Não é possível excluir. Esta localização contém bastidores como: {codigos_bastidores}."
+            " Por favor, mova ou exclua esses bastidores primeiro."
+        )
+        raise HTTPException(status_code=409, detail=mensagem)
+
+    # Se a verificação passar, a exclusão é segura
+    db.delete(loc_db)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 class RfidStatusResponse(BaseModel):
     status: str
@@ -2217,24 +2307,28 @@ class RfidStatusResponse(BaseModel):
     equipamento_nome: Optional[str] = None
 
 @app.get("/api/rfid-status/{codigo_rfid}", response_model=RfidStatusResponse)
-def get_rfid_tag_status(codigo_rfid: str, db: Session = Depends(get_db)):
-    """
-    Verifica o status de uma etiqueta RFID no banco de dados.
-    """
+def get_rfid_tag_status(
+    codigo_rfid: str,
+    db: Session = Depends(get_db),
+    # NOVO: Parâmetro opcional para o ID do equipamento em edição
+    current_equip_id: Optional[int] = Query(None)
+):
+    """ Verifica o status de uma etiqueta RFID, ignorando opcionalmente o equipamento atual. """
     product = db.query(Product).options(joinedload(Product.equipamento)).filter(Product.codigo_rfid == codigo_rfid).first()
 
+    # Caso 1: A etiqueta não existe no banco de dados.
     if not product:
-        return {
-            "status": "NOVO",
-            "message": "Esta etiqueta é nova e pode ser cadastrada."
-        }
+        return { "status": "NOVO", "message": "Esta etiqueta é nova e pode ser cadastrada." }
     
+    # Caso 2: A etiqueta existe, mas não está associada a nenhum equipamento.
     if not product.equipamento:
-        return {
-            "status": "NAO_ASSOCIADO",
-            "message": "Etiqueta já existe no sistema, mas está livre para associação."
-        }
-    
+        return { "status": "NAO_ASSOCIADO", "message": "Etiqueta existe e está livre para associação." }
+
+    # Caso 3: A etiqueta está associada ao PRÓPRIO equipamento que estamos editando.
+    if current_equip_id and product.equipamento.id == current_equip_id:
+        return { "status": "SELF", "message": "Mantendo a etiqueta associada a este equipamento." }
+        
+    # Caso 4 (Erro): A etiqueta está associada a um OUTRO equipamento.
     return {
         "status": "ASSOCIADO",
         "message": f"ATENÇÃO: Etiqueta já em uso pelo equipamento:",
@@ -2282,13 +2376,18 @@ def create_bastidor(bastidor_in: BastidorCreate, db: Session = Depends(get_db)):
     db.refresh(novo_bastidor)
     return novo_bastidor
 
+# SUBSTITUA a sua função delete_bastidor por esta
 @app.delete("/api/bastidores/{b_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_bastidor(b_id: int, db: Session = Depends(get_db)):
-    bastidor_db = db.query(Bastidor).get(b_id)
+    bastidor_db = db.query(Bastidor).options(joinedload(Bastidor.equipamento_instancias)).get(b_id)
     if not bastidor_db:
         raise HTTPException(status_code=404, detail="Bastidor não encontrado.")
-    if bastidor_db.equipamentos:
-        raise HTTPException(status_code=400, detail="Não é possível excluir. Este bastidor já contém equipamentos.")
+    
+    if bastidor_db.equipamento_instancias:
+        nomes_exemplo = ", ".join([inst.nome_equip for inst in bastidor_db.equipamento_instancias[:3]])
+        mensagem = f"Não é possível excluir. Este bastidor está em uso por instâncias como: {nomes_exemplo}. Mova ou exclua essas instâncias primeiro."
+        raise HTTPException(status_code=409, detail=mensagem)
+        
     db.delete(bastidor_db)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -2379,98 +2478,194 @@ def create_equipamento_instancia(instancia_in: EquipamentoInstanciaCreate, db: S
         db.rollback()
         logger.error(f"Erro ao criar instância de equipamento: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao salvar o equipamento.")
-
-
-@app.get("/equipamentos", name="list_equipamentos")
-def list_equipamentos(
-    request: Request,
-    db: Session = Depends(get_db),
-    search: Optional[str] = Query(None),
-    sort_by: Optional[str] = Query("nome_equip"),
-    order: Optional[str] = Query("asc"),
-    # --- MUDANÇA 1: Alterado o tipo de 'int' para 'str' para aceitar valores vazios ---
-    filter_localizacao_id: Optional[str] = Query(None),
-    filter_modelo_id: Optional[str] = Query(None),
-    filter_bastidor_id: Optional[str] = Query(None)
-):
+def _query_equipamentos(db: Session, filters: dict):
+    """Função auxiliar que constrói e retorna a query de equipamentos com filtros e ordenação."""
     query = db.query(Equipamento).options(
         joinedload(Equipamento.product),
         joinedload(Equipamento.equipamento_tipo).joinedload(EquipamentoTipo.fabricante),
         joinedload(Equipamento.bastidor).joinedload(Bastidor.localizacao)
     )
 
-    localizacao_id_int = int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None
-    modelo_id_int = int(filter_modelo_id) if filter_modelo_id and filter_modelo_id.isdigit() else None
-    bastidor_id_int = int(filter_bastidor_id) if filter_bastidor_id and filter_bastidor_id.isdigit() else None
-
-    if localizacao_id_int:
-        query = query.join(Equipamento.bastidor).filter(Bastidor.localizacao_id == localizacao_id_int)
-    if modelo_id_int:
-        query = query.filter(Equipamento.equipamento_tipo_id == modelo_id_int)
-    if bastidor_id_int:
-        query = query.filter(Equipamento.bastidor_id == bastidor_id_int)
-
-
-    # Lógica de busca atualizada
-    if search:
-        search_term = f"%{search}%"
-        query = query.join(Equipamento.product).join(Equipamento.equipamento_tipo).join(EquipamentoTipo.fabricante).join(Equipamento.bastidor).join(Bastidor.localizacao).filter(
+    # Aplica filtros
+    if filters.get("localizacao_id"):
+        query = query.join(Equipamento.bastidor).filter(Bastidor.localizacao_id == filters["localizacao_id"])
+    if filters.get("modelo_id"):
+        query = query.filter(Equipamento.equipamento_tipo_id == filters["modelo_id"])
+    if filters.get("bastidor_id"):
+        query = query.filter(Equipamento.bastidor_id == filters["bastidor_id"])
+    
+    if filters.get("search"):
+        search_term = f"%{filters['search']}%"
+        # Garante que os joins para a busca existam
+        query = query.outerjoin(Product).outerjoin(Equipamento.equipamento_tipo).outerjoin(EquipamentoTipo.fabricante).outerjoin(Equipamento.bastidor).outerjoin(Bastidor.localizacao).filter(
             or_(
                 Equipamento.nome_equip.ilike(search_term),
                 EquipamentoTipo.nome.ilike(search_term),
-                EquipamentoTipo.modelo.ilike(search_term),
-                Product.codigo_rfid.ilike(search_term),
-                Fabricante.nome.ilike(search_term),
-                Bastidor.codigo_bast.ilike(search_term),
-                DataCenter.nome.ilike(search_term)
+                Product.codigo_rfid.ilike(search_term)
             )
         )
 
-    # Lógica de ordenação atualizada
+    # Aplica ordenação
     sortable_columns = {
-        "nome_equip": Equipamento.nome_equip,
-        "rfid": Product.codigo_rfid,
-        "modelo_nome": EquipamentoTipo.nome,
-        "fabricante": Fabricante.nome,
-        "modelo_pn": EquipamentoTipo.modelo,
-        "bastidor": Bastidor.codigo_bast,
+        "nome_equip": Equipamento.nome_equip, "rfid": Product.codigo_rfid, "modelo_nome": EquipamentoTipo.nome,
+        "fabricante": Fabricante.nome, "modelo_pn": EquipamentoTipo.modelo, "bastidor": Bastidor.codigo_bast,
         "localizacao": DataCenter.nome,
     }
-
-    # Garante que os joins necessários para a ordenação existam
-    if sort_by in ["rfid"]: query = query.join(Product)
-    if sort_by in ["modelo_nome", "fabricante", "modelo_pn"]: query = query.join(Equipamento.equipamento_tipo).join(EquipamentoTipo.fabricante)
-    if sort_by in ["bastidor", "localizacao"]: query = query.join(Equipamento.bastidor).join(Bastidor.localizacao)
-
+    sort_by = filters.get("sort_by", "nome_equip")
+    order = filters.get("order", "asc")
     sort_column = sortable_columns.get(sort_by, Equipamento.nome_equip)
     query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
 
-    equipamentos = query.all()
+    return query
 
-    all_localizacoes = db.query(DataCenter).order_by(DataCenter.nome).all()
-    all_modelos = db.query(EquipamentoTipo).order_by(EquipamentoTipo.nome).all()
 
-    # --- MUDANÇA IMPORTANTE AQUI ---
-    # A lista de bastidores agora é filtrada pela localização, se houver uma selecionada
-    bastidores_query = db.query(Bastidor).order_by(Bastidor.codigo_bast)
-    if localizacao_id_int:
-        bastidores_query = bastidores_query.filter(Bastidor.localizacao_id == localizacao_id_int)
-    all_bastidores = bastidores_query.all()
-    
+@app.get("/equipamentos", name="list_equipamentos")
+def list_equipamentos(
+    request: Request, db: Session = Depends(get_db),
+    search: Optional[str] = Query(None), sort_by: Optional[str] = Query("nome_equip"), order: Optional[str] = Query("asc"),
+    filter_localizacao_id: Optional[str] = Query(None), filter_modelo_id: Optional[str] = Query(None), filter_bastidor_id: Optional[str] = Query(None)
+):
+    context = get_base_context(request)
+
     current_filters = {
-        "localizacao_id": localizacao_id_int,
-        "modelo_id": modelo_id_int,
-        "bastidor_id": bastidor_id_int
+        "search": search, "sort_by": sort_by, "order": order,
+        "localizacao_id": int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None,
+        "modelo_id": int(filter_modelo_id) if filter_modelo_id and filter_modelo_id.isdigit() else None,
+        "bastidor_id": int(filter_bastidor_id) if filter_bastidor_id and filter_bastidor_id.isdigit() else None
     }
 
-    return templates.TemplateResponse("equipamentos_list.html", {
-        "request": request,
-        "equipamentos": equipamentos,
-        "current_filters": current_filters,
-        "all_localizacoes": all_localizacoes,
-        "all_modelos": all_modelos,
-        "all_bastidores": all_bastidores,
+    equipamentos_query = _query_equipamentos(db, current_filters)
+    equipamentos = equipamentos_query.all()
+
+    # (o resto da função para popular os dropdowns continua igual)
+    all_localizacoes = db.query(DataCenter).order_by(DataCenter.nome).all()
+    all_modelos = db.query(EquipamentoTipo).order_by(EquipamentoTipo.nome).all()
+    bastidores_query = db.query(Bastidor).order_by(Bastidor.codigo_bast)
+    if current_filters["localizacao_id"]:
+        bastidores_query = bastidores_query.filter(Bastidor.localizacao_id == current_filters["localizacao_id"])
+    all_bastidores = bastidores_query.all()
+
+    context.update({
+        "request": request, "equipamentos": equipamentos, "current_filters": current_filters,
+        "all_localizacoes": all_localizacoes, "all_modelos": all_modelos, "all_bastidores": all_bastidores,
     })
+    return templates.TemplateResponse("equipamentos_list.html", context)
+
+@app.post("/equipamentos/instancia/{equip_id}/update", name="update_equipamento_instancia")
+def update_equipamento_instancia(
+    equip_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    # Recebe os dados do formulário
+    nome_equip: str = Form(...),
+    equipamento_tipo_id: int = Form(...),
+    bastidor_id: int = Form(...),
+    codigo_rfid: str = Form(...)
+):
+    equip_db = db.query(Equipamento).get(equip_id)
+    if not equip_db:
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado.")
+
+    # Validações para evitar duplicatas (ignorando o item atual)
+    if db.query(Equipamento).filter(Equipamento.nome_equip == nome_equip, Equipamento.id != equip_id).first():
+        raise HTTPException(status_code=409, detail="Outro equipamento já usa este nome (hostname).")
+    if db.query(Product).filter(Product.codigo_rfid == codigo_rfid, Product.equipamento_id != equip_id).first():
+        raise HTTPException(status_code=409, detail="Outro equipamento já usa este código RFID.")
+
+    # Atualiza os campos
+    equip_db.nome_equip = nome_equip
+    equip_db.equipamento_tipo_id = equipamento_tipo_id
+    equip_db.bastidor_id = bastidor_id
+    if equip_db.product:
+        equip_db.product.codigo_rfid = codigo_rfid
+    
+    db.commit()
+    return RedirectResponse(url=request.url_for("list_equipamentos"), status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.delete("/api/equipamentos/instancia/{equip_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_equipamento_instancia(equip_id: int, db: Session = Depends(get_db)):
+    equip_db = db.query(Equipamento).get(equip_id)
+    if not equip_db:
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado.")
+    
+    db.delete(equip_db)
+    db.commit()
+    logger.info(f"Instância de equipamento '{equip_db.nome_equip}' (ID: {equip_id}) foi excluída.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/equipamentos/download-xlsx", name="download_equipamentos_xlsx")
+def download_equipamentos_xlsx(
+    db: Session = Depends(get_db),
+    search: Optional[str] = Query(None), sort_by: Optional[str] = Query("nome_equip"), order: Optional[str] = Query("asc"),
+    filter_localizacao_id: Optional[str] = Query(None), filter_modelo_id: Optional[str] = Query(None), filter_bastidor_id: Optional[str] = Query(None)
+):
+    # Reutiliza a mesma lógica de filtros que já temos
+    current_filters = {
+        "search": search, "sort_by": sort_by, "order": order,
+        "localizacao_id": int(filter_localizacao_id) if filter_localizacao_id and filter_localizacao_id.isdigit() else None,
+        "modelo_id": int(filter_modelo_id) if filter_modelo_id and filter_modelo_id.isdigit() else None,
+        "bastidor_id": int(filter_bastidor_id) if filter_bastidor_id and filter_bastidor_id.isdigit() else None
+    }
+
+    equipamentos_query = _query_equipamentos(db, current_filters)
+    equipamentos = equipamentos_query.all()
+
+    # --- LÓGICA DE GERAÇÃO DO ARQUIVO XLSX ---
+    stream = io.BytesIO()
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Catalogo_Equipamentos"
+
+    # Define e escreve o cabeçalho
+    header = [
+        "HOSTNAME", "CODIGO_RFID", "NOME_MODELO", "FABRICANTE", "MODELO_PN",
+        "TECNOLOGIA", "TIPO", "ESTADO_CV", "ESTADO_OP", "BASTIDOR",
+        "LOCALIZACAO", "MUNICIPIO", "UF", "PISO", "SALA", "ENDERECO"
+    ]
+    sheet.append(header)
+
+    # Deixa o cabeçalho em negrito
+    for cell in sheet[1]:
+        cell.font = openpyxl.styles.Font(bold=True)
+
+    # Escreve os dados de cada equipamento
+    for equip in equipamentos:
+        row = [
+            equip.nome_equip,
+            equip.product.codigo_rfid if equip.product else "",
+            equip.equipamento_tipo.nome if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.fabricante.nome if equip.equipamento_tipo and equip.equipamento_tipo.fabricante else "",
+            equip.equipamento_tipo.modelo if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.tecnologia_equip if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.tipo_equip if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.estado_cv_equip if equip.equipamento_tipo else "",
+            equip.equipamento_tipo.estado_op_equip if equip.equipamento_tipo else "",
+            equip.bastidor.codigo_bast if equip.bastidor else "",
+            equip.bastidor.localizacao.nome if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.municipio if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.uf_abrv if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.piso if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.sala if equip.bastidor and equip.bastidor.localizacao else "",
+            equip.bastidor.localizacao.endereco_completo if equip.bastidor and equip.bastidor.localizacao else ""
+        ]
+        sheet.append(row)
+
+    # Ajusta a largura das colunas automaticamente
+    for i, column_cells in enumerate(sheet.columns):
+        max_length = max(len(str(cell.value or "")) for cell in column_cells)
+        adjusted_width = (max_length + 2)
+        sheet.column_dimensions[get_column_letter(i + 1)].width = adjusted_width
+
+    workbook.save(stream)
+    stream.seek(0)
+
+    return StreamingResponse(
+        stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=catalogo_equipamentos.xlsx"}
+    )
 
 @app.on_event("startup")
 async def on_startup():
@@ -2516,7 +2711,7 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = "sqlite:///./base_rtls_rfid.db"
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    connect_args={"check_same_thread": False, "timeout": 15}
 )
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
@@ -2640,7 +2835,7 @@ class EquipamentoTipo(Base):
     estado_op_equip = Column(String(50))
 
     # Relação com Fabricante
-    fabricante_id = Column(Integer, ForeignKey("fabricantes.id"))
+    fabricante_id = Column(Integer, ForeignKey("fabricantes.id"), nullable=False)
     fabricante = relationship("Fabricante", back_populates="equipamento_tipos")
     
     # Relação com as instâncias criadas a partir deste tipo

@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = "sqlite:///./base_rtls_rfid.db"
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    connect_args={"check_same_thread": False, "timeout": 15}
 )
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
@@ -134,7 +134,7 @@ class EquipamentoTipo(Base):
     estado_op_equip = Column(String(50))
 
     # Relação com Fabricante
-    fabricante_id = Column(Integer, ForeignKey("fabricantes.id"))
+    fabricante_id = Column(Integer, ForeignKey("fabricantes.id"), nullable=False)
     fabricante = relationship("Fabricante", back_populates="equipamento_tipos")
     
     # Relação com as instâncias criadas a partir deste tipo
