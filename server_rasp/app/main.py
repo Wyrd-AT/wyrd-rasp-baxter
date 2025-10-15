@@ -1040,6 +1040,14 @@ def update_asset(
 ):
     asset = db.query(Asset).get(asset_id)
     if asset:
+
+        mac_antigo = asset.mac_beacon
+        mac_novo = mac_beacon.lower()
+
+        if mac_antigo != mac_novo:
+            logger.info(f"MAC do ativo '{asset.nome_ativo}' alterado. Limpando estado do MAC antigo: {mac_antigo}")
+            aggregator.clear_asset_state(mac_antigo)
+
         asset.nome_ativo = nome_ativo
         asset.mac_beacon = mac_beacon.lower()
         asset.tipo_ativo = tipo_ativo
@@ -1056,6 +1064,8 @@ def update_asset(
 def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     asset = db.query(Asset).get(asset_id)
     if asset:
+        mac_para_limpar = asset.mac_beacon
+        aggregator.clear_asset_state(mac_para_limpar)
         db.delete(asset)
         db.commit()
         aggregator.flag_for_reload()
