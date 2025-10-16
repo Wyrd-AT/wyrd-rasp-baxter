@@ -310,9 +310,13 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
     for mac, state in _asset_realtime_state.items():
         if embarcado.id_esp in state.readings:
             reading = state.readings[embarcado.id_esp]
+            samples = reading.get("samples")
+            
+            last_rssi = samples[-1] if samples else -1000
+            
             report_data.append({
                 "mac": mac,
-                "rssi": reading.get("rssi", -1000) 
+                "rssi": last_rssi # 3. Usa o valor corrigido aqui
             })
     
     websocket_message = {
