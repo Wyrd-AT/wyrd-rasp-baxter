@@ -2,6 +2,7 @@
 import asyncio
 import time
 import json
+import collections
 from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting
 from .services import batch_update_asset_assignments
 from .mqtt_client import scan_data_queue
@@ -29,15 +30,18 @@ _config = {
     "inertia_entrada_ms": 3000,
     "inertia_saida_ms": 10000,
     "ema_alpha": 0.4,
-    "disappearance_tolerance_cycles": 10 
+    "disappearance_tolerance_cycles": 10,
+    "force_penalty_on_miss": True 
 }
+
+PENALTY_RSSI = -100
 
 class AssetState:
     def __init__(self, mac):
         self.mac = mac
         self.readings = {}
-        self.last_known_ema = {}
-        self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000}
+        self.last_processed_avg = {} 
+        self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "avg_rssi": -1000} 
         self.candidate_quarto_id = None
         self.candidate_since = None
         self.disappeared_since = None
@@ -46,22 +50,74 @@ class AssetState:
 
     def update_reading(self, esp_id, rssi, timestamp):
         """
-        Atualiza a leitura de uma ESP e calcula a Média Móvel Exponencial (EMA).
+        Atualiza a leitura de uma ESP.
+        Em vez de calcular EMA, agora adiciona o RSSI a uma lista (deque) de 5 amostras.
         """
-        old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi)
-        alpha = _config["ema_alpha"]
-        new_ema = (rssi * alpha) + (old_ema * (1 - alpha))
-        self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema}
-        self.last_known_ema[esp_id] = new_ema
+        if esp_id not in self.readings:
+            self.readings[esp_id] = {
+                "timestamp": timestamp,
+                "samples": collections.deque(maxlen=5),
+                "updated_in_last_batch": True
+            }
+        else:
+            self.readings[esp_id]["timestamp"] = timestamp
+
+        self.readings[esp_id]["samples"].append(rssi)
+        self.readings[esp_id]["updated_in_last_batch"] = True
         self.disappeared_since = None
-        self.disappearance_count = 0 
+        self.disappearance_count = 0
+
+    def apply_penalties_if_needed(self):
+        """
+        (NOVA FUNÇÃO)
+        Itera por todas as ESPs conhecidas. Se alguma não enviou dados
+        no último ciclo, aplica a lógica de penalidade ou de "ignorar".
+        """
+        # Se a "checkbox" estiver desmarcada, apenas resetamos os flags e saímos.
+        if not _config["force_penalty_on_miss"]:
+            for data in self.readings.values():
+                data["updated_in_last_batch"] = False
+            return
+
+        # Se a "checkbox" estiver marcada, aplicamos a penalidade
+        for data in self.readings.values():
+            if not data.get("updated_in_last_batch", False):
+                # Este ESP não reportou! Adicionamos a penalidade.
+                data["samples"].append(PENALTY_RSSI)
+            
+            # Reseta o flag para o próximo ciclo
+            data["updated_in_last_batch"] = False
+
+    def get_average_rssi(self, esp_id):
+        """
+        (NOVA FUNÇÃO)
+        Calcula e retorna a Média Móvel Simples (SMA) para uma ESP.
+        """
+        if esp_id not in self.readings or not self.readings[esp_id]["samples"]:
+            return -1000 # Valor inválido/inexistente
+
+        samples = self.readings[esp_id]["samples"]
+        avg = sum(samples) / len(samples)
+        
+        # Guarda a última média calculada (substituindo last_known_ema)
+        self.last_processed_avg[esp_id] = avg
+        return avg
 
     def cleanup_old_readings(self):
+        """
+        Função modificada para também limpar o 'last_processed_avg'.
+        """
         now = time.time()
-        self.readings = {
-            esp_id: data for esp_id, data in self.readings.items()
-            if now - data["timestamp"] < _config["reading_timeout_sec"]
-        }
+        timeout = _config["reading_timeout_sec"]
+        
+        # Usamos list() para poder modificar o dicionário durante a iteração
+        for esp_id, data in list(self.readings.items()):
+            if now - data["timestamp"] > timeout:
+                # Esta ESP não vê o ativo há 10s. Removemos seu registro.
+                del self.readings[esp_id]
+                if esp_id in self.last_processed_avg:
+                    del self.last_processed_avg[esp_id]
+        
         return bool(self.readings)
 
 async def _consume_scan_data_queue():
@@ -123,6 +179,8 @@ async def _processar_localizacoes():
 
             if not asset_id: continue
 
+            state.apply_penalties_if_needed()
+
             if not state.cleanup_old_readings():
                 state.disappearance_count += 1
                 
@@ -151,24 +209,35 @@ async def _processar_localizacoes():
                     del _asset_realtime_state[mac]
                 continue 
             
-            # Encontra o candidato mais forte baseado na EMA
-            strongest_candidate = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000, "quarto_id": None}
-            for esp_id, reading in state.readings.items():
+            strongest_candidate = {"esp_id": None, "rssi": -1000, "avg_rssi": -1000, "quarto_id": None}
+            
+            for esp_id, reading_data in state.readings.items():
                 if esp_id not in _esp_map: continue
+                
+                current_avg = state.get_average_rssi(esp_id)
+                if current_avg == -1000: # Ignora se não houver amostras
+                    continue
+
                 q_id, q_rssi = _esp_map[esp_id]
                 threshold = q_rssi if q_rssi is not None else _config["default_rssi_threshold"]
-                # A decisão de ser um candidato agora usa a EMA
-                if reading["ema_rssi"] > threshold and reading["ema_rssi"] > strongest_candidate["ema_rssi"]:
+                
+                if current_avg > threshold and current_avg > strongest_candidate["avg_rssi"]:
+                    last_raw_rssi = reading_data["samples"][-1] if reading_data["samples"] else -1000
+                    
                     strongest_candidate = {
                         "esp_id": esp_id, 
-                        "rssi": reading["rssi"],      # Guarda o RSSI bruto para log
-                        "ema_rssi": reading["ema_rssi"],# Usa a EMA para decisão
+                        "rssi": last_raw_rssi,        # Guarda o RSSI bruto mais recente para log
+                        "avg_rssi": current_avg,      # Usa a MÉDIA (SMA) para decisão
                         "quarto_id": q_id
                     }
             
-            # Atualiza o sinal mais forte geral (para logs e referência)
-            top_esp, top_read = max(state.readings.items(), key=lambda i: i[1]['ema_rssi'])
-            state.last_strongest_signal = {"esp_id": top_esp, "rssi": top_read['rssi'], "ema_rssi": top_read['ema_rssi']}
+            # Atualiza o sinal mais forte geral (baseado na MÉDIA)
+            if state.last_processed_avg:
+                top_esp, top_avg = max(state.last_processed_avg.items(), key=lambda i: i[1])
+                last_raw = state.readings[top_esp]["samples"][-1] if top_esp in state.readings and state.readings[top_esp]["samples"] else -1000
+                state.last_strongest_signal = {"esp_id": top_esp, "rssi": last_raw, "avg_rssi": top_avg}
+
+            candidate_quarto_id = strongest_candidate["quarto_id"]
 
             candidate_quarto_id = strongest_candidate["quarto_id"]
 
@@ -176,12 +245,11 @@ async def _processar_localizacoes():
                 if state.weak_signal_since is None: state.weak_signal_since = time.time()
                 elif (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
                     logger.info(f"EVENTO OUT (SINAL FRACO): Ativo {mac} marcado para remoção do Quarto {quarto_id_atual}.")
-                    # Adiciona a mudança à lista
                     changes_to_commit.append({
                         "asset_id": asset_id, "new_quarto_id": None,
                         "source_esp_id": state.last_strongest_signal['esp_id'],
                         "rssi": state.last_strongest_signal['rssi'],
-                        "details": f"Sinal (EMA) permaneceu fraco por {_config['inertia_saida_ms']}ms"
+                        "details": f"Sinal (SMA) permaneceu fraco por {_config['inertia_saida_ms']}ms" 
                     })
                     if mac in _asset_map: _asset_map[mac]['quarto_id'] = None
                     state.weak_signal_since = None
@@ -195,18 +263,21 @@ async def _processar_localizacoes():
 
             if candidate_quarto_id != state.candidate_quarto_id:
                 if quarto_id_atual is not None and candidate_quarto_id is not None:
-                    esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
+                    esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual] 
                     
-                    leituras_ao_vivo = [r["ema_rssi"] for e, r in state.readings.items() if e in esps_no_quarto_atual]
+                    leituras_ao_vivo_avg = [
+                        state.get_average_rssi(e) for e in esps_no_quarto_atual 
+                        if e in state.readings and state.readings[e]["samples"]
+                    ]
                     
-                    if leituras_ao_vivo:
-                        rssi_para_comparacao = max(leituras_ao_vivo)
+                    if leituras_ao_vivo_avg:
+                        rssi_para_comparacao = max(leituras_ao_vivo_avg)
                     else:
-                        emas_conhecidos = [ema for esp, ema in state.last_known_ema.items() if esp in esps_no_quarto_atual]
-                        rssi_para_comparacao = max(emas_conhecidos) if emas_conhecidos else -1000
+                        avg_conhecidos = [avg for esp, avg in state.last_processed_avg.items() if esp in esps_no_quarto_atual]
+                        rssi_para_comparacao = max(avg_conhecidos) if avg_conhecidos else -1000
                     
-                    if strongest_candidate["ema_rssi"] < (rssi_para_comparacao + _config["conflict_margin_db"]):
-                        #logger.info(f"CONFLITO: Ativo {mac}: Troca de Q{quarto_id_atual} para Q{candidate_quarto_id} NEGADA. Sinal EMA Cand: {strongest_candidate['ema_rssi']:.1f}dBm vs Base Atual: {rssi_para_comparacao:.1f}dBm + Margem: {_config['conflict_margin_db']}dBm")
+                    if strongest_candidate["avg_rssi"] < (rssi_para_comparacao + _config["conflict_margin_db"]):
+                        # logger.info(f"CONFLITO: Ativo {mac}: Troca de Q{quarto_id_atual} para Q{candidate_quarto_id} NEGADA.
                         continue
                 
                 state.candidate_quarto_id = candidate_quarto_id
@@ -216,12 +287,11 @@ async def _processar_localizacoes():
                 if (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
                     if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
                         logger.info(f"EVENTO IN: Ativo {mac} confirmado no Quarto {state.candidate_quarto_id}.")
-                        # Adiciona a mudança à lista
                         changes_to_commit.append({
                             "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
                             "source_esp_id": strongest_candidate['esp_id'],
-                            "rssi": strongest_candidate['rssi'],
-                            "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (EMA {strongest_candidate['ema_rssi']:.1f})"
+                            "rssi": strongest_candidate['rssi'], # Logamos o RSSI bruto mais recente
+                            "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (SMA {strongest_candidate['avg_rssi']:.1f})" 
                         })
                         if mac in _asset_map:
                             _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
@@ -261,6 +331,7 @@ def _load_maps_from_db():
         settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
         
         # Sobrescreve as configurações padrão com as do banco de dados
+        _config["force_penalty_on_miss"] = settings_from_db.get("force_penalty_on_miss", settings.get('force_penalty_on_miss', "true").lower() == "true")
         _config["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", _config["default_rssi_threshold"]))
         _config["conflict_margin_db"] = int(settings_from_db.get("conflict_margin_db", _config["conflict_margin_db"]))
         _config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))

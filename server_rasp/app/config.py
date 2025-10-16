@@ -30,7 +30,8 @@ def load_configuration():
         config['Aggregator'] = {
             'process_interval_sec': '2.0',
             'reading_timeout_sec': '10',
-            'disappearance_tolerance_cycles': '10' # Novo parâmetro para a lógica de saída
+            'disappearance_tolerance_cycles': '10',
+            'force_penalty_on_miss': 'true' 
         }
 
         config['Deployment'] = {
