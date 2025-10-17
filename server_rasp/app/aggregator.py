@@ -40,6 +40,7 @@ class AssetState:
     def __init__(self, mac):
         self.mac = mac
         self.readings = {}
+        self.last_real_rssi = {}
         self.last_processed_avg = {} 
         self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "avg_rssi": -1000} 
         self.candidate_quarto_id = None
@@ -62,28 +63,25 @@ class AssetState:
         else:
             self.readings[esp_id]["timestamp"] = timestamp
 
+        self.last_real_rssi[esp_id] = rssi
         self.readings[esp_id]["samples"].append(rssi)
         self.readings[esp_id]["updated_in_last_batch"] = True
         self.disappeared_since = None
         self.disappearance_count = 0
 
     def apply_penalties_if_needed(self):
-        """
-        (NOVA FUNÇÃO)
-        Itera por todas as ESPs conhecidas. Se alguma não enviou dados
-        no último ciclo, aplica a lógica de penalidade ou de "ignorar".
-        """
-        # Se a "checkbox" estiver desmarcada, apenas resetamos os flags e saímos.
-        if not _config["force_penalty_on_miss"]:
-            for data in self.readings.values():
-                data["updated_in_last_batch"] = False
-            return
-
-        # Se a "checkbox" estiver marcada, aplicamos a penalidade
-        for data in self.readings.values():
+        # --- LÓGICA DESTA FUNÇÃO SERÁ ALTERADA ---
+        # Não precisamos mais da "checkbox", pois esta será a lógica padrão
+        
+        # Iteramos usando .items() para ter acesso ao esp_id
+        for esp_id, data in self.readings.items():
             if not data.get("updated_in_last_batch", False):
-                # Este ESP não reportou! Adicionamos a penalidade.
-                data["samples"].append(PENALTY_RSSI)
+                # Este ESP não reportou! Vamos repetir o último valor conhecido.
+                last_known_rssi = self.last_real_rssi.get(esp_id)
+                
+                # Só adicionamos se tivermos um último valor para repetir
+                if last_known_rssi is not None:
+                    data["samples"].append(last_known_rssi)
             
             # Reseta o flag para o próximo ciclo
             data["updated_in_last_batch"] = False
