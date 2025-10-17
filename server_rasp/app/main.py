@@ -312,11 +312,16 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
             reading = state.readings[embarcado.id_esp]
             samples = reading.get("samples")
             
+            # Pega o último valor bruto
             last_rssi = samples[-1] if samples else -1000
+            
+            # Calcula a média (SMA), se houver amostras
+            average_rssi = round(sum(samples) / len(samples)) if samples else -1000
             
             report_data.append({
                 "mac": mac,
-                "rssi": last_rssi # 3. Usa o valor corrigido aqui
+                "rssi": last_rssi,
+                "avg_rssi": average_rssi  # <-- NOVO DADO ENVIADO
             })
     
     websocket_message = {

@@ -262,19 +262,25 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
                 
-                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
+                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI Recente</th><th>MÉDIA (SMA)</th></tr></thead><tbody>`;
 
                 if (data.report && data.report.length > 0) {
-                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
+                    // Ordena pelo sinal MÉDIO, que é mais estável
+                    data.report.sort((a, b) => (b.avg_rssi || -1000) - (a.avg_rssi || -1000));
+           
                     data.report.forEach(beacon => {
                         const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
                         const rssiValue = beacon.rssi;
-                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
+                        // A decisão de cor agora se baseia na MÉDIA, que é o que importa para a localização
+                        const avgValue = beacon.avg_rssi;
+                        const rssiClass = avgValue >= threshold ? 'rssi-strong' : 'rssi-weak';
                         
-                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
+                        // Adicionamos a nova célula (<td>) para exibir a média
+                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td>${rssiValue} dBm</td><td class="${rssiClass}">${avgValue} dBm</td></tr>`;
                     });
                 } else {
-                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
+                    // Atualiza o colspan para 4 colunas
+                    reportHtml += '<tr><td colspan="4" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
                 }
 
                 reportHtml += '</tbody></table>';
