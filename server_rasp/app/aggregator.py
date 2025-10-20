@@ -57,7 +57,7 @@ class AssetState:
         if esp_id not in self.readings:
             self.readings[esp_id] = {
                 "timestamp": timestamp,
-                "samples": collections.deque(maxlen=5),
+                "samples": collections.deque(maxlen=10),
                 "updated_in_last_batch": True
             }
         else:
@@ -76,12 +76,31 @@ class AssetState:
         # Iteramos usando .items() para ter acesso ao esp_id
         for esp_id, data in self.readings.items():
             if not data.get("updated_in_last_batch", False):
-                # Este ESP não reportou! Vamos repetir o último valor conhecido.
+
+                '''
+                # NÃO MUDA NADA --- '''
+                pass
+
+                '''  
+                # ULTIMA MÉDIA PROCESSADA --- 
+                if data["samples"]:
+                    current_avg = round(sum(data["samples"]) / len(data["samples"]))
+                    
+                    data["samples"].append(current_avg)
+                '''
+
+                ''' 
+                # ÚLTIMO VALOR CONHECIDO ---   
                 last_known_rssi = self.last_real_rssi.get(esp_id)
                 
                 # Só adicionamos se tivermos um último valor para repetir
                 if last_known_rssi is not None:
-                    data["samples"].append(last_known_rssi)
+                    data["samples"].append(last_known_rssi)'''
+                
+                '''
+                # PENALIDADE FIXA (-100 dBm) ---
+                data["samples"].append(PENALTY_RSSI)
+                '''
             
             # Reseta o flag para o próximo ciclo
             data["updated_in_last_batch"] = False
