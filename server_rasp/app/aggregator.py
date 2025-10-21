@@ -57,7 +57,7 @@ class AssetState:
         if esp_id not in self.readings:
             self.readings[esp_id] = {
                 "timestamp": timestamp,
-                "samples": collections.deque(maxlen=10),
+                "samples": collections.deque(maxlen=15),
                 "updated_in_last_batch": True
             }
         else:
