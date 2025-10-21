@@ -1120,10 +1120,20 @@ def list_events(
         
         e.quarto = e.quarto_nome if e.quarto_nome else "N/A"
 
-        data_utc = e.data_on.replace(tzinfo=timezone.utc)
-        data_local = data_utc.astimezone(sao_paulo_tz)
-        e.data_str = data_local.strftime("%d/%m/%Y")
-        e.hora_str = data_local.strftime("%H:%M:%S")
+        if e.data_on:
+            data_utc = e.data_on.replace(tzinfo=timezone.utc)
+            data_local = data_utc.astimezone(sao_paulo_tz)
+            e.data_str = data_local.strftime("%d/%m/%Y")
+            e.hora_str = data_local.strftime("%H:%M:%S")
+
+        tooltip_parts = []
+        if e.status:
+            tooltip_parts.append(f"Status: {e.status}")
+        if e.status_detail:
+            tooltip_parts.append(f"Detalhes: {e.status_detail}")
+        
+        # Junta as partes com um separador. Se não houver status ou detalhe, o texto será vazio.
+        e.tooltip_text = " | ".join(tooltip_parts) #
 
     return templates.TemplateResponse("events_list.html", {
         "request": request, "events": events, "page": page, "has_next": total > page * EVENT_PAGE_SIZE,

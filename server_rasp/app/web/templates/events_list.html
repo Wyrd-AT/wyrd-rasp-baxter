@@ -80,11 +80,6 @@
                     {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
                 {# === FIM DAS MUDANÇAS === #}
-
-                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
-                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'rssi' and current_filters.order == 'desc' else 'desc' %}
                 <th><a href="{{ request.url.replace_query_params(sort_by='rssi', order=sort_order) }}">SINAL BLE</a>
                     {% if current_filters.sort_by == 'rssi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -93,9 +88,9 @@
                 <th><a href="{{ request.url.replace_query_params(sort_by='wifi', order=sort_order) }}">SINAL WI-FI</a>
                     {% if current_filters.sort_by == 'wifi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
-                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
+                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
             </tr>
         </thead>
@@ -111,26 +106,18 @@
                 <td>{{ event.andar_nome or '---' }}</td>
                 {# === FIM DAS MUDANÇAS === #}
 
-                <td>
-                    {% if event.action == 'GET' %}
-                        <span class="action-get">Conectar</span>
-                    {% elif event.action == 'OUT' %}
-                        <span class="action-out">Desconectar</span>
-                    {% elif event.action == 'ALERTA' %}
-                        <span class="action-warning">Alerta</span>
-                    {% else %}
-                        <span>{{ event.action }}</span>
-                    {% endif %}
-                </td>
                 <td>{{ event.rssi or '---' }}</td>     
                 <td>{{ event.wifi or '---' }}</td>     
                 <td>
-                    {% if event.status %}
-                        <span class="status-box status-{{ event.status | lower }}"
-                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
-                            {{ event.status }}
-                        </span>
-                    {% endif %}
+                    <span class="action-{{ event.action | lower }} action-tooltip" 
+                        {% if event.tooltip_text %} title="{{ event.tooltip_text }}" {% endif %}>
+
+                        {% if event.action == 'GET' %} Conectado
+                        {% elif event.action == 'OUT' %} Desconectado
+                        {% elif event.action == 'ALERTA' %} Alerta
+                        {% else %} {{ event.action }}
+                        {% endif %}
+                    </span>
                 </td>
             </tr>
             {% endfor %}
