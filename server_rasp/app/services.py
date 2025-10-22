@@ -1,144 +1,111 @@
-# app/services.py
+# app/services.py (VERSÃO FINAL UNIFICADA)
 
-# ==============================================================================
-# ARQUIVO: services.py (Versão Refatorada para Maior Coesão)
-# FUNÇÃO:  Orquestra as ações de negócio, garantindo a consistência entre o
-#          agregador, o banco de dados e a UI.
-# ==============================================================================
-
+import asyncio
 import logging
 from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session, joinedload
 
-from . import aggregator # Permite que os serviços interajam com o estado do agregador
-from . import mqtt_client
+from . import aggregator
 from .connection_manager import manager
-from .models import Asset, Embarcado, Quarto, ReceivedEvent
+from .dispatcher import dispatch_event # Assumindo que teremos um dispatcher unificado
+from .models import Asset, Embarcado, Quarto, ReceivedEvent, SessionLocal
 
 logger = logging.getLogger(__name__)
 
-
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
-    (FUNÇÃO PRINCIPAL E INALTERADA)
-    Processa uma lista de mudanças de localização de ativos numa única transação.
+    Versão final que só despacha eventos se o Tipo de Ativo estiver configurado para isso.
     """
-    if not changes:
-        return
+    if not changes: return
+
+    # ... (A primeira parte da função, que busca os dados e atualiza o DB, continua igual)
+    asset_ids = [c["asset_id"] for c in changes]
+    assets_to_update = {a.id: a for a in db.query(Asset).filter(Asset.id.in_(asset_ids)).options(joinedload(Asset.tipo_de_ativo), joinedload(Asset.quarto)).all()}
+    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).all()
+    quarto_nome_to_connecta_id_map = {e.quarto.nome: e.connecta_id for e in embarcados if e.quarto and e.connecta_id}
+    events_to_dispatch = []
 
     try:
+        # ETAPA 1: Atualizar o banco de dados e criar os eventos de histórico
         for change in changes:
-            asset_id = change["asset_id"]
-            new_quarto_id = change["new_quarto_id"]
-            
-            asset = db.query(Asset).options(joinedload(Asset.quarto)).get(asset_id)
-            if not asset:
-                continue
+            asset_id = change.get("asset_id")
+            asset = assets_to_update.get(asset_id)
+            if not asset: continue
 
-            quarto_anterior_id = asset.quarto_id
-            nome_quarto_evento = None
-            action = "GET"
-
-            if new_quarto_id is not None:
-                novo_quarto = db.query(Quarto).get(new_quarto_id)
-                if novo_quarto:
-                    nome_quarto_evento = novo_quarto.nome
-            else:
-                action = "OUT"
-                if asset.quarto:
-                    nome_quarto_evento = asset.quarto.nome
-            
-            quarto_evento_obj = None
-            if action == "GET":
-                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == new_quarto_id).first() 
-            else: # action == "OUT"
-                if asset.quarto:
-                    quarto_evento_obj = asset.quarto 
-
-            event = ReceivedEvent(
-                esp_id=change.get("source_esp_id", "server"),
-                ativo=asset.mac_beacon,
-                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else None,
-                # Esta é a linha mais importante que adicionamos
-                andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
-                action=action,
-                status="OK",
-                status_detail=change.get("details"),
-                rssi=change.get("rssi"),
-                data_on=datetime.now(timezone.utc),
-                raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
-            )
-            db.add(event)
+            new_quarto_id = change.get("new_quarto_id")
+            new_location_status = change.get("location_status")
+            action = "GET" if new_quarto_id is not None else "OUT"
 
             asset.quarto_id = new_quarto_id
+            if new_location_status:
+                asset.location_status = new_location_status
+                asset.location_status_updated_on = datetime.now(timezone.utc)
+
+            quarto_contexto_id = new_quarto_id if action == "GET" else asset.quarto_id
+            quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_contexto_id).first() if quarto_contexto_id else None
+            status_evento = new_location_status if new_location_status else "Confirmado"
+
+            event = ReceivedEvent(
+                esp_id=change.get("source_esp_id", "server"), ativo=asset.mac_beacon,
+                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else "N/A",
+                andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
+                action=action, status=status_evento, status_detail=change.get("details"),
+                rssi=change.get("rssi"), data_on=datetime.now(timezone.utc),
+                raw={"source": "aggregator_unified", "old_quarto_id": asset.quarto_id}
+            )
+            db.add(event)
+            events_to_dispatch.append(event)
+            aggregator._asset_map[asset.mac_beacon]['quarto_id'] = new_quarto_id
 
         db.commit()
-        
-        logger.info(f"Lote de {len(changes)} mudanças processado e salvo com sucesso.")
+
+        # ETAPA 2: Despachar eventos para sistemas externos (com a nova lógica "E")
+        loop = asyncio.get_running_loop()
+        for event in events_to_dispatch:
+            db.refresh(event)
+
+            asset_to_dispatch = assets_to_update.get(event.asset_id)
+            if not asset_to_dispatch or not asset_to_dispatch.tipo_de_ativo: continue
+
+            # 1. O ativo precisa ter o despacho habilitado?
+            ativo_requer_despache = asset_to_dispatch.tipo_de_ativo.precisa_de_despache
+
+            # 2. O quarto onde o evento ocorreu permite despachos?
+            quarto_do_evento_id = asset_to_dispatch.quarto_id
+            regras_do_quarto = aggregator._quarto_map.get(quarto_do_evento_id, {})
+            quarto_habilita_despache = regras_do_quarto.get('habilita_eventos_integracao', False)
+
+            # 3. Só continua se AMBAS as condições forem verdadeiras.
+            if not (ativo_requer_despache and quarto_habilita_despache):
+                continue
+            # =================================================================
+
+            # Se ambas as condições passaram, monta o payload e envia.
+            connecta_id = quarto_nome_to_connecta_id_map.get(event.quarto_nome)
+            dispatch_payload = {
+                "quarto": event.quarto_nome, "id_connecta": connecta_id,
+                "cama": asset_to_dispatch.nome_ativo, "modelo": asset_to_dispatch.modelo,
+                "status": event.action, "dataOn": event.data_on.isoformat(),
+                "etapa": event.status
+            }
+            await loop.run_in_executor(None, dispatch_event, dispatch_payload)
+
+        # ETAPA 3: Notificar a interface do usuário
         await manager.broadcast("ATUALIZAR_ESTADO")
 
     except Exception as e:
-        logger.error(f"ERRO na transação de atualização em lote: {e}", exc_info=True)
+        logger.error(f"ERRO no batch_update_asset_assignments: {e}", exc_info=True)
         db.rollback()
 
-
-async def synchronize_and_reset_esp(db: Session, embarcado_id: int):
-    """
-    (LÓGICA CORRIGIDA) Força a remoção de todos os ativos associados
-    ao quarto de um embarcado diretamente no servidor.
-    Esta função NÃO envia mais comandos para a ESP.
-    """
-    try:
-        embarcado = db.query(Embarcado).get(embarcado_id)
-        if not embarcado or not embarcado.quarto_id:
-            logger.warning(f"[SERVICE] Reset solicitado para embarcado ID {embarcado_id}, mas ele não foi encontrado ou não tem quarto associado.")
-            return
-
-        quarto_id_para_limpar = embarcado.quarto_id
-        logger.info(f"[SERVICE] Iniciando remoção forçada de todos os ativos do Quarto ID {quarto_id_para_limpar} (acionado pelo embarcado {embarcado.id_esp}).")
-
-        # 1. Encontra todos os ativos que estão atualmente neste quarto.
-        assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id_para_limpar).all()
-
-        if not assets_no_quarto:
-            logger.info(f"[SERVICE] O quarto já estava vazio. Nenhuma ação necessária.")
-            return
-
-        changes_to_commit = []
-        for asset in assets_no_quarto:
-            logger.info(f"[SERVICE] Preparando remoção forçada do ativo '{asset.nome_ativo}' (MAC: {asset.mac_beacon}).")
-            
-            # 2. Limpa o estado em tempo real do ativo no aggregator para parar o processamento.
-            aggregator.clear_asset_state(asset.mac_beacon)
-
-            # 3. Prepara a "mudança de saída" para ser processada em lote.
-            changes_to_commit.append({
-                "asset_id": asset.id,
-                "new_quarto_id": None,
-                "source_esp_id": "manual_reset",
-                "rssi": -999,
-                "details": f"Remoção forçada pelo operador via reset do embarcado '{embarcado.id_esp}'."
-            })
-
-        # 4. Processa todas as saídas de uma vez só, de forma consistente.
-        if changes_to_commit:
-            await batch_update_asset_assignments(db, changes_to_commit)
-            logger.info(f"[SERVICE] {len(changes_to_commit)} ativos foram removidos com sucesso do Quarto ID {quarto_id_para_limpar}.")
-
-    except Exception as e:
-        logger.error(f"[SERVICE] ERRO durante a remoção forçada de ativos para o embarcado ID '{embarcado_id}': {e}", exc_info=True)
-
-
 async def release_assets_for_offline_esp(db: Session, esp_id: str):
-    """
-    (FUNÇÃO CORRIGIDA) Liberta todos os ativos de um quarto cuja ESP ficou offline.
-    """
+    """Liberta todos os ativos de um quarto cuja ESP ficou offline."""
     embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
     if not embarcado or not embarcado.quarto_id:
         return
 
     quarto_nome = embarcado.quarto.nome
-    logger.warning(f"[LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Libertando seus ativos...")
+    logger.warning(f"[SERVICE] ESP {esp_id} (Quarto: {quarto_nome}) offline. Libertando seus ativos...")
     
     assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
     if not assets_no_quarto:
@@ -146,22 +113,47 @@ async def release_assets_for_offline_esp(db: Session, esp_id: str):
 
     changes_to_commit = []
     for asset in assets_no_quarto:
-        logger.info(f"[LIVENESS] Preparando para libertar ativo '{asset.nome_ativo}'...")
-        
-        # 1. (NOVO) Limpa o estado de cada ativo na memória do agregador.
-        #    Para isso, precisaremos de uma nova função no agregador.
+        # Limpa o estado em memória para parar o processamento
         aggregator.clear_asset_state(asset.mac_beacon)
-
-        # 2. Prepara a informação de "saída" para cada ativo.
+        
         changes_to_commit.append({
             "asset_id": asset.id,
             "new_quarto_id": None,
+            "location_status": "LIVRE",
             "source_esp_id": "liveness_check",
-            "rssi": -999,
             "details": f"Ativo libertado porque a ESP '{esp_id}' do quarto '{quarto_nome}' ficou offline."
         })
 
-    # 3. Processa todas as saídas de uma só vez através da função principal.
     if changes_to_commit:
-        logger.info(f"[LIVENESS] Processando a saída de {len(changes_to_commit)} ativos do quarto {quarto_nome}.")
         await batch_update_asset_assignments(db, changes_to_commit)
+
+# ==============================================================================
+# FUNÇÃO ADICIONADA
+# ==============================================================================
+async def force_asset_removal(db: Session, asset_id: int, details: str):
+    """
+    Força a remoção de um ativo específico de um quarto e limpa seu estado na memória.
+    Esta é a forma correta e segura de "resetar" manualmente a localização de um ativo.
+    """
+    asset = db.query(Asset).get(asset_id)
+    if not asset or asset.quarto_id is None:
+        logger.warning(f"[SERVICE] Tentativa de forçar remoção do ativo {asset_id}, mas ele não está em um quarto.")
+        return
+
+    logger.info(f"[SERVICE] Forçando remoção do ativo '{asset.nome_ativo}' do quarto ID {asset.quarto_id}.")
+    
+    # Passo 1 (CRUCIAL): Limpa o estado em tempo real do ativo no aggregator.
+    # Isso impede que o aggregator o coloque de volta no próximo ciclo.
+    aggregator.clear_asset_state(asset.mac_beacon)
+
+    # Passo 2: Prepara a "mudança de saída" para ser processada de forma padrão.
+    change_info = [{
+        "asset_id": asset.id,
+        "new_quarto_id": None,
+        "location_status": "LIVRE",
+        "source_esp_id": "manual_removal",
+        "details": details
+    }]
+    
+    # Passo 3: Processa a saída usando a função padrão para garantir consistência.
+    await batch_update_asset_assignments(db, change_info)

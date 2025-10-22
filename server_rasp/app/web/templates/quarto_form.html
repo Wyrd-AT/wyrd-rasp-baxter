@@ -1,10 +1,33 @@
+{# app/web/templates/quarto_form.html #}
 <div class="form-card">
-    <h3>{% if quarto %}Editar Quarto{% else %}Cadastro de Quarto{% endif %}</h3>
     <form action="{{ form_action }}" method="post">
-        <div class="form-group">
-            <label for="nome">Nome do Quarto</label>
-            <input type="text" id="nome" name="nome" value="{{ quarto.nome if quarto else '' }}" placeholder="Ex: Sala de Reunião 1" required>
+        <div class="form-header">
+            <h3>{% if quarto %}Editar Quarto{% else %}Cadastro de Quartos{% endif %}</h3>
+            <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if quarto else 'Salvar' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            </button>
         </div>
-        <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if quarto else 'Salvar' }}</button>
+        
+        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="form-group">
+                <label for="nome">Nome do Quarto</label>
+                <input type="text" id="nome" name="nome" value="{{ quarto.nome if quarto else '' }}" placeholder="Ex: 101, UTI-02" required>
+            </div>
+            <div class="form-group">
+                <label for="andar_nome">Andar</label>
+                <input type="text" id="andar_nome" name="andar_nome" value="{{ quarto.andar.nome if quarto and quarto.andar else '' }}" placeholder="Ex: Térreo, 1º Andar" required>
+            </div>
+            <div class="form-group">
+                <label for="tipo_quarto_id">Tipo de Quarto</label>
+                <select id="tipo_quarto_id" name="tipo_quarto_id" required>
+                    <option value="" disabled {% if not quarto %}selected{% endif %}>Selecione um tipo...</option>
+                    {% for tipo in all_tipos_de_quarto %}
+                        <option value="{{ tipo.id }}" {% if quarto and quarto.tipo_quarto_id == tipo.id %}selected{% endif %}>
+                            {{ tipo.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
     </form>
 </div>

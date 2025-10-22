@@ -7,7 +7,7 @@
     <h1>Ativos</h1>
     <div class="header-actions">
         <form method="get" action="{{ url_for('list_assets') }}" class="search-bar">
-            <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
+            <input type="text" name="search" placeholder="Pesquisar por nome, MAC, quarto ou tipo" value="{{ search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
@@ -16,29 +16,30 @@
     </div>
 </div>
 
-{# FORMULÁRIO MOVIDO PARA CIMA E USANDO O CONTAINER VERTICAL #}
 <div class="forms-container-vertical" id="forms-container">
     {% include 'asset_form.html' %}
 </div>
 
-{# TABELA AGORA VEM DEPOIS, EM UM CONTAINER DE LARGURA TOTAL #}
 <div class="list-container-full-width">
     <table class="data-table">
     <thead>
         <tr>
             <th style="text-align: center; width: 80px;">AÇÕES</th>
             {% set sort_order = 'asc' if current_filters.sort_by == 'nome_ativo' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=sort_order) }}">NOME DA CAMA</a>
+            <th><a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=sort_order) }}">NOME DO ATIVO</a>
                 {% if current_filters.sort_by == 'nome_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+            
             {% set sort_order = 'asc' if current_filters.sort_by == 'tipo_ativo' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='tipo_ativo', order=sort_order) }}">TIPO DE ATIVO</a>
                 {% if current_filters.sort_by == 'tipo_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+
             {% set sort_order = 'asc' if current_filters.sort_by == 'mac_beacon' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
                 {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+            
             {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
                 {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -51,19 +52,16 @@
         <tr class="selectable-row" data-id="{{ asset.id }}">
             <td style="text-align: center;">
                 <div class="actions-menu-container">
-                    <button class="actions-menu-trigger" title="Abrir menu de ações">
-                        &#8942;
-                    </button>
+                    <button class="actions-menu-trigger" title="Abrir menu de ações">&#8942;</button>
                     <div class="actions-dropdown">
                         <a href="{{ url_for('edit_asset', asset_id=asset.id) }}" class="menu-item-link">Editar</a>
-                        <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o ativo {{ asset.nome_ativo }}?');">Excluir</a>
+                        <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza?');">Excluir</a>
                     </div>
                 </div>
             </td>
             <td>{{ asset.nome_ativo }}</td>
 
-            {# NOVOS DADOS #}
-            <td>{{ asset.tipo_ativo or '---' }}</td>
+            <td>{{ asset.tipo_de_ativo.nome if asset.tipo_de_ativo else '---' }}</td>
             
             <td>{{ asset.mac_beacon }}</td>
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>

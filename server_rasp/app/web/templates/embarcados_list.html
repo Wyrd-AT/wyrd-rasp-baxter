@@ -22,35 +22,29 @@
     </div>
     
     <div class="form-card">
-    <form action="{{ url_for('update_settings') }}" method="post">
-        
-        <div class="form-header">
-            <h3>Configurações Globais</h3>
-            <button type="submit" class="icon-btn icon-btn-primary" title="Salvar Configurações Globais">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-            </button>
-        </div>
-        
-        <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="form-group">
-                <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
-                <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
+          <form action="{{ url_for('update_settings') }}" method="post">
+            <div class="form-header">
+                <h3>Configurações Globais</h3>
+                <button type="submit" class="icon-btn icon-btn-primary" title="Salvar Configurações Globais">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                </button>
             </div>
-            <div class="form-group">
-                <label for="conflict_margin_db">Margem de Conflito (dB)</label>
-                <input type="number" name="conflict_margin_db" value="{{ global_settings.conflict_margin_db }}" required>
+            <div class="form-fields-grid", style="grid-template-columns: repeat(2, 1fr);">
+                <div class="form-group">
+                    <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
+                    <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_entrada">Inércia de Entrada (ms)</label>
+                    <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_saida">Inércia de Saída (ms)</label>
+                    <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="inercia_entrada">Inércia de Entrada (ms)</label>
-                <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
-            </div>
-            <div class="form-group">
-                <label for="inercia_saida">Inércia de Saída (ms)</label>
-                <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
-            </div>
-        </div>
-    </form>
-</div>
+        </form>
+    </div>
 </div>
 
 {# 2. TABELA AGORA VEM DEPOIS DOS FORMULÁRIOS #}
@@ -260,27 +254,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
                 
-                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
+                modalTitle.textContentg_mana = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
                 
-                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI Recente</th><th>MÉDIA (SMA)</th></tr></thead><tbody>`;
+                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
 
                 if (data.report && data.report.length > 0) {
-                    // Ordena pelo sinal MÉDIO, que é mais estável
-                    data.report.sort((a, b) => (b.avg_rssi || -1000) - (a.avg_rssi || -1000));
-           
+                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
                     data.report.forEach(beacon => {
                         const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
                         const rssiValue = beacon.rssi;
-                        // A decisão de cor agora se baseia na MÉDIA, que é o que importa para a localização
-                        const avgValue = beacon.avg_rssi;
-                        const rssiClass = avgValue >= threshold ? 'rssi-strong' : 'rssi-weak';
+                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
                         
-                        // Adicionamos a nova célula (<td>) para exibir a média
-                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td>${rssiValue} dBm</td><td class="${rssiClass}">${avgValue} dBm</td></tr>`;
+                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
                     });
                 } else {
-                    // Atualiza o colspan para 4 colunas
-                    reportHtml += '<tr><td colspan="4" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
+                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
                 }
 
                 reportHtml += '</tbody></table>';

@@ -1,189 +1,202 @@
-# aggregator.py (Versão Final com Média Móvel Exponencial)
+# app/aggregator.py (VERSÃO FINAL UNIFICADA E ROBUSTA)
+
 import asyncio
 import time
 import json
+import logging
 import collections
-from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting
+from datetime import datetime, timezone
+
+from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting, TipoDeAtivo, TipoDeQuarto
 from .services import batch_update_asset_assignments
 from .mqtt_client import scan_data_queue
-import logging
 from .config import settings
+from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 signal_logger = logging.getLogger('signals')
 
-# --- CACHE EM MEMÓRIA ---
+# --- CACHES GLOBAIS EM MEMÓRIA ---
+# Estes dicionários armazenarão as regras e o estado em tempo real para performance máxima.
 _esp_map = {}
 _asset_map = {}
-_config_needs_reload = asyncio.Event()
+_quarto_map = {} # NOVO: Cache para as regras dos quartos
 _asset_realtime_state = {}
+_config_needs_reload = asyncio.Event()
 
-SIGNAL_LOG_INTERVAL_SEC = 15.0  
-_last_signal_log_times_per_esp = {}
-
-# --- Configurações Padrão ---
+# --- CONFIGURAÇÕES CARREGADAS DO config.ini ---
 _config = {
-    "process_interval_sec": 2.0,
-    "reading_timeout_sec": 10,
+    "process_interval_sec": float(settings.get('process_interval_sec', 2.0)),
+    "reading_timeout_sec": int(settings.get('reading_timeout_sec', 10)),
+    "disappearance_tolerance_cycles": int(settings.get('disappearance_tolerance_cycles', 10)),
+}
+
+# --- CONFIGURAÇÕES GLOBAIS (Carregadas do DB, com fallback) ---
+_global_settings = {
     "default_rssi_threshold": -75,
     "conflict_margin_db": 5,
     "inertia_entrada_ms": 3000,
     "inertia_saida_ms": 10000,
-    "ema_alpha": 0.4,
-    "disappearance_tolerance_cycles": 10,
-    "force_penalty_on_miss": True 
 }
 
-PENALTY_RSSI = -100
 
+# ==============================================================================
+# CLASSE DE ESTADO DO ATIVO
+# ==============================================================================
 class AssetState:
-    def __init__(self, mac):
+    def __init__(self, mac, tipo_de_ativo, quarto_id_atual, location_status_atual):
         self.mac = mac
+        
+        # Define o estado inicial com base nos dados do banco de dados
+        if quarto_id_atual is None:
+            self.state = 'LIVRE'
+        else:
+            # Se já está em um quarto, o estado é o status de localização salvo
+            self.state = location_status_atual if location_status_atual in ['PENDENTE', 'CONFIRMADO', 'ALERTA'] else 'CONFIRMADO'
+
+        # --- Atributos de Leitura de Sinal ---
         self.readings = {}
-        self.last_real_rssi = {}
-        self.last_processed_avg = {} 
-        self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "avg_rssi": -1000} 
+        self.last_processed_avg = {}
+        self.algoritmo_media = tipo_de_ativo.get('algoritmo_media', 'SMA')
+        self.parametro_media = tipo_de_ativo.get('parametro_media', 15)
+        if self.algoritmo_media == 'SMA':
+            self.samples = collections.deque(maxlen=int(self.parametro_media))
+        else:
+            self.samples = collections.deque(maxlen=2)
+
+        # --- Atributos para Gerenciamento de Transições de Estado ---
+        self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "avg_rssi": -1000}
         self.candidate_quarto_id = None
         self.candidate_since = None
-        self.disappeared_since = None
         self.weak_signal_since = None
         self.disappearance_count = 0
 
     def update_reading(self, esp_id, rssi, timestamp):
-        """
-        Atualiza a leitura de uma ESP.
-        Em vez de calcular EMA, agora adiciona o RSSI a uma lista (deque) de 5 amostras.
-        """
-        if esp_id not in self.readings:
-            self.readings[esp_id] = {
-                "timestamp": timestamp,
-                "samples": collections.deque(maxlen=15),
-                "updated_in_last_batch": True
-            }
-        else:
-            self.readings[esp_id]["timestamp"] = timestamp
-
-        self.last_real_rssi[esp_id] = rssi
-        self.readings[esp_id]["samples"].append(rssi)
-        self.readings[esp_id]["updated_in_last_batch"] = True
-        self.disappeared_since = None
+        # TRANSIÇÃO: Se estava DESAPARECIDO, a chegada de um sinal o torna LIVRE.
+        if self.state == 'DESAPARECIDO':
+            logger.info(f"Ativo {self.mac} reapareceu. Estado mudando de DESAPARECIDO para LIVRE.")
+            self.state = 'LIVRE'
+        
+        if esp_id not in self.readings: self.readings[esp_id] = {}
+        self.readings[esp_id]["timestamp"] = timestamp
+        self.readings[esp_id]["last_rssi"] = rssi
+        self.samples.append(rssi)
         self.disappearance_count = 0
 
-    def apply_penalties_if_needed(self):
-        # --- LÓGICA DESTA FUNÇÃO SERÁ ALTERADA ---
-        # Não precisamos mais da "checkbox", pois esta será a lógica padrão
-        
-        # Iteramos usando .items() para ter acesso ao esp_id
-        for esp_id, data in self.readings.items():
-            if not data.get("updated_in_last_batch", False):
-
-                '''
-                # NÃO MUDA NADA --- '''
-                pass
-
-                '''  
-                # ULTIMA MÉDIA PROCESSADA --- 
-                if data["samples"]:
-                    current_avg = round(sum(data["samples"]) / len(data["samples"]))
-                    
-                    data["samples"].append(current_avg)
-                '''
-
-                ''' 
-                # ÚLTIMO VALOR CONHECIDO ---   
-                last_known_rssi = self.last_real_rssi.get(esp_id)
-                
-                # Só adicionamos se tivermos um último valor para repetir
-                if last_known_rssi is not None:
-                    data["samples"].append(last_known_rssi)'''
-                
-                '''
-                # PENALIDADE FIXA (-100 dBm) ---
-                data["samples"].append(PENALTY_RSSI)
-                '''
-            
-            # Reseta o flag para o próximo ciclo
-            data["updated_in_last_batch"] = False
-
     def get_average_rssi(self, esp_id):
-        """
-        (NOVA FUNÇÃO)
-        Calcula e retorna a Média Móvel Simples (SMA) para uma ESP.
-        """
-        if esp_id not in self.readings or not self.readings[esp_id]["samples"]:
-            return -1000 # Valor inválido/inexistente
-
-        samples = self.readings[esp_id]["samples"]
-        avg = sum(samples) / len(samples)
-        
-        # Guarda a última média calculada (substituindo last_known_ema)
+        if not self.samples: return -1000
+        if self.algoritmo_media == 'SMA': avg = sum(self.samples) / len(self.samples)
+        elif self.algoritmo_media == 'EMA':
+            alpha = float(self.parametro_media)
+            last_avg = self.last_processed_avg.get(esp_id, self.samples[0])
+            avg = (self.samples[-1] * alpha) + (last_avg * (1 - alpha))
+        else: avg = sum(self.samples) / len(self.samples)
         self.last_processed_avg[esp_id] = avg
         return avg
 
     def cleanup_old_readings(self):
-        """
-        Função modificada para também limpar o 'last_processed_avg'.
-        """
         now = time.time()
         timeout = _config["reading_timeout_sec"]
+        self.readings = { esp_id: data for esp_id, data in self.readings.items() if now - data.get("timestamp", 0) <= timeout }
         
-        # Usamos list() para poder modificar o dicionário durante a iteração
-        for esp_id, data in list(self.readings.items()):
-            if now - data["timestamp"] > timeout:
-                # Esta ESP não vê o ativo há 10s. Removemos seu registro.
-                del self.readings[esp_id]
-                if esp_id in self.last_processed_avg:
-                    del self.last_processed_avg[esp_id]
+        # TRANSIÇÃO: Se não houver mais leituras, o ativo está DESAPARECIDO.
+        if not self.readings and self.state != 'DESAPARECIDO':
+            logger.debug(f"Ativo {self.mac} sem leituras. Estado mudando para DESAPARECIDO.")
+            self.state = 'DESAPARECIDO'
+            self.disappearance_count = 0 # Reseta a contagem ao entrar no estado
         
         return bool(self.readings)
 
-async def _consume_scan_data_queue():
-    global _last_signal_log_times_per_esp
-    db = None
+# ==============================================================================
+# FUNÇÕES DE CONTROLE EXTERNO E CARREGAMENTO DE CACHE
+# ==============================================================================
 
+def flag_for_reload():
+    """Sinaliza para o loop principal que os caches precisam ser recarregados do DB."""
+    _config_needs_reload.set()
+
+def _load_maps_from_db():
+    """
+    Função vital que carrega todas as entidades e, mais importante,
+    as REGRAS DE NEGÓCIO do banco de dados para a memória RAM.
+    """
+    global _esp_map, _asset_map, _quarto_map, _global_settings
+    logger.info("[CACHE] Recarregando todos os mapas e regras do banco de dados...")
+    db = SessionLocal()
     try:
-        while not scan_data_queue.empty():
-            item = await scan_data_queue.get()
+        # 1. Carrega Embarcados
+        esps = db.query(Embarcado).all()
+        _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
+        
+        # 2. Carrega Ativos e as regras do seu TIPO
+        assets = db.query(Asset).options(joinedload(Asset.tipo_de_ativo)).all()
+        _asset_map = {
+            a.mac_beacon: {
+                "id": a.id,
+                "quarto_id": a.quarto_id,
+                "status": a.status,
+                # REGRAS DO TIPO DE ATIVO
+                "requer_confirmacao_externa": a.tipo_de_ativo.requer_confirmacao_externa if a.tipo_de_ativo else False,
+                "algoritmo_media": a.tipo_de_ativo.algoritmo_media if a.tipo_de_ativo else 'SMA',
+                "parametro_media": a.tipo_de_ativo.parametro_media if a.tipo_de_ativo else 15,
+            } for a in assets
+        }
 
-            esp_id = item.get("esp_id")
-            if not esp_id:
-                continue    
+        # 3. Carrega Quartos e as regras do seu TIPO
+        quartos = db.query(Quarto).options(joinedload(Quarto.tipo_de_quarto)).all()
+        _quarto_map = {
+            q.id: {
+                "nome": q.nome,
+                # REGRAS DO TIPO DE QUARTO
+                # ADICIONE ESTA LINHA
+                "habilita_eventos_integracao": q.tipo_de_quarto.habilita_eventos_integracao if q.tipo_de_quarto else False,
+                "capacidade_maxima": q.tipo_de_quarto.capacidade_maxima if q.tipo_de_quarto else 0,
+                "permite_transicao_direta": q.tipo_de_quarto.permite_transicao_direta if q.tipo_de_quarto else True,
+            } for q in quartos
+        }
 
-            now = time.time()
-            last_log_time = _last_signal_log_times_per_esp.get(esp_id, 0)
-
-            if (now - last_log_time) > SIGNAL_LOG_INTERVAL_SEC:
-                signal_logger.info(json.dumps(item))
-                _last_signal_log_times_per_esp[esp_id] = now
-
-            
-            payload = item.get("payload", {})
-
-            beacons_obj = payload.get("b", {})
-
-            for mac, rssi in beacons_obj.items():
-                mac = mac.lower()
-                if not mac or mac not in _asset_map: continue
-
-                asset_info = _asset_map.get(mac)
-                
-                if asset_info.get("status") == 'Offline':
-                    if db is None: db = SessionLocal() 
-                    asset_db = db.query(Asset).get(asset_info.get("id"))
-                    if asset_db:
-                        asset_db.status = 'Online'
-                        _asset_map[mac]['status'] = 'Online'
-                
-                if mac not in _asset_realtime_state:
-                    _asset_realtime_state[mac] = AssetState(mac)
-                
-                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
+        # 4. Carrega configurações globais
+        settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
+        _global_settings["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", -75))
+        _global_settings["conflict_margin_db"] = int(settings_from_db.get("conflict_margin_db", 5))
+        _global_settings["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", 3000))
+        _global_settings["inertia_saida_ms"] = int(settings_from_db.get("inercia_saida", 10000))
+        
+        logger.info(f"[CACHE] Recarregado: {len(_esp_map)} ESPs, {len(_asset_map)} Ativos, {len(_quarto_map)} Quartos.")
     finally:
-        if db:
-            db.commit()
-            db.close()
+        db.close()
+
+# ==============================================================================
+# LÓGICA PRINCIPAL DO AGGREGATOR
+# ==============================================================================
+
+async def _consume_scan_data_queue():
+    """Lê mensagens da fila MQTT e atualiza o estado em memória dos ativos."""
+    while not scan_data_queue.empty():
+        item = await scan_data_queue.get()
+        esp_id, payload = item.get("esp_id"), item.get("payload", {})
+        beacons_obj = payload.get("b", {})
+
+        for mac, rssi in beacons_obj.items():
+            mac = mac.lower()
+            if not mac or mac not in _asset_map:
+                continue
+
+            # Se for a primeira vez que vemos este ativo, criamos seu objeto de estado
+            if mac not in _asset_realtime_state:
+                tipo_de_ativo_regras = {
+                    'algoritmo_media': _asset_map[mac].get('algoritmo_media', 'SMA'),
+                    'parametro_media': _asset_map[mac].get('parametro_media', 15)
+                }
+                _asset_realtime_state[mac] = AssetState(mac, tipo_de_ativo_regras)
+            
+            _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
 
 async def _processar_localizacoes():
+    """
+    O cérebro do sistema, implementado como uma Máquina de Estados explícita e definitiva,
+    incluindo a lógica de transição direta para "Modo Móvel".
+    """
     if not _esp_map or not _asset_map: return
 
     changes_to_commit = []
@@ -192,128 +205,113 @@ async def _processar_localizacoes():
         for mac, state in list(_asset_realtime_state.items()):
             asset_info = _asset_map.get(mac, {})
             asset_id = asset_info.get("id")
-            quarto_id_atual = asset_info.get("quarto_id")
-
             if not asset_id: continue
 
-            state.apply_penalties_if_needed()
+            # --- ETAPA 1: Pré-processamento e Cálculo de Candidato ---
+            state.cleanup_old_readings()
+            strongest_candidate = {"esp_id": None, "avg_rssi": -1000, "quarto_id": None}
+            if state.state != 'DESAPARECIDO':
+                # (lógica de cálculo do candidato mais forte, sem alterações)
+                for esp_id in state.readings:
+                    if esp_id not in _esp_map: continue
+                    quarto_id_candidato, rssi_min_embarcado = _esp_map[esp_id]
+                    regras_quarto_candidato = _quarto_map.get(quarto_id_candidato, {})
+                    capacidade = regras_quarto_candidato.get('capacidade_maxima', 0)
+                    if capacidade > 0:
+                        ativos_no_quarto = sum(1 for a in _asset_map.values() if a['quarto_id'] == quarto_id_candidato)
+                        if ativos_no_quarto >= capacidade: continue
+                    current_avg = state.get_average_rssi(esp_id)
+                    threshold = rssi_min_embarcado if rssi_min_embarcado is not None else _global_settings["default_rssi_threshold"]
+                    if current_avg > threshold and current_avg > strongest_candidate["avg_rssi"]:
+                        strongest_candidate = {"esp_id": esp_id, "avg_rssi": current_avg, "quarto_id": quarto_id_candidato}
 
-            if not state.cleanup_old_readings():
+            # --- ETAPA 2: Processamento da Máquina de Estados ---
+
+            if state.state == 'DESAPARECIDO':
                 state.disappearance_count += 1
-                
-                logger.debug(f"Ativo {mac} sem sinal. Contagem de desaparecimento: {state.disappearance_count}/{_config['disappearance_tolerance_cycles']}.")
-
                 if state.disappearance_count >= _config['disappearance_tolerance_cycles']:
-                    
-                    if quarto_id_atual is not None:
-                        logger.info(f"EVENTO OUT (CICLOS): Ativo {mac} desapareceu consistentemente. Removendo do Quarto {quarto_id_atual}.")
+                    if asset_info.get("quarto_id") is not None:
                         changes_to_commit.append({
-                            "asset_id": asset_id, 
-                            "new_quarto_id": None,
-                            "source_esp_id": state.last_strongest_signal.get("esp_id") or "server_disappearance",
-                            "rssi": state.last_strongest_signal.get("rssi", -1000),
-                            "details": f"Ativo desapareceu do radar BLE por {_config['disappearance_tolerance_cycles']} ciclos."
+                            "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE",
+                            "details": f"Ativo sem sinal BLE por mais de {_config['disappearance_tolerance_cycles']} ciclos."
                         })
-                    
-                    if asset_info.get("status") == 'Online':
-                        logger.warning(f"Ativo '{mac}' desapareceu consistentemente. Marcando como Offline.")
-                        asset_db = db.query(Asset).get(asset_id)
-                        if asset_db:
-                            asset_db.status = 'Offline'
-                        if mac in _asset_map:
-                            _asset_map[mac]['status'] = 'Offline'
-
                     del _asset_realtime_state[mac]
-                continue 
-            
-            strongest_candidate = {"esp_id": None, "rssi": -1000, "avg_rssi": -1000, "quarto_id": None}
-            
-            for esp_id, reading_data in state.readings.items():
-                if esp_id not in _esp_map: continue
-                
-                current_avg = state.get_average_rssi(esp_id)
-                if current_avg == -1000: # Ignora se não houver amostras
-                    continue
-
-                q_id, q_rssi = _esp_map[esp_id]
-                threshold = q_rssi if q_rssi is not None else _config["default_rssi_threshold"]
-                
-                if current_avg > threshold and current_avg > strongest_candidate["avg_rssi"]:
-                    last_raw_rssi = reading_data["samples"][-1] if reading_data["samples"] else -1000
-                    
-                    strongest_candidate = {
-                        "esp_id": esp_id, 
-                        "rssi": last_raw_rssi,        # Guarda o RSSI bruto mais recente para log
-                        "avg_rssi": current_avg,      # Usa a MÉDIA (SMA) para decisão
-                        "quarto_id": q_id
-                    }
-            
-            # Atualiza o sinal mais forte geral (baseado na MÉDIA)
-            if state.last_processed_avg:
-                top_esp, top_avg = max(state.last_processed_avg.items(), key=lambda i: i[1])
-                last_raw = state.readings[top_esp]["samples"][-1] if top_esp in state.readings and state.readings[top_esp]["samples"] else -1000
-                state.last_strongest_signal = {"esp_id": top_esp, "rssi": last_raw, "avg_rssi": top_avg}
-
-            candidate_quarto_id = strongest_candidate["quarto_id"]
-
-            candidate_quarto_id = strongest_candidate["quarto_id"]
-
-            if quarto_id_atual is not None and not candidate_quarto_id:
-                if state.weak_signal_since is None: state.weak_signal_since = time.time()
-                elif (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
-                    logger.info(f"EVENTO OUT (SINAL FRACO): Ativo {mac} marcado para remoção do Quarto {quarto_id_atual}.")
-                    changes_to_commit.append({
-                        "asset_id": asset_id, "new_quarto_id": None,
-                        "source_esp_id": state.last_strongest_signal['esp_id'],
-                        "rssi": state.last_strongest_signal['rssi'],
-                        "details": f"Sinal (SMA) permaneceu fraco por {_config['inertia_saida_ms']}ms" 
-                    })
-                    if mac in _asset_map: _asset_map[mac]['quarto_id'] = None
-                    state.weak_signal_since = None
-                    continue
-            elif state.weak_signal_since is not None: state.weak_signal_since = None
-
-            if candidate_quarto_id == quarto_id_atual:
-                state.candidate_quarto_id = quarto_id_atual
-                state.candidate_since = None
                 continue
 
-            if candidate_quarto_id != state.candidate_quarto_id:
-                if quarto_id_atual is not None and candidate_quarto_id is not None:
-                    esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual] 
-                    
-                    leituras_ao_vivo_avg = [
-                        state.get_average_rssi(e) for e in esps_no_quarto_atual 
-                        if e in state.readings and state.readings[e]["samples"]
-                    ]
-                    
-                    if leituras_ao_vivo_avg:
-                        rssi_para_comparacao = max(leituras_ao_vivo_avg)
-                    else:
-                        avg_conhecidos = [avg for esp, avg in state.last_processed_avg.items() if esp in esps_no_quarto_atual]
-                        rssi_para_comparacao = max(avg_conhecidos) if avg_conhecidos else -1000
-                    
-                    if strongest_candidate["avg_rssi"] < (rssi_para_comparacao + _config["conflict_margin_db"]):
-                        # logger.info(f"CONFLITO: Ativo {mac}: Troca de Q{quarto_id_atual} para Q{candidate_quarto_id} NEGADA.
-                        continue
-                
-                state.candidate_quarto_id = candidate_quarto_id
-                state.candidate_since = time.time()
+            elif state.state == 'LIVRE':
+                candidate_quarto_id = strongest_candidate["quarto_id"]
+                if candidate_quarto_id != state.candidate_quarto_id:
+                    state.candidate_quarto_id = candidate_quarto_id
+                    state.candidate_since = time.time() if candidate_quarto_id is not None else None
 
-            if state.candidate_since and state.candidate_quarto_id is not None:
-                if (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
-                    if state.candidate_quarto_id == candidate_quarto_id and state.candidate_quarto_id != quarto_id_atual:
-                        logger.info(f"EVENTO IN: Ativo {mac} confirmado no Quarto {state.candidate_quarto_id}.")
+                if state.candidate_since and (time.time() - state.candidate_since) * 1000 > _global_settings["inertia_entrada_ms"]:
+                    if state.candidate_quarto_id == candidate_quarto_id:
+                        change = {"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "details": f"Detecção BLE (Média: {strongest_candidate['avg_rssi']:.1f}dBm)."}
+                        if asset_info.get('requer_confirmacao_externa', False):
+                            change["location_status"] = "PENDENTE"
+                            state.state = 'PENDENTE'
+                        else:
+                            change["location_status"] = "CONFIRMADO"
+                            state.state = 'CONFIRMADO'
+                        changes_to_commit.append(change)
+                        state.candidate_quarto_id, state.candidate_since = None, None
+            
+            elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
+                quarto_id_atual = asset_info.get("quarto_id")
+                regras_quarto_atual = _quarto_map.get(quarto_id_atual, {})
+
+                if not regras_quarto_atual.get('permite_transicao_direta', True):
+                    # --- MODO LEITO ---
+                    # A única saída é por sinal fraco. Ignora outros candidatos.
+                    if strongest_candidate.get("quarto_id") == quarto_id_atual:
+                        state.weak_signal_since = None
+                    else:
+                        if state.weak_signal_since is None:
+                            state.weak_signal_since = time.time()
+                        elif (time.time() - state.weak_signal_since) * 1000 > _global_settings["inertia_saida_ms"]:
+                            changes_to_commit.append({
+                                "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE",
+                                "details": f"Sinal inconsistente com o quarto (Modo Leito) por mais de {_global_settings['inertia_saida_ms']}ms"
+                            })
+                            state.state = 'LIVRE'
+                            state.weak_signal_since, state.candidate_since, state.candidate_quarto_id = None, None, None
+                else:
+                    # --- MODO MÓVEL ---
+                    # Permite a transição direta se um novo candidato for forte o suficiente.
+                    candidate_quarto_id = strongest_candidate.get("quarto_id")
+                    if candidate_quarto_id is not None and candidate_quarto_id != quarto_id_atual:
+                        
+                        # Lógica da Margem de Conflito
+                        esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
+                        sinais_no_quarto_atual = [state.get_average_rssi(e) for e in esps_no_quarto_atual if e in state.readings]
+                        rssi_para_comparacao = max(sinais_no_quarto_atual) if sinais_no_quarto_atual else -1000
+                        
+                        # Se o novo candidato não for forte o suficiente para superar a margem, não faz nada.
+                        if strongest_candidate["avg_rssi"] < (rssi_para_comparacao + _global_settings["conflict_margin_db"]):
+                            continue
+
+                        # Se a margem for superada, executa a TRANSIÇÃO DIRETA.
+                        logger.info(f"TRANSIÇÃO DIRETA (MODO MÓVEL): Ativo {mac} de Q{quarto_id_atual} -> Q{candidate_quarto_id}.")
+                        
+                        # 1. Gera o evento de SAÍDA do quarto antigo.
                         changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": state.candidate_quarto_id,
-                            "source_esp_id": strongest_candidate['esp_id'],
-                            "rssi": strongest_candidate['rssi'], # Logamos o RSSI bruto mais recente
-                            "details": f"Localizado via {strongest_candidate['esp_id']} com RSSI Bruto {strongest_candidate['rssi']} (SMA {strongest_candidate['avg_rssi']:.1f})" 
+                            "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE",
+                            "details": f"Transição direta para o quarto {_quarto_map.get(candidate_quarto_id, {}).get('nome', candidate_quarto_id)}."
                         })
-                        if mac in _asset_map:
-                            _asset_map[mac]["quarto_id"] = state.candidate_quarto_id
-                        state.candidate_since = None
-        
+                        
+                        # 2. Gera o evento de ENTRADA no quarto novo.
+                        change_in = {"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "details": f"Transição direta de {_quarto_map.get(quarto_id_atual, {}).get('nome', quarto_id_atual)}."}
+                        if asset_info.get('requer_confirmacao_externa', False):
+                            change_in["location_status"] = "PENDENTE"
+                            state.state = 'PENDENTE'
+                        else:
+                            change_in["location_status"] = "CONFIRMADO"
+                            state.state = 'CONFIRMADO'
+                        changes_to_commit.append(change_in)
+                        
+                        # 3. Limpa todos os timers para evitar comportamento inesperado.
+                        state.weak_signal_since, state.candidate_since, state.candidate_quarto_id = None, None, None
+
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)
         db.commit()
@@ -328,55 +326,19 @@ def clear_asset_state(mac_beacon_to_clear: str):
         return True
     return False
 
-def _load_maps_from_db():
-    global _esp_map, _asset_map, _config
-    db = SessionLocal()
-    try:
-        esps = db.query(Embarcado).all()
-        _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
-        
-        assets = db.query(Asset).all()
-        # --- ATUALIZAÇÃO AQUI: Guardamos o status também ---
-        _asset_map = {
-            a.mac_beacon: {
-                "id": a.id, 
-                "quarto_id": a.quarto_id,
-                "status": a.status
-            } for a in assets
-        }
-
-        settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
-        
-        # Sobrescreve as configurações padrão com as do banco de dados
-        _config["force_penalty_on_miss"] = settings_from_db.get("force_penalty_on_miss", settings.get('force_penalty_on_miss', "true").lower() == "true")
-        _config["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", _config["default_rssi_threshold"]))
-        _config["conflict_margin_db"] = int(settings_from_db.get("conflict_margin_db", _config["conflict_margin_db"]))
-        _config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))
-        _config["inertia_saida_ms"] = int(settings_from_db.get("inercia_saida", _config["inertia_saida_ms"]))
-        _config["ema_alpha"] = float(settings_from_db.get("ema_alpha", _config["ema_alpha"]))
-        
-        # (NOVO) Carrega as configurações do config.ini, se não estiverem no banco de dados
-        _config["process_interval_sec"] = float(settings.get('process_interval_sec', _config["process_interval_sec"]))
-        _config["reading_timeout_sec"] = int(settings.get('reading_timeout_sec', _config["reading_timeout_sec"]))
-        _config["disappearance_tolerance_cycles"] = int(settings.get('disappearance_tolerance_cycles', _config["disappearance_tolerance_cycles"]))
-        
-        logger.info(f"[RTLS] Cache (re)carregado: {len(_esp_map)} ESPs, {len(_asset_map)} Ativos. Configs: {str(_config)}")
-    finally:
-        db.close()
-
-def flag_for_reload():
-    _config_needs_reload.set()
-
 async def main_aggregator_loop():
-    logger.info("[RTLS] Motor de localização (v. com EMA) iniciado.")
+    logger.info("[RTLS] Motor de localização UNIFICADO iniciado.")
     _load_maps_from_db()
     while True:
         try:
             if _config_needs_reload.is_set():
                 _load_maps_from_db()
                 _config_needs_reload.clear()
+            
             await _consume_scan_data_queue()
             await _processar_localizacoes()
+            
         except Exception as e:
             logger.error(f"[RTLS] Erro crítico no loop principal: {e}", exc_info=True)
+            
         await asyncio.sleep(_config["process_interval_sec"])

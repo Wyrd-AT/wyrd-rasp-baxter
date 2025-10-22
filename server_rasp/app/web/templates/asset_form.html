@@ -1,27 +1,47 @@
-{# asset_form.html (HSA ATUALIZADO) #}
+{# asset_form.html (VERSÃO COM DROPDOWN DE TIPOS) #}
 <div class="form-card">
     <form action="{{ form_action }}" method="post">
         <div class="form-header">
             <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativos{% endif %}</h3>
             <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if asset else 'Salvar' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="2a else 'S4" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
             </button>
         </div>
-        <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
+        
+        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr);">
             <div class="form-group">
                 <label for="nome_ativo">Nome do Ativo</label>
                 <input type="text" id="nome_ativo" name="nome_ativo" value="{{ asset.nome_ativo if asset else '' }}" placeholder="Ex: Cama 101-A" required>
             </div>
             <div class="form-group">
-                <label for="mac_beacon">MAC do Beacon</label>
+                <label for="mac_beacon">MAC do Beacon (BLE)</label>
                 <input type="text" id="mac_beacon" name="mac_beacon" value="{{ asset.mac_beacon if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
             </div>
-        </div>
-
-        <div class="form-fields-grid" style="grid-template-columns: 1fr auto; margin-top: 1.5rem;">
             <div class="form-group">
-                <label for="tipo_ativo">Tipo de Ativo</label>
-                <input type="text" id="tipo_ativo" name="tipo_ativo" value="{{ asset.tipo_ativo if asset else '' }}" placeholder="Ex: Cama Hospitalar">
+                <label for="mac_address">MAC Address (Wi-Fi)</label>
+                <input type="text" id="mac_address" name="mac_address" value="{{ asset.mac_address if asset else '' }}" placeholder="Opcional. Ex: XX:XX:XX:XX:XX:XX">
+            </div>
+        </div>
+      
+        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1.5rem;">
+            <div class="form-group">
+                <label for="tipo_ativo_id">Tipo de Ativo</label>
+                <select id="tipo_ativo_id" name="tipo_ativo_id" required>
+                    <option value="" disabled {% if not asset %}selected{% endif %}>Selecione um tipo...</option>
+                    {% for tipo in all_tipos_de_ativo %}
+                        <option value="{{ tipo.id }}" {% if asset and asset.tipo_ativo_id == tipo.id %}selected{% endif %}>
+                            {{ tipo.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="modelo">Modelo</label>
+                <input type="text" id="modelo" name="modelo" value="{{ asset.modelo if asset else '' }}" placeholder="Opcional. Ex: Hillrom AvantGuard">
+            </div>
+            <div class="form-group">
+                <label for="fabricante">Fabricante</label>
+                <input type="text" id="fabricante" name="fabricante" value="{{ asset.fabricante if asset else '' }}" placeholder="Opcional. Ex: Hillrom">
             </div>
         </div>
     </form>

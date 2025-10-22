@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import WebSocket, WebSocketDisconnect, BackgroundTasks
 from .connection_manager import manager
-from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status
+from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status, Body
 from fastapi.responses import RedirectResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -39,9 +39,10 @@ from starlette.exceptions import WebSocketException
 # --- Importações dos Módulos da Aplicação ---
 from .models import (
     engine, SessionLocal, Asset, Embarcado, Quarto,
-    ReceivedEvent, GlobalSetting, Andar, PainelVisualizacao, init_db
+    ReceivedEvent, GlobalSetting, Andar, PainelVisualizacao,
+    TipoDeAtivo, TipoDeQuarto, init_db
 )
-from .services import synchronize_and_reset_esp, release_assets_for_offline_esp
+from .services import batch_update_asset_assignments, release_assets_for_offline_esp, force_asset_removal
 from . import mqtt_client
 from .aggregator import main_aggregator_loop, _asset_realtime_state
 from .config import settings
@@ -50,10 +51,11 @@ from .auth import authenticate_admin
 logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 
 # --- Constantes e Configuração Inicial ---
-HISTORY_RETENTION_DAYS = 7
-EVENT_PAGE_SIZE = 25
-CLEANUP_INTERVAL_SEC = 3600
-NUM_FIXED_ROOMS = 6
+HISTORY_RETENTION_DAYS = int(settings.get('history_retention_days', 7))
+EVENT_PAGE_SIZE = int(settings.get('event_page_size', 25))
+CLEANUP_INTERVAL_SEC = int(settings.get('cleanup_interval_sec', 3600))
+ESP_TIMEOUT_SEC = int(settings.get('esp_timeout_sec', 150))
+PENDING_MANAGER_INTERVAL_SEC = 30
 
 try:
     base_path = sys._MEIPASS
@@ -89,6 +91,20 @@ authentication_backend = AdminAuth(secret_key="W753y@r159d")
 app = FastAPI(title="Wyrd-RTLS")
 
 admin = Admin(app, engine, authentication_backend=authentication_backend)
+
+class TipoDeAtivoAdmin(ModelView, model=TipoDeAtivo):
+    name = "Tipo de Ativo"
+    name_plural = "Tipos de Ativo"
+    icon = "fa-solid fa-shapes"
+    column_list = [TipoDeAtivo.nome, TipoDeAtivo.requer_confirmacao_externa, TipoDeAtivo.algoritmo_media,TipoDeAtivo.parametro_media, TipoDeAtivo.precisa_de_despache]
+    form_columns = [TipoDeAtivo.nome, TipoDeAtivo.requer_confirmacao_externa, TipoDeAtivo.algoritmo_media, TipoDeAtivo.parametro_media, TipoDeAtivo.precisa_de_despache]
+
+class TipoDeQuartoAdmin(ModelView, model=TipoDeQuarto):
+    name = "Tipo de Quarto"
+    name_plural = "Tipos de Quarto"
+    icon = "fa-solid fa-vector-square"
+    column_list = [TipoDeQuarto.nome, TipoDeQuarto.capacidade_maxima, TipoDeQuarto.permite_transicao_direta, TipoDeQuarto.habilita_eventos_integracao]
+    form_columns = [TipoDeQuarto.nome, TipoDeQuarto.capacidade_maxima, TipoDeQuarto.permite_transicao_direta,TipoDeQuarto.habilita_eventos_integracao]
 
 class AssetAdmin(ModelView, model=Asset):
     column_list = [Asset.id, Asset.nome_ativo, Asset.mac_beacon, Asset.quarto]
@@ -163,6 +179,8 @@ class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
     icon = "fa-solid fa-list-ul"
 
 # Adiciona as views ao painel de admin
+admin.add_view(TipoDeAtivoAdmin) 
+admin.add_view(TipoDeQuartoAdmin)
 admin.add_view(AssetAdmin)
 admin.add_view(EmbarcadoAdmin)
 admin.add_view(QuartoAdmin) 
@@ -191,17 +209,17 @@ def get_or_create_andar(db: Session, nome: str) -> Andar:
         db.refresh(andar)
     return andar
 
-def get_or_create_quarto(db: Session, nome: str, andar_id: int) -> Quarto:
-    quarto = db.query(Quarto).filter(Quarto.nome == nome).first()
+def get_or_create_quarto(db: Session, nome: str, andar_id: int, tipo_quarto_id: Optional[int] = None) -> Quarto:
+    quarto = db.query(Quarto).filter(Quarto.nome == nome, Quarto.andar_id == andar_id).first()
     if not quarto:
         logger.info(f"Quarto '{nome}' não encontrado. Criando e associando ao andar ID {andar_id}.")
-        quarto = Quarto(nome=nome, andar_id=andar_id)
+        quarto = Quarto(nome=nome, andar_id=andar_id, tipo_quarto_id=tipo_quarto_id)
         db.add(quarto)
         db.commit()
         db.refresh(quarto)
-    # Se o quarto já existe, mas pertence a outro andar (caso de edição)
-    elif quarto.andar_id != andar_id:
-        quarto.andar_id = andar_id
+    # Se o quarto já existe, mas o tipo mudou
+    elif tipo_quarto_id and quarto.tipo_quarto_id != tipo_quarto_id:
+        quarto.tipo_quarto_id = tipo_quarto_id
         db.commit()
     return quarto
 
@@ -284,11 +302,11 @@ def get_server_time():
 def main_page(request: Request):
     return RedirectResponse(url=request.url_for("login_page"), status_code=303)
 
-@app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
-async def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
-    await synchronize_and_reset_esp(db=db, embarcado_id=embarcado_id)
-    time.sleep(1) 
-    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+# @app.post("/embarcados/{embarcado_id}/reset", name="reset_esp_state")
+# async def reset_esp_state(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+#     await synchronize_and_reset_esp(db=db, embarcado_id=embarcado_id)
+#     time.sleep(1) 
+#     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/embarcados/test_rssi", name="test_rssi_esp")
 async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
@@ -364,6 +382,33 @@ def reboot_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db
         mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
+@app.post("/quartos/{quarto_id}/force_cleanup", name="force_quarto_cleanup")
+async def force_quarto_cleanup(request: Request, quarto_id: int, db: Session = Depends(get_db)):
+    """
+    Nova ação "Reset": Força a remoção de TODOS os ativos de um quarto específico.
+    Substitui a antiga `synchronize_and_reset_esp`.
+    """
+    assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == quarto_id).all()
+    if not assets_no_quarto:
+        logger.info(f"Limpeza de quarto {quarto_id} solicitada, mas o quarto já está vazio.")
+        return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+        
+    logger.warning(f"Iniciando remoção forçada de {len(assets_no_quarto)} ativo(s) do quarto ID {quarto_id}.")
+    for asset in assets_no_quarto:
+        await force_asset_removal(
+            db=db, 
+            asset_id=asset.id,
+            details=f"Remoção forçada pelo operador."
+        )
+    return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+@app.post("/api/assets/{mac_beacon}/clear_state", name="clear_asset_state_api")
+def clear_asset_state_api(mac_beacon: str):
+    """Endpoint de API para limpar o estado de um ativo da memória do aggregator."""
+    if aggregator.clear_asset_state(mac_beacon):
+        return Response(status_code=200)
+    return Response(status_code=404)
+
 @app.post("/settings/update", name="update_settings")
 def update_settings(
     request: Request, db: Session = Depends(get_db), 
@@ -389,6 +434,51 @@ def update_settings(
     logger.info(f"[main] Configurações globais do motor RTLS salvas: {settings_data}")
     # Já não é preciso enviar comando para as ESPs, o servidor agora gere isto.
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
+
+# ==============================================================================
+# NOVO ENDPOINT PARA CALLBACK DE INTEGRAÇÃO
+# ==============================================================================
+@app.post("/api/integration/presence_callback", name="presence_callback")
+async def presence_callback(request: Request, db: Session = Depends(get_db), payload: Dict = Body(...)):
+    """
+    Endpoint genérico para receber confirmações de presença de sistemas externos.
+    Espera um JSON com 'nome_ativo' e 'status' ('Connected' ou 'Disconnected').
+    """
+    try:
+        nome_ativo = payload.get("nome_ativo")
+        status_conexao = payload.get("status")
+        if not nome_ativo or not status_conexao:
+            raise HTTPException(status_code=400, detail="Payload inválido. 'nome_ativo' e 'status' são obrigatórios.")
+
+        logger.info(f"[CALLBACK] Mensagem recebida para o ativo: {nome_ativo} com status: {status_conexao}")
+        
+        asset = db.query(Asset).filter(Asset.nome_ativo == nome_ativo).first()
+        if not asset:
+            logger.warning(f"[CALLBACK] Ativo '{nome_ativo}' não encontrado no banco de dados.")
+            return JSONResponse(content={"status": "Asset not found"}, status_code=404)
+
+        if status_conexao == 'Connected' and asset.location_status == 'PENDENTE':
+            logger.info(f"[CALLBACK] Ativo '{nome_ativo}' confirmado no quarto. Atualizando status.")
+            change = {
+                "asset_id": asset.id, "new_quarto_id": asset.quarto_id, "location_status": "CONFIRMADO",
+                "details": "Entrada confirmada via callback externo 'Connected'."
+            }
+            await batch_update_asset_assignments(db, [change])
+        
+        elif status_conexao == 'Disconnected' and asset.location_status == 'CONFIRMADO':
+            logger.warning(f"[CALLBACK] Ativo '{nome_ativo}' desconectado. Gerando alerta.")
+            change = {
+                "asset_id": asset.id, "new_quarto_id": asset.quarto_id, "location_status": "ALERTA",
+                "details": "Ativo perdeu conexão de rede (callback 'Disconnected')."
+            }
+            await batch_update_asset_assignments(db, [change])
+
+        db.commit()
+        return JSONResponse(content={"status": "ok"})
+
+    except Exception as e:
+        logger.error(f"[CALLBACK] Erro ao processar mensagem: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno ao processar callback.")
 
 LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
@@ -482,6 +572,41 @@ def get_global_settings(db: Session) -> dict:
     defaults = {"rssi_threshold": "-60", "inercia_chegada": "5000", "inercia_saida": "15000", "conflict_margin_db": "10"}
     db_settings = {s.key: s.value for s in settings_from_db}
     return {**defaults, **db_settings}
+
+async def pending_manager_task(db: Session):
+    """
+    Verifica ativos no estado 'Pendente' e, se o tempo limite for excedido,
+    muda seu estado para 'Alerta', gerando o evento correspondente.
+    """
+    pending_assets = db.query(Asset).filter(Asset.location_status == 'Pendente').all()
+    if not pending_assets: return
+
+    now_utc = datetime.now(timezone.utc)
+    PENDING_EXPIRATION_TIMEOUT_SEC = int(settings.get('pending_expiration_timeout_sec', 600))
+
+    for asset in pending_assets:
+        if not asset.location_status_updated_on: continue
+        time_since_pending = now_utc - asset.location_status_updated_on.replace(tzinfo=timezone.utc)
+
+        if time_since_pending > timedelta(seconds=PENDING_EXPIRATION_TIMEOUT_SEC):
+            logger.warning(f"[PENDING-MGR] Ativo {asset.nome_ativo} pendente excedeu o tempo limite. Movendo para ALERTA.")
+            change_to_alert = {
+                "asset_id": asset.id, "new_quarto_id": asset.quarto_id, "location_status": "ALERTA",
+                "details": f"Ativo pendente não recebeu confirmação externa em {PENDING_EXPIRATION_TIMEOUT_SEC} segundos."
+            }
+            await batch_update_asset_assignments(db, [change_to_alert])
+            db.commit()
+
+async def main_pending_manager_loop():
+    """Loop principal que executa a tarefa do gerenciador de pendências."""
+    logger.info("[PENDING-MGR] Serviço de gerenciamento de pendências iniciado.")
+    while True:
+        await asyncio.sleep(PENDING_MANAGER_INTERVAL_SEC) 
+        db = SessionLocal()
+        try:
+            await pending_manager_task(db)
+        finally:
+            db.close()
 
 @app.get("/api/esp/handshake", name="esp_handshake")
 def esp_handshake(
@@ -631,48 +756,118 @@ def get_planta_dados(db: Session = Depends(get_db)):
 # ===================================================================
 @app.get("/quartos", name="list_quartos")
 def list_quartos(request: Request, db: Session = Depends(get_db)):
-    """
-    Exibe o dashboard de status dos quartos, agora carregando também os andares.
-    """
-    # A query foi atualizada para carregar o andar junto com o quarto e os ativos
-    quartos_com_assets = db.query(Quarto).options(
-        joinedload(Quarto.assets),
-        joinedload(Quarto.andar)  # <-- MUDANÇA IMPORTANTE AQUI
-    ).order_by(Quarto.id).all()
+    """Exibe a página de status dos quartos com o formulário de gerenciamento."""
+    # 1. Busca os dados para a lista de status (como na sua versão original)
+    quartos = db.query(Quarto).options(
+        joinedload(Quarto.andar),
+        joinedload(Quarto.tipo_de_quarto),
+        joinedload(Quarto.embarcados),
+        joinedload(Quarto.assets) # Garante que os ativos sejam carregados
+    ).order_by(Quarto.nome).all()
 
-    # O resto da lógica para encontrar a data de entrada dos ativos permanece
-    for quarto in quartos_com_assets:
+    # Lógica para data de entrada dos ativos (da sua versão original)
+    for quarto in quartos:
         for asset in quarto.assets:
             ultimo_evento_entrada = db.query(ReceivedEvent).filter(
                 ReceivedEvent.ativo == asset.mac_beacon,
                 ReceivedEvent.action == 'GET',
                 ReceivedEvent.status.in_(['OK', 'Confirmado'])
             ).order_by(ReceivedEvent.data_on.desc()).first()
-
             if ultimo_evento_entrada:
-                asset.data_entrada_obj = ultimo_evento_entrada.data_on
                 asset.data_entrada_str = ultimo_evento_entrada.data_on.strftime("%d/%m/%Y às %H:%M:%S")
             else:
-                asset.data_entrada_obj = datetime.min.replace(tzinfo=timezone.utc)
-                asset.data_entrada_str = "Horário de entrada não registrado"
-        
-        quarto.assets.sort(key=lambda b: b.data_entrada_obj)
+                asset.data_entrada_str = "Não registrado"
+
+    # 2. Busca os dados para o formulário de cadastro/edição
+    all_tipos_de_quarto = db.query(TipoDeQuarto).order_by(TipoDeQuarto.nome).all()
 
     return templates.TemplateResponse("quartos_list.html", {
         "request": request,
-        "quartos": quartos_com_assets
+        "quartos": quartos,
+        "all_tipos_de_quarto": all_tipos_de_quarto,
+        "form_action": request.url_for("create_quarto"),
+        "quarto": None # Para o formulário de criação
+    })
+
+@app.post("/quartos", name="create_quarto")
+def create_quarto(request: Request, db: Session = Depends(get_db),
+    nome: str = Form(...),
+    andar_nome: str = Form(...),
+    tipo_quarto_id: int = Form(...)
+):
+    """Processa a criação de um novo quarto."""
+    andar = get_or_create_andar(db, andar_nome.strip())
+    
+    # Verifica se já existe um quarto com o mesmo nome
+    quarto_existente = db.query(Quarto).filter_by(nome=nome.strip()).first()
+    if quarto_existente:
+        # Lógica para lidar com erro (pode ser uma mensagem flash no futuro)
+        logger.error(f"Tentativa de criar quarto com nome duplicado: {nome.strip()}")
+        return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
+    novo_quarto = Quarto(
+        nome=nome.strip(),
+        andar_id=andar.id,
+        tipo_quarto_id=tipo_quarto_id
+    )
+    db.add(novo_quarto)
+    db.commit()
+    
+    aggregator.flag_for_reload()
+    return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
+# A rota de edição agora apenas renderiza a mesma página, mas passando o objeto "quarto"
+# para que o formulário no topo seja preenchido para edição.
+@app.get("/quartos/{quarto_id}/edit", name="edit_quarto")
+def edit_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db)):
+    quarto_para_editar = db.query(Quarto).get(quarto_id)
+    if not quarto_para_editar:
+        raise HTTPException(status_code=404, detail="Quarto não encontrado")
+    
+    # A lógica é a mesma da list_quartos, mas passando o quarto a ser editado
+    quartos = db.query(Quarto).options(
+        joinedload(Quarto.andar), joinedload(Quarto.tipo_de_quarto),
+        joinedload(Quarto.embarcados), joinedload(Quarto.assets)
+    ).order_by(Quarto.nome).all()
+    all_tipos_de_quarto = db.query(TipoDeQuarto).order_by(TipoDeQuarto.nome).all()
+
+    return templates.TemplateResponse("quartos_list.html", {
+        "request": request, "quartos": quartos, "all_tipos_de_quarto": all_tipos_de_quarto,
+        "form_action": request.url_for("update_quarto", quarto_id=quarto_id),
+        "quarto": quarto_para_editar # Passa o objeto para preencher o form
     })
 
 @app.post("/quartos/{quarto_id}/edit", name="update_quarto")
-def update_quarto(request: Request, quarto_id: int, nome: str = Form(...), db: Session = Depends(get_db)):
-    """
-    Processa a atualização do nome de um quarto (submetido pelo formulário inline).
-    """
+def update_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db),
+    nome: str = Form(...),
+    andar_nome: str = Form(...),
+    tipo_quarto_id: int = Form(...)
+):
+    quarto = db.query(Quarto).get(quarto_id)
+    if not quarto:
+        raise HTTPException(status_code=404, detail="Quarto não encontrado")
+    
+    andar = get_or_create_andar(db, andar_nome.strip())
+    quarto.nome = nome.strip()
+    quarto.andar_id = andar.id
+    quarto.tipo_quarto_id = tipo_quarto_id
+    
+    db.commit()
+    aggregator.flag_for_reload()
+    return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
+@app.get("/quartos/{quarto_id}/delete", name="delete_quarto")
+def delete_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db)):
     quarto = db.query(Quarto).get(quarto_id)
     if quarto:
-        quarto.nome = nome
+        if quarto.embarcados:
+            raise HTTPException(status_code=400, detail="Não é possível excluir um quarto com um embarcado associado.")
+        if quarto.assets:
+             raise HTTPException(status_code=400, detail="Não é possível excluir um quarto com ativos localizados nele. Remova os ativos primeiro.")
+
+        db.delete(quarto)
         db.commit()
-        aggregator.flag_for_reload() 
+        aggregator.flag_for_reload()
     return RedirectResponse(request.url_for("list_quartos"), status_code=303)
 
 # ===================================================================
@@ -801,7 +996,12 @@ def list_embarcados(
     order: Optional[str] = Query("asc")
 ):
     # A query agora precisa carregar o andar junto com o quarto
-    query = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar))
+    all_tipos_de_quarto = db.query(TipoDeQuarto).order_by(TipoDeQuarto.nome).all()
+    
+    query = db.query(Embarcado).options(
+        joinedload(Embarcado.quarto).joinedload(Quarto.andar),
+        joinedload(Embarcado.quarto).joinedload(Quarto.tipo_de_quarto) # Carrega o tipo do quarto
+    )
     
     # Lógica de busca
     if search:
@@ -809,30 +1009,23 @@ def list_embarcados(
         query = query.join(Embarcado.quarto).join(Quarto.andar).filter(
             or_(Embarcado.id_esp.ilike(search_term), Quarto.nome.ilike(search_term), Andar.nome.ilike(search_term), Embarcado.mac_address.ilike(search_term), Embarcado.ip_address.ilike(search_term))
         )
-    
-    # Lógica de ordenação
     sortable_columns = {
-        "id_esp": Embarcado.id_esp, "andar": Andar.nome, "quarto": Quarto.nome,
+       "id_esp": Embarcado.id_esp, "andar": Andar.nome, "quarto": Quarto.nome,
         "status": Embarcado.status_rede, "wifi_signal": Embarcado.wifi_signal, "rssi_min": Embarcado.rssi_threshold,
         "mac_address": Embarcado.mac_address, "ip_address": Embarcado.ip_address
     }
     if sort_by in ["andar", "quarto"]:
         query = query.join(Embarcado.quarto).join(Quarto.andar)
-
     sort_column = sortable_columns.get(sort_by, Embarcado.id_esp)
     query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
     
     embarcados = query.all()
     
+    assigned_quarto_ids = {emb.quarto_id for emb in embarcados if emb.quarto_id is not None}
+    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
+
     global_settings = get_global_settings(db)
-    rssi_thresholds = {
-        "global": int(global_settings.get("rssi_threshold", -60)),
-        "individuais": {
-            emb.id_esp: emb.rssi_threshold for emb in embarcados if emb.rssi_threshold is not None
-        }
-    }
-    
-    # Lógica para formatar a data (last_seen)
+    rssi_thresholds = {"global": int(global_settings.get("rssi_threshold", -60)),"individuais": {emb.id_esp: emb.rssi_threshold for emb in embarcados if emb.rssi_threshold is not None}}
     fuso_local = timezone(timedelta(hours=-3))
     for emb in embarcados:
         emb.status = emb.status_rede.capitalize() if emb.status_rede else "Desconhecido"
@@ -842,11 +1035,7 @@ def list_embarcados(
             emb.last_seen_str = data_local.strftime("às %H:%M:%S de %d/%m")
         else:
             emb.last_seen_str = "Nunca visto"
-
-    assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
-    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
-    # A LINHA MAIS IMPORTANTE: enviando a variável que faltava
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
         "embarcados": embarcados,
@@ -856,29 +1045,30 @@ def list_embarcados(
         "search": search,
         "global_settings": get_global_settings(db),
         "rssi_thresholds": json.dumps(rssi_thresholds),
+        "all_tipos_de_quarto": all_tipos_de_quarto, # <-- ADICIONADO: Passa a lista para o template
         "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
 
 @app.post("/embarcados/new", name="create_embarcado")
-def create_embarcado(
-    request: Request,
+def create_embarcado(request: Request, db: Session = Depends(get_db),
     id_esp: str = Form(...),
-    andar_nome: str = Form(...),
-    quarto_nome: str = Form(...),
+    quarto_id: int = Form(...), # Recebe o ID do quarto diretamente do dropdown
     rssi_threshold: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    connecta_id: Optional[str] = Form(None)
 ):
-    andar_obj = get_or_create_andar(db, andar_nome.strip())
-    quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
-    
+    # A lógica de get_or_create_quarto não é mais necessária aqui.
     rssi_value = int(rssi_threshold) if rssi_threshold else None
     
-    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, rssi_threshold=rssi_value)
-        
+    novo_embarcado = Embarcado(
+        id_esp=id_esp, 
+        quarto_id=quarto_id, # Associa diretamente o ID
+        rssi_threshold=rssi_value, 
+        connecta_id=connecta_id
+    )
+    
     try:
         db.add(novo_embarcado)
         db.commit()
-        db.refresh(novo_embarcado)
         aggregator.flag_for_reload()
         logger.info(f"[main] Embarcado '{novo_embarcado.id_esp}' criado. Disparando reset automático.")
         command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
@@ -891,28 +1081,44 @@ def create_embarcado(
 
 @app.get("/embarcados/{embarcado_id}/edit", name="edit_embarcado")
 def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
+    """Exibe o formulário de edição para um embarcado, garantindo que a lista de quartos disponíveis esteja correta."""
     emb_para_editar = db.query(Embarcado).get(embarcado_id)
-    
-    assigned_quarto_ids = {
+    if not emb_para_editar:
+        raise HTTPException(status_code=404, detail="Embarcado não encontrado")
+
+    # Lógica para popular o dropdown de quartos:
+    # Pega os IDs de todos os quartos que estão atribuídos a OUTROS embarcados.
+    assigned_to_others_ids = {
         emb.quarto_id for emb in db.query(Embarcado).filter(
-            Embarcado.id != embarcado_id,
+            Embarcado.id != embarcado_id, # Exclui o embarcado atual da verificação
             Embarcado.quarto_id.isnot(None)
         ).all()
     }
-    
-    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
-    
-    # Adicionando a variável que faltava
+    # A lista de quartos disponíveis são todos os quartos que NÃO estão na lista acima.
+    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_to_others_ids)).order_by(Quarto.nome).all()
+
+    # Busca todos os embarcados para exibir a lista de fundo
+    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar)).order_by(Embarcado.id_esp).all()
+
+    # Formata a data para a lista de fundo
+    fuso_local = timezone(timedelta(hours=-3))
+    for emb in embarcados:
+        emb.status = emb.status_rede.capitalize() if emb.status_rede else "Desconhecido"
+        if emb.last_seen:
+            last_seen_utc = emb.last_seen.replace(tzinfo=timezone.utc)
+            data_local = last_seen_utc.astimezone(fuso_local)
+            emb.last_seen_str = data_local.strftime("às %H:%M:%S de %d/%m")
+        else:
+            emb.last_seen_str = "Nunca visto"
+
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
-        "embarcados": db.query(Embarcado).options(joinedload(Embarcado.quarto).joinedload(Quarto.andar)).order_by(Embarcado.id_esp).all(),
-        "available_quartos": available_quartos,
+        "embarcados": embarcados,
         "form_action": request.url_for("update_embarcado", embarcado_id=embarcado_id),
-        "embarcado": emb_para_editar,
-        "search": None, 
+        "embarcado": emb_para_editar, # O objeto que está sendo editado
+        "available_quartos": available_quartos, # Passa a lista correta para o form de edição
         "global_settings": get_global_settings(db),
-        "rssi_thresholds": json.dumps({ "global": 0, "individuais": {} }),
-        "current_filters": {"search": None, "sort_by": "id_esp", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
+        "current_filters": {"search": None, "sort_by": "id_esp", "order": "asc"}
     })
 
 # Em main.py
@@ -921,25 +1127,25 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
 def update_embarcado(
     request: Request,
     embarcado_id: int,
-    andar_nome: str = Form(...),
-    quarto_nome: str = Form(...),
+    db: Session = Depends(get_db),
+    # CAMPOS ATUALIZADOS PARA CORRESPONDER AO NOVO FORMULÁRIO
+    quarto_id: int = Form(...),
     rssi_threshold: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    connecta_id: Optional[str] = Form(None)
 ):
+    """Processa a atualização de um embarcado existente."""
     emb = db.query(Embarcado).get(embarcado_id)
     if emb:
-        andar_obj = get_or_create_andar(db, andar_nome.strip())
-        quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
+        rssi_value = int(rssi_threshold) if rssi_threshold and rssi_threshold.strip() != '' else None
         
-        rssi_value = int(rssi_threshold) if rssi_threshold else None
-        
-        emb.quarto_id = quarto_obj.id
+        # LÓGICA SIMPLIFICADA
+        emb.quarto_id = quarto_id
         emb.rssi_threshold = rssi_value
+        emb.connecta_id = connecta_id
+        
         db.commit()
         aggregator.flag_for_reload()
-        logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. Disparando reset automático.")
-        command = {"type": "command", "data": {"name": "FETCH_CONFIG"}} 
-        mqtt_client.publish_command_to_esp(esp_id=emb.id_esp, command=command)
+        logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado.")
         
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
@@ -958,69 +1164,76 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
 # SEÇÃO 4: CRUD PARA ATIVOS
 # ===================================================================
 @app.get("/assets", name="list_assets")
-def list_assets(
-    request: Request, db: Session = Depends(get_db),
-    search: Optional[str] = Query(None),
-    sort_by: Optional[str] = Query("nome_ativo"),
-    order: Optional[str] = Query("asc")
-):
-    query = db.query(Asset).options(joinedload(Asset.quarto))
+def list_assets(request: Request, db: Session = Depends(get_db), search: Optional[str] = None, sort_by: str = "nome_ativo", order: str = "asc"):
+    # ATUALIZADO: Carrega a lista de Tipos de Ativo para passar para o formulário
+    all_tipos_de_ativo = db.query(TipoDeAtivo).order_by(TipoDeAtivo.nome).all()
+
+    query = db.query(Asset).options(
+        joinedload(Asset.quarto),
+        joinedload(Asset.tipo_de_ativo) # Carrega o tipo do ativo
+    )
     
-    # Lógica de busca
     if search:
         search_term = f"%{search}%"
-        # O outerjoin é usado para que a busca funcione mesmo em ativos que não estão em nenhum quarto
-        query = query.outerjoin(Asset.quarto).filter(
-            or_(Asset.nome_ativo.ilike(search_term), 
+        query = query.outerjoin(Asset.quarto).outerjoin(Asset.tipo_de_ativo).filter(
+            or_(
+                Asset.nome_ativo.ilike(search_term), 
                 Asset.mac_beacon.ilike(search_term), 
                 Quarto.nome.ilike(search_term), 
-                Asset.tipo_ativo.ilike(search_term))
+                TipoDeAtivo.nome.ilike(search_term) # Busca pelo nome do tipo
+            )
         )
-
-    # Lógica de ordenação
+    
+    # ATUALIZADO: Corrige a ordenação e adiciona a ordenação pelo nome do tipo
     sortable_columns = {
-        "nome_ativo": Asset.nome_ativo, "tipo_ativo": Asset.tipo_ativo,
+        "nome_ativo": Asset.nome_ativo, 
+        "tipo_ativo": TipoDeAtivo.nome, # Ordena pelo nome do tipo
         "mac_beacon": Asset.mac_beacon, 
         "quarto": Quarto.nome
     }
     if sort_by == "quarto":
         query = query.outerjoin(Asset.quarto)
+    if sort_by == "tipo_ativo":
+        query = query.outerjoin(Asset.tipo_de_ativo)
         
     sort_column = sortable_columns.get(sort_by, Asset.nome_ativo)
     query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
 
     assets = query.all()
     
-    # Enviando a variável que faltava para o template
     return templates.TemplateResponse("assets_list.html", {
         "request": request, "assets": assets,
         "form_action": request.url_for("create_asset"), "asset": None, 
+        "all_tipos_de_ativo": all_tipos_de_ativo, # <-- ADICIONADO: Passa a lista para o template
         "current_filters": {"search": search, "sort_by": sort_by, "order": order}
     })
 
+
 @app.post("/assets", name="create_asset")
-def create_asset(
-    request: Request,
+def create_asset(request: Request, db: Session = Depends(get_db),
     nome_ativo: str = Form(...),
     mac_beacon: str = Form(...),
-    tipo_ativo: str = Form(None),
-    db: Session = Depends(get_db)
+    tipo_ativo_id: int = Form(...), # <-- ADICIONADO: Recebe a ID do tipo
+    mac_address: Optional[str] = Form(None),
+    modelo: Optional[str] = Form(None),
+    fabricante: Optional[str] = Form(None)
 ):
     asset = Asset(
         nome_ativo=nome_ativo,
         mac_beacon=mac_beacon.lower(),
-        tipo_ativo=tipo_ativo
+        tipo_ativo_id=tipo_ativo_id, # <-- ATUALIZADO: Salva a ID do tipo
+        mac_address=mac_address.lower() if mac_address else None,
+        modelo=modelo,
+        fabricante=fabricante
     )
     try:
         db.add(asset)
         db.commit()
         aggregator.flag_for_reload()
-        logger.info("[main] Ativo criado. Enviando comando de sincronização para todas as ESPs.")
-        command_payload = {"command": "fetch_config"}
-        mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
+        # ... (lógica de notificação MQTT)
     except IntegrityError:
         db.rollback()
-        logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado: {nome_ativo} / {mac_beacon.lower()}")
+        logger.error(f"[main-db] ERRO: Tentativa de criar ativo com nome ou MAC duplicado.")
     except Exception as e:
         db.rollback()
         logger.error(f"[main-db] ERRO ao criar ativo: {e}")
@@ -1287,25 +1500,19 @@ async def check_background_tasks_health():
 
 @app.on_event("startup")
 async def on_startup():
-    logger.info("[main] Startup: Iniciando serviços em background.")
+    running_tasks = {}
+    logger.info("[STARTUP] Iniciando serviços em background.")
     running_tasks["aggregator"] = asyncio.create_task(main_aggregator_loop())
     running_tasks["liveness_check"] = asyncio.create_task(check_esp_liveness())
-    running_tasks["health_check"] = asyncio.create_task(check_background_tasks_health())
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
+    # NOVA TAREFA ADICIONADA
+    running_tasks["pending_manager"] = asyncio.create_task(main_pending_manager_loop())
+    
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
-
-    await asyncio.sleep(5) 
-    
-    logger.info("[main] Startup: Enviando comando de reconfiguração para todas as ESPs.")    
+    logger.info("[STARTUP] Startup concluído. Enviando comando de sincronização para todas as ESPs.")    
     command_payload = {"command": "fetch_config"} 
-    
-    mqtt_client.client.publish(
-        topic=settings.get("mqtt_esp_command_topic"), 
-        payload=json.dumps(command_payload),
-        qos=1 
-    )
-    logger.info("[main] Startup: Comando de sincronização enviado.")
+    mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
 
 if __name__ == "__main__":
     uvicorn.run(
