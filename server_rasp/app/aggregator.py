@@ -184,11 +184,26 @@ async def _consume_scan_data_queue():
 
             # Se for a primeira vez que vemos este ativo, criamos seu objeto de estado
             if mac not in _asset_realtime_state:
+                
+                # --- CORREÇÃO APLICADA AQUI ---
+                # 1. Busca as informações completas do ativo no cache ANTES de criar o estado.
+                asset_info = _asset_map.get(mac, {})
+                quarto_id_atual = asset_info.get("quarto_id")
+                location_status_atual = asset_info.get("location_status", "LIVRE") # Padrão é LIVRE se não existir
+                
                 tipo_de_ativo_regras = {
-                    'algoritmo_media': _asset_map[mac].get('algoritmo_media', 'SMA'),
-                    'parametro_media': _asset_map[mac].get('parametro_media', 15)
+                    'algoritmo_media': asset_info.get('algoritmo_media', 'SMA'),
+                    'parametro_media': asset_info.get('parametro_media', 15)
                 }
-                _asset_realtime_state[mac] = AssetState(mac, tipo_de_ativo_regras)
+
+                # 2. Passa todos os quatro argumentos necessários para o construtor.
+                _asset_realtime_state[mac] = AssetState(
+                    mac=mac, 
+                    tipo_de_ativo=tipo_de_ativo_regras,
+                    quarto_id_atual=quarto_id_atual,
+                    location_status_atual=location_status_atual
+                )
+                # --- FIM DA CORREÇÃO ---
             
             _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
 
