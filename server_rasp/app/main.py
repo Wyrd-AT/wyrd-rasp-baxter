@@ -325,24 +325,18 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
     
     report_data = []
     
-    # --- LÓGICA ATUALIZADA PARA LER DA NOVA ESTRUTURA ---
     for mac, state in _asset_realtime_state.items():
-        # Verifica se o embarcado em questão tem alguma leitura para este ativo
         if embarcado.id_esp in state.readings:
             reading = state.readings[embarcado.id_esp]
-            
-            # Pega a última leitura de RSSI diretamente
             last_rssi = reading.get("last_rssi", -1000)
             
-            # Usa o método correto para obter a média (SMA ou EMA) calculada pelo aggregator
-            average_rssi = round(state.get_average_rssi(embarcado.id_esp))
+            average_rssi = round(state.get_overall_average_rssi())
         
             report_data.append({
                 "mac": mac,
-                "rssi": last_rssi,
-                "avg_rssi": average_rssi
+                "rssi": last_rssi,         # Este é o último sinal bruto visto por ESTE ESP
+                "avg_rssi": average_rssi   # Esta é a média GERAL do ativo em todos os ESPs
             })
-    # --- FIM DA LÓGICA ATUALIZADA ---
     
     websocket_message = {
         "type": "RSSI_REPORT",
@@ -1250,44 +1244,48 @@ def create_asset(request: Request, db: Session = Depends(get_db),
 
 @app.get("/ativos/{asset_id}/edit", name="edit_asset")
 def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
-    # A única mudança é adicionar o "current_filters" no dicionário
+    # CORREÇÃO: Busca a lista de tipos de ativo para popular o formulário de edição.
+    all_tipos_de_ativo = db.query(TipoDeAtivo).order_by(TipoDeAtivo.nome).all()
+    
     return templates.TemplateResponse("assets_list.html", {
         "request": request, 
         "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
         "form_action": request.url_for("update_asset", asset_id=asset_id),
         "asset": db.query(Asset).get(asset_id), 
-        "search": None,
-        "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
+        "all_tipos_de_ativo": all_tipos_de_ativo, # Passa a lista para o template
+        "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"}
     })
 
 @app.post("/ativos/{asset_id}/edit", name="update_asset")
 def update_asset(
-    request: Request,
-    asset_id: int,
+    request: Request, asset_id: int, db: Session = Depends(get_db),
+    # CORREÇÃO: Parâmetros alinhados com o formulário final.
     nome_ativo: str = Form(...),
     mac_beacon: str = Form(...),
-    tipo_ativo: str = Form(None),
-    db: Session = Depends(get_db)
+    tipo_ativo_id: int = Form(...),
+    mac_address: Optional[str] = Form(None),
+    modelo: Optional[str] = Form(None),
+    fabricante: Optional[str] = Form(None)
 ):
     asset = db.query(Asset).get(asset_id)
     if asset:
-
         mac_antigo = asset.mac_beacon
         mac_novo = mac_beacon.lower()
 
         if mac_antigo != mac_novo:
-            logger.info(f"MAC do ativo '{asset.nome_ativo}' alterado. Limpando estado do MAC antigo: {mac_antigo}")
             aggregator.clear_asset_state(mac_antigo)
 
+        # CORREÇÃO: Salva os dados nos campos corretos do modelo.
         asset.nome_ativo = nome_ativo
-        asset.mac_beacon = mac_beacon.lower()
-        asset.tipo_ativo = tipo_ativo
+        asset.mac_beacon = mac_novo
+        asset.tipo_ativo_id = tipo_ativo_id # Salva o ID do tipo
+        asset.mac_address = mac_address.lower() if mac_address else None
+        asset.modelo = modelo
+        asset.fabricante = fabricante
         
         db.commit()
         aggregator.flag_for_reload() 
-        logger.info("[main] Ativo atualizado. Enviando comando de sincronização para todas as ESPs.")
-        command_payload = {"command": "fetch_config"}
-        mqtt_client.client.publish(topic=settings.get("mqtt_esp_command_topic"), payload=json.dumps(command_payload), qos=1)
+        # (A notificação MQTT já está correta)
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 

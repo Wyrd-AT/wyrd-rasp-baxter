@@ -83,15 +83,21 @@ class AssetState:
         self.samples.append(rssi)
         self.disappearance_count = 0
 
-    def get_average_rssi(self, esp_id):
+    def get_overall_average_rssi(self): # Nome alterado, parâmetro removido
+        """Calcula a média de sinal GERAL do ativo, usando todas as amostras."""
         if not self.samples: return -1000
-        if self.algoritmo_media == 'SMA': avg = sum(self.samples) / len(self.samples)
+        
+        # A lógica de cálculo (SMA ou EMA) continua a mesma
+        if self.algoritmo_media == 'SMA':
+            avg = sum(self.samples) / len(self.samples)
         elif self.algoritmo_media == 'EMA':
             alpha = float(self.parametro_media)
-            last_avg = self.last_processed_avg.get(esp_id, self.samples[0])
+            last_avg = self.last_processed_avg.get('overall', self.samples[0]) # Usa uma chave genérica
             avg = (self.samples[-1] * alpha) + (last_avg * (1 - alpha))
-        else: avg = sum(self.samples) / len(self.samples)
-        self.last_processed_avg[esp_id] = avg
+        else:
+            avg = sum(self.samples) / len(self.samples)
+        
+        self.last_processed_avg['overall'] = avg # Salva com a chave genérica
         return avg
 
     def cleanup_old_readings(self):

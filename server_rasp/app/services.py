@@ -65,7 +65,10 @@ async def batch_update_asset_assignments(db: Session, changes: list):
         for event in events_to_dispatch:
             db.refresh(event)
 
-            asset_to_dispatch = assets_to_update.get(event.asset_id)
+            asset_to_dispatch = next(
+                (asset for asset in assets_to_update.values() if asset.mac_beacon == event.ativo), 
+                None
+            )
             if not asset_to_dispatch or not asset_to_dispatch.tipo_de_ativo: continue
 
             # 1. O ativo precisa ter o despacho habilitado?
