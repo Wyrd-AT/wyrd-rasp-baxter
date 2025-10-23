@@ -308,7 +308,7 @@ def main_page(request: Request):
 #     time.sleep(1) 
 #     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-@app.post("/embarcados/test_rssi", name="test_rssi_esp")
+@@app.post("/embarcados/test_rssi", name="test_rssi_esp")
 async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
     embarcado_id = data.get("embarcado_id")
@@ -325,22 +325,24 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
     
     report_data = []
     
+    # --- LÓGICA ATUALIZADA PARA LER DA NOVA ESTRUTURA ---
     for mac, state in _asset_realtime_state.items():
+        # Verifica se o embarcado em questão tem alguma leitura para este ativo
         if embarcado.id_esp in state.readings:
             reading = state.readings[embarcado.id_esp]
-            samples = reading.get("samples")
             
-            # Pega o último valor bruto
-            last_rssi = samples[-1] if samples else -1000
+            # Pega a última leitura de RSSI diretamente
+            last_rssi = reading.get("last_rssi", -1000)
             
-            # Calcula a média (SMA), se houver amostras
-            average_rssi = round(sum(samples) / len(samples)) if samples else -1000
-            
+            # Usa o método correto para obter a média (SMA ou EMA) calculada pelo aggregator
+            average_rssi = round(state.get_average_rssi(embarcado.id_esp))
+        
             report_data.append({
                 "mac": mac,
                 "rssi": last_rssi,
-                "avg_rssi": average_rssi  # <-- NOVO DADO ENVIADO
+                "avg_rssi": average_rssi
             })
+    # --- FIM DA LÓGICA ATUALIZADA ---
     
     websocket_message = {
         "type": "RSSI_REPORT",
