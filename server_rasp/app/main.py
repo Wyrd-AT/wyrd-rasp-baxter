@@ -308,7 +308,7 @@ def main_page(request: Request):
 #     time.sleep(1) 
 #     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-@@app.post("/embarcados/test_rssi", name="test_rssi_esp")
+@app.post("/embarcados/test_rssi", name="test_rssi_esp")
 async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
     data = await request.json()
     embarcado_id = data.get("embarcado_id")
