@@ -641,19 +641,18 @@ def view_planta(request: Request, db: Session = Depends(get_db)):
     """
     return templates.TemplateResponse("planta_baixa.html", {"request": request})
 
-@app.get("/api/plantas/{slug_painel}", name="get_planta_dados_painel")
-def get_planta_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
+@app.get("/api/painel/{slug_painel}", name="get_dados_painel")
+def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
     """
-    API que busca todos os dados de um painel específico (andares, quartos, coordenadas e status)
-    para serem renderizados dinamicamente pelo frontend.
+    API Unificada e Final: Agora envia o 'location_status' de cada ativo.
     """
     painel = db.query(PainelVisualizacao).options(
         joinedload(PainelVisualizacao.andares)
         .joinedload(Andar.quartos)
-        .joinedload(Quarto.assets),
+        .joinedload(Quarto.assets), # Carrega os ativos
         joinedload(PainelVisualizacao.andares)
         .joinedload(Andar.quartos)
-        .joinedload(Quarto.embarcados)
+        .joinedload(Quarto.embarcados) # Carrega os embarcados
     ).filter(PainelVisualizacao.slug == slug_painel).first()
 
     if not painel:
@@ -669,19 +668,28 @@ def get_planta_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
             status_embarcado = "Offline"
             if quarto.embarcados and quarto.embarcados[0].last_seen:
                 last_seen_utc = quarto.embarcados[0].last_seen.replace(tzinfo=timezone.utc)
-                if (now_utc - last_seen_utc).total_seconds() < 150: # ESP_TIMEOUT_SEC
+                if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
                     status_embarcado = "Online"
             
-            ativos_detalhados = [{"nome": asset.nome_ativo} for asset in quarto.assets]
-
+            # --- LÓGICA ATUALIZADA AQUI ---
+            # Para cada ativo, agora também pegamos o seu location_status.
+            ativos_detalhados = []
+            for asset in quarto.assets:
+                ativos_detalhados.append({
+                    "nome": asset.nome_ativo,
+                    "status": asset.location_status  # <-- INFORMAÇÃO CRUCIAL ADICIONADA
+                })
+            # --- FIM DA LÓGICA ATUALIZADA ---
+            
             quartos_data.append({
                 "id_quarto": f"quarto-{quarto.id}",
                 "nome_quarto": quarto.nome,
                 "pos_x": quarto.pos_x,
                 "pos_y": quarto.pos_y,
+                "imagem_url": f"/static/plantas/{quarto.quarto_imagem_url}" if quarto.quarto_imagem_url else None,
                 "status_embarcado": status_embarcado,
                 "numero_ativos": len(ativos_detalhados),
-                "ativos": ativos_detalhados
+                "ativos": ativos_detalhados # A lista agora contém o status de cada um
             })
         
         andares_data.append({
@@ -780,11 +788,13 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
 
     # 2. Busca os dados para o formulário de cadastro/edição
     all_tipos_de_quarto = db.query(TipoDeQuarto).order_by(TipoDeQuarto.nome).all()
+    all_andares = db.query(Andar).order_by(Andar.nome).all()
 
     return templates.TemplateResponse("quartos_list.html", {
         "request": request,
         "quartos": quartos,
         "all_tipos_de_quarto": all_tipos_de_quarto,
+        "all_andares": all_andares,
         "form_action": request.url_for("create_quarto"),
         "quarto": None # Para o formulário de criação
     })
@@ -792,12 +802,9 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
 @app.post("/quartos", name="create_quarto")
 def create_quarto(request: Request, db: Session = Depends(get_db),
     nome: str = Form(...),
-    andar_nome: str = Form(...),
+    andar_id: int = Form(...),
     tipo_quarto_id: int = Form(...)
-):
-    """Processa a criação de um novo quarto."""
-    andar = get_or_create_andar(db, andar_nome.strip())
-    
+):    
     # Verifica se já existe um quarto com o mesmo nome
     quarto_existente = db.query(Quarto).filter_by(nome=nome.strip()).first()
     if quarto_existente:
@@ -807,7 +814,7 @@ def create_quarto(request: Request, db: Session = Depends(get_db),
 
     novo_quarto = Quarto(
         nome=nome.strip(),
-        andar_id=andar.id,
+        andar_id=andar_id,
         tipo_quarto_id=tipo_quarto_id
     )
     db.add(novo_quarto)
@@ -856,7 +863,7 @@ def update_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db
     aggregator.flag_for_reload()
     return RedirectResponse(request.url_for("list_quartos"), status_code=303)
 
-@app.get("/quartos/{quarto_id}/delete", name="delete_quarto")
+@app.post("/quartos/{quarto_id}/delete", name="delete_quarto") # Garanta que é @app.post
 def delete_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db)):
     quarto = db.query(Quarto).get(quarto_id)
     if quarto:
@@ -877,7 +884,8 @@ def delete_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db
 @app.get("/api/painel/{slug_painel}", name="get_dados_painel")
 def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
     """
-    API Unificada: AGORA TAMBÉM BUSCA O HORÁRIO DE ENTRADA DOS ATIVOS.
+    API Unificada e Final: Agora envia o 'location_status' de cada ativo
+    e garante que o sumário seja sempre retornado.
     """
     painel = db.query(PainelVisualizacao).options(
         joinedload(PainelVisualizacao.andares)
@@ -893,13 +901,13 @@ def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
 
     now_utc = datetime.now(timezone.utc)
     fuso_local = timezone(timedelta(hours=-3))
-    ESP_TIMEOUT_SEC = 150
     
     sumario_geral = {"quartos_online": 0, "total_ativos": 0}
+    
     andares_data = []
-
     for andar in painel.andares:
         sumario_andar = {"quartos_online": 0, "total_ativos": 0}
+        
         quartos_data = []
         for quarto in andar.quartos:
             status_embarcado = "Offline"
@@ -911,28 +919,21 @@ def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
             if status_embarcado == "Online":
                 sumario_andar["quartos_online"] += 1
             
-            # --- LÓGICA ATUALIZADA PARA BUSCAR HORÁRIO ---
             ativos_detalhados = []
             for asset in quarto.assets:
-                ultimo_evento = db.query(ReceivedEvent).filter(
-                    ReceivedEvent.ativo == asset.mac_beacon,
-                    ReceivedEvent.action == 'GET'
-                ).order_by(desc(ReceivedEvent.data_on)).first()
-                
-                horario = "N/A"
-                if ultimo_evento and ultimo_evento.data_on:
-                    horario = ultimo_evento.data_on.astimezone(fuso_local).strftime("%H:%M")
-                
-                ativos_detalhados.append({"nome": asset.nome_ativo, "horario_entrada": horario})
+                ativos_detalhados.append({
+                    "nome": asset.nome_ativo,
+                    "status": asset.location_status
+                })
             
             sumario_andar["total_ativos"] += len(ativos_detalhados)
-            # ----------------------------------------------
             
             quartos_data.append({
                 "id_quarto": f"quarto-{quarto.id}", "nome_quarto": quarto.nome,
                 "pos_x": quarto.pos_x, "pos_y": quarto.pos_y,
                 "imagem_url": f"/static/plantas/{quarto.quarto_imagem_url}" if quarto.quarto_imagem_url else None,
-                "status_embarcado": status_embarcado, "numero_ativos": len(ativos_detalhados), "ativos": ativos_detalhados
+                "status_embarcado": status_embarcado, "numero_ativos": len(ativos_detalhados),
+                "ativos": ativos_detalhados
             })
         
         andares_data.append({
@@ -945,8 +946,11 @@ def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
         sumario_geral["quartos_online"] += sumario_andar["quartos_online"]
         sumario_geral["total_ativos"] += sumario_andar["total_ativos"]
 
-    # --- O resto da função continua igual ---
-    response_data = { "nome_painel": painel.nome, "tipo_layout": painel.tipo_layout, }
+    # Monta a resposta final, garantindo que o sumário esteja sempre presente.
+    response_data = {
+        "nome_painel": painel.nome,
+        "tipo_layout": painel.tipo_layout,
+    }
     if painel.tipo_layout == 'grade_quartos':
         todos_os_quartos = []
         for andar_data in andares_data:
@@ -955,6 +959,9 @@ def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
         response_data['sumario_geral'] = sumario_geral
     else:
         response_data['andares'] = andares_data
+        # Para os outros layouts, podemos também adicionar o sumário geral se for útil
+        response_data['sumario_geral'] = sumario_geral
+
     return response_data
 
 @app.get("/plantas", name="list_paineis")
@@ -1163,7 +1170,7 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
 # ===================================================================
 # SEÇÃO 4: CRUD PARA ATIVOS
 # ===================================================================
-@app.get("/assets", name="list_assets")
+@app.get("/ativos", name="list_assets")
 def list_assets(request: Request, db: Session = Depends(get_db), search: Optional[str] = None, sort_by: str = "nome_ativo", order: str = "asc"):
     # ATUALIZADO: Carrega a lista de Tipos de Ativo para passar para o formulário
     all_tipos_de_ativo = db.query(TipoDeAtivo).order_by(TipoDeAtivo.nome).all()
@@ -1209,7 +1216,7 @@ def list_assets(request: Request, db: Session = Depends(get_db), search: Optiona
     })
 
 
-@app.post("/assets", name="create_asset")
+@app.post("/ativos", name="create_asset")
 def create_asset(request: Request, db: Session = Depends(get_db),
     nome_ativo: str = Form(...),
     mac_beacon: str = Form(...),
@@ -1239,7 +1246,7 @@ def create_asset(request: Request, db: Session = Depends(get_db),
         logger.error(f"[main-db] ERRO ao criar ativo: {e}")
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
-@app.get("/assets/{asset_id}/edit", name="edit_asset")
+@app.get("/ativos/{asset_id}/edit", name="edit_asset")
 def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     # A única mudança é adicionar o "current_filters" no dicionário
     return templates.TemplateResponse("assets_list.html", {
@@ -1251,7 +1258,7 @@ def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
         "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"} # <-- A CORREÇÃO ESTÁ AQUI
     })
 
-@app.post("/assets/{asset_id}/edit", name="update_asset")
+@app.post("/ativos/{asset_id}/edit", name="update_asset")
 def update_asset(
     request: Request,
     asset_id: int,
@@ -1282,7 +1289,7 @@ def update_asset(
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
-@app.get("/assets/{asset_id}/delete", name="delete_asset")
+@app.get("/ativos/{asset_id}/delete", name="delete_asset")
 def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     asset = db.query(Asset).get(asset_id)
     if asset:
@@ -1299,7 +1306,7 @@ def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db))
 # ===================================================================
 # SEÇÃO 5: HISTÓRICO DE EVENTOS E DOWNLOADS
 # ===================================================================
-@app.get("/events", name="list_events")
+@app.get("/eventos", name="list_events")
 def list_events(
     request: Request, page: int = Query(1, ge=1),
     filter_ativo: Optional[str] = Query(None), filter_quarto: Optional[str] = Query(None),
@@ -1357,7 +1364,7 @@ def list_events(
         "current_filters": {"ativo": filter_ativo, "quarto": filter_quarto, "action": filter_action, "status": filter_status, "time_filter": time_filter}
     })
 
-@app.get("/events/download", name="download_events_csv")
+@app.get("/eventos/download", name="download_events_csv")
 def download_events_csv(
     db: Session = Depends(get_db),
     # Parâmetros de filtro, agora incluindo a AÇÃO
@@ -1413,7 +1420,7 @@ def download_events_csv(
         headers={"Content-Disposition": "attachment; filename=eventos_filtrados.csv"}
     )
 
-@app.get("/assets/download", name="download_assets_csv")
+@app.get("/ativos/download", name="download_assets_csv")
 def download_assets_csv(db: Session = Depends(get_db)):
     # --- CORREÇÃO AQUI: Usa 'joinedload' para carregar o quarto junto ---
     assets = db.query(Asset).options(joinedload(Asset.quarto)).order_by(Asset.nome_ativo).all()

@@ -96,7 +96,6 @@
         <tbody>
             {% for emb in embarcados %}
             <tr class="selectable-row" data-id="{{ emb.id }}">
-                {# 1. Ações #}
                 <td style="text-align: center;">
                     <div class="actions-menu-container">
                         <button class="actions-menu-trigger" title="Abrir menu de ações">
@@ -105,27 +104,36 @@
                         <div class="actions-dropdown">
                             <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar</a>
                             <a href="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o embarcado {{ emb.id_esp }}?');">Excluir</a>
-                            <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
+                            
+                            <div class="menu-divider"></div>
+
+                            <button type="button" class="menu-item-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
                             <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
                                 <button type="submit" class="menu-item-btn">Reconfigurar</button>
                             </form>
                             <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
-                                <button type="submit" class="menu-item-btn">Reiniciar</button>
+                                <button type="submit" class="menu-item-btn">Reiniciar ESP</button>
                             </form>
+
+                            {# --- NOVO BLOCO ADICIONADO AQUI --- #}
+                            {% if emb.quarto %}
+                            <div class="menu-divider"></div>
+                            <form action="{{ url_for('force_quarto_cleanup', quarto_id=emb.quarto.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja forçar a remoção de TODOS os ativos do quarto {{ emb.quarto.nome }}?');">
+                                <button type="submit" class="menu-item-btn delete">
+                                    Limpar Quarto
+                                </button>
+                            </form>
+                            {% endif %}
+                            {# --- FIM DO NOVO BLOCO --- #}
+
                         </div>
                     </div>
                 </td>
 
-                {# 2. ID do Embarcado #}
+                {# O resto das colunas da tabela continua igual #}
                 <td>{{ emb.id_esp }}</td>
-
-                {# 3. Andar #}
                 <td>{{ emb.quarto.andar.nome if emb.quarto and emb.quarto.andar else '---' }}</td>
-
-                {# 4. Quarto #}
                 <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
-
-                {# 5. Status #}
                 <td>
                     {% if emb.status_rede == 'online' %}
                         <span class="status-indicator online" title="Último contato: {{ emb.last_seen_str }}"></span> ON
@@ -133,20 +141,9 @@
                         <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
                     {% endif %}
                 </td>
-
-                {# 6. Sinal Wi-Fi #}
-                <td>
-                    {% if emb.wifi_signal %}
-                        {{ emb.wifi_signal }} dBm
-                    {% else %}
-                        ---
-                    {% endif %}
-                </td>
-
+                <td>{{ emb.wifi_signal or '---' }} dBm</td>
                 <td>{% if emb.status_rede == 'online' %}{{ emb.mac_address or '---' }}{% else %}---{% endif %}</td>
                 <td>{% if emb.status_rede == 'online' %}{{ emb.ip_address or '---' }}{% else %}---{% endif %}</td>
-
-                {# 9. RSSI Mín. #}
                 <td>
                     {% if emb.rssi_threshold is not none %}
                         <span title="RSSI Individual">{{ emb.rssi_threshold }}</span>

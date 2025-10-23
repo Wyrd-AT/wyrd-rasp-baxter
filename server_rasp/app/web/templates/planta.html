@@ -1,3 +1,4 @@
+{# app/web/templates/planta.html (VERSÃO FINAL COM JAVASCRIPT INTELIGENTE) #}
 {% extends "base.html" %}
 {% block title %}{{ painel_atual.nome }}{% endblock %}
 
@@ -14,8 +15,29 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const rendererContainer = document.getElementById('renderer-container');
-    // A variável 'painel_atual' é passada pelo backend (main.py)
     const slugPainel = "{{ painel_atual.slug }}";
+
+    function getPriorityStatus(quarto) {
+        // Define a prioridade de status para determinar a cor principal do quarto.
+        if (quarto.status_embarcado === 'Offline') return { status: 'Offline', cor: '#6c757d', animacao: false, texto: '(Offline)' };
+        if (quarto.ativos.some(a => a.status === 'ALERTA')) return { status: 'ALERTA', cor: '#e74c3c', animacao: true, texto: 'Alerta!' };
+        if (quarto.ativos.some(a => a.status === 'PENDENTE')) return { status: 'PENDENTE', cor: '#fd7e14', animacao: false, texto: 'Pendente' };
+        if (quarto.ativos.length > 0) return { status: 'CONFIRMADO', cor: '#28a745', animacao: false, texto: `${quarto.numero_ativos} ativo(s)` };
+        return { status: 'LIVRE', cor: '#dc3545', animacao: false, texto: 'Livre' };
+    }
+
+    function buildTooltip(quarto) {
+        // Constrói o texto que aparece ao passar o mouse.
+        let tooltipText = `${quarto.nome_quarto}`;
+        if (quarto.status_embarcado === 'Offline') {
+            tooltipText += `\n(Embarcado Offline)`;
+        } else if (quarto.ativos.length > 0) {
+            quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.status})`; });
+        } else {
+            tooltipText += `\nLivre`;
+        }
+        return tooltipText;
+    }
 
     // --- RENDERIZADOR 1: Grade de Quartos (Estilo HSA) ---
     function renderizarGradeDeQuartos(data) {
@@ -111,78 +133,70 @@ document.addEventListener('DOMContentLoaded', function () {
         data.andares.forEach(andar => {
             if (!andar.imagem_url) return;
 
-            // A lógica de criar o bloco do andar e o sumário continua a mesma
+            // 1. Cria os containers principais
             const blocoAndar = document.createElement('div');
             blocoAndar.className = 'planta-bloco';
-
+            
             const andarContainer = document.createElement('div');
             andarContainer.className = 'planta-container-dinamica';
             andarContainer.style.backgroundImage = `url(${andar.imagem_url})`;
             
             const pontosContainer = document.createElement('div');
             pontosContainer.className = 'planta-pontos-container';
-            
-            // --- INÍCIO DA LÓGICA CORRIGIDA ---
+
+            // 2. Adiciona os pontos ao container de pontos (lógica sem alterações)
             andar.quartos.forEach(quarto => {
                 if (quarto.pos_x != null && quarto.pos_y != null) {
-                    // 1. Cria apenas a "bolinha" (o ponto de status)
                     const ponto = document.createElement('div');
                     ponto.className = 'ponto-quarto-status';
-                    ponto.style.position = 'absolute';
                     ponto.style.left = `${quarto.pos_x}%`;
                     ponto.style.top = `${quarto.pos_y}%`;
-                    
-                    // 2. Define a cor da bolinha (lógica inalterada)
-                    const statusColor = quarto.status_embarcado === 'Online' ? (quarto.numero_ativos > 0 ? '#28a745' : '#dc3545') : '#6c757d';
-                    ponto.style.backgroundColor = statusColor;
 
-                    // 3. Constrói o texto completo para o Tooltip
-                    let tooltipText = `${quarto.nome_quarto}`;
-                    if (quarto.status_embarcado === 'Offline') {
-                        tooltipText += '\n(Offline)';
-                    } else if (quarto.numero_ativos > 0) {
-                        quarto.ativos.forEach(ativo => {
-                            tooltipText += `\n- ${ativo.nome} (desde ${ativo.horario_entrada})`;
-                        });
-                    } else {
-                        tooltipText += '\nLivre';
+                    const statusInfo = getPriorityStatus(quarto);
+                    ponto.style.backgroundColor = statusInfo.cor;
+                    if (statusInfo.animacao) {
+                        ponto.classList.add('blinking-animation');
                     }
-                    ponto.title = tooltipText; // Atribui o texto completo ao tooltip
-
+                    ponto.title = buildTooltip(quarto);
                     pontosContainer.appendChild(ponto);
                 }
             });
-            // --- FIM DA LÓGICA CORRIGIDA ---
 
-            andarContainer.appendChild(pontosContainer);
+            // --- INÍCIO DA CORREÇÃO ---
+            // 3. Monta a estrutura na ordem correta usando appendChild (forma não destrutiva)
+            const tituloH3 = document.createElement('h3');
+            tituloH3.textContent = andar.nome_andar;
+            blocoAndar.appendChild(tituloH3); // Adiciona o título primeiro
 
-            // 4. Cria o sumário
-            const sumario = andar.sumario;
-            const sumarioDiv = document.createElement('div');
-            sumarioDiv.className = 'planta-sumario';
-            sumarioDiv.innerHTML = `
-                <div class="sumario-card card-quartos">
-                    <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/quarto.svg)"></span></div>
-                    <div class="sumario-texto">
-                        <div class="sumario-numero">${sumario.quartos_online}</div>
-                        <div class="sumario-label">Quartos Online</div>
+            andarContainer.appendChild(pontosContainer); // Coloca os pontos dentro da imagem
+            blocoAndar.appendChild(andarContainer); // Adiciona a imagem com os pontos ao bloco principal
+
+            // 4. Cria e adiciona o sumário (se existir)
+            if (andar.sumario) {
+                const sumario = andar.sumario;
+                const sumarioDiv = document.createElement('div');
+                sumarioDiv.className = 'planta-sumario';
+                sumarioDiv.innerHTML = `
+                    <div class="sumario-card card-quartos">
+                        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/quarto.svg)"></span></div>
+                        <div class="sumario-texto">
+                            <div class="sumario-numero">${sumario.quartos_online}</div>
+                            <div class="sumario-label">Quartos Online</div>
+                        </div>
                     </div>
-                </div>
-                <div class="sumario-card card-ativos">
-                    <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/ativo.svg)"></span></div>
-                    <div class="sumario-texto">
-                        <div class="sumario-numero">${sumario.total_ativos}</div>
-                        <div class="sumario-label">Ativos no Andar</div>
+                    <div class="sumario-card card-ativos">
+                        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/ativo.svg)"></span></div>
+                        <div class="sumario-texto">
+                            <div class="sumario-numero">${sumario.total_ativos}</div>
+                            <div class="sumario-label">Ativos no Andar</div>
+                        </div>
                     </div>
-                </div>
-            `;
-            
-            // 5. Adiciona tudo (título, planta, sumário) ao bloco principal do andar, na ordem correta
-            blocoAndar.innerHTML = `<h3>${andar.nome_andar}</h3>`;
-            blocoAndar.appendChild(andarContainer);
-            blocoAndar.appendChild(sumarioDiv);
+                `;
+                blocoAndar.appendChild(sumarioDiv); // Adiciona o sumário ao final do bloco
+            }
+            // --- FIM DA CORREÇÃO ---
 
-            // 6. Adiciona o bloco completo do andar ao container principal
+            // 5. Adiciona o bloco do andar completo à página
             rendererContainer.appendChild(blocoAndar);
         });
     }
@@ -197,21 +211,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         fetch(`/api/painel/${slug}`)
-            .then(response => {
-                if (!response.ok) { throw new Error('API retornou um erro'); }
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                // Lógica para decidir qual função de renderização chamar
                 if (data.tipo_layout === 'grade_quartos') {
-                    renderizarGradeDeQuartos(data);
-                } else if (data.tipo_layout === 'planta_unica' || data.tipo_layout === 'multi_planta') {
+                    renderizarGradeDeQuartos(data); // Implementar esta função se precisar do layout de grade
+                } else {
                     renderizarPlanta(data);
                 }
             })
             .catch(error => {
-                rendererContainer.innerHTML = `<p style="color: red;">Erro ao carregar o painel: ${error.message}. Verifique o console para mais detalhes.</p>`;
-                console.error("Erro no fetch:", error);
+                rendererContainer.innerHTML = `<p style="color: red;">Erro ao carregar o painel: ${error.message}.</p>`;
             });
     }
 

@@ -1,30 +1,50 @@
 ========================================
 ARQUIVO: app/web/templates/asset_form.html
 ========================================
-{# asset_form.html (HSA ATUALIZADO) #}
+{# asset_form.html (VERSÃO COM DROPDOWN DE TIPOS) #}
 <div class="form-card">
     <form action="{{ form_action }}" method="post">
         <div class="form-header">
             <h3>{% if asset %}Editar Ativo{% else %}Cadastro de Ativos{% endif %}</h3>
             <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if asset else 'Salvar' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" width="2a else 'S4" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
             </button>
         </div>
-        <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
+        
+        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr);">
             <div class="form-group">
                 <label for="nome_ativo">Nome do Ativo</label>
                 <input type="text" id="nome_ativo" name="nome_ativo" value="{{ asset.nome_ativo if asset else '' }}" placeholder="Ex: Cama 101-A" required>
             </div>
             <div class="form-group">
-                <label for="mac_beacon">MAC do Beacon</label>
+                <label for="mac_beacon">MAC do Beacon (BLE)</label>
                 <input type="text" id="mac_beacon" name="mac_beacon" value="{{ asset.mac_beacon if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
             </div>
-        </div>
-
-        <div class="form-fields-grid" style="grid-template-columns: 1fr auto; margin-top: 1.5rem;">
             <div class="form-group">
-                <label for="tipo_ativo">Tipo de Ativo</label>
-                <input type="text" id="tipo_ativo" name="tipo_ativo" value="{{ asset.tipo_ativo if asset else '' }}" placeholder="Ex: Cama Hospitalar">
+                <label for="mac_address">MAC Address (Wi-Fi)</label>
+                <input type="text" id="mac_address" name="mac_address" value="{{ asset.mac_address if asset else '' }}" placeholder="Opcional. Ex: XX:XX:XX:XX:XX:XX">
+            </div>
+        </div>
+      
+        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1.5rem;">
+            <div class="form-group">
+                <label for="tipo_ativo_id">Tipo de Ativo</label>
+                <select id="tipo_ativo_id" name="tipo_ativo_id" required>
+                    <option value="" disabled {% if not asset %}selected{% endif %}>Selecione um tipo...</option>
+                    {% for tipo in all_tipos_de_ativo %}
+                        <option value="{{ tipo.id }}" {% if asset and asset.tipo_ativo_id == tipo.id %}selected{% endif %}>
+                            {{ tipo.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="modelo">Modelo</label>
+                <input type="text" id="modelo" name="modelo" value="{{ asset.modelo if asset else '' }}" placeholder="Opcional. Ex: Hillrom AvantGuard">
+            </div>
+            <div class="form-group">
+                <label for="fabricante">Fabricante</label>
+                <input type="text" id="fabricante" name="fabricante" value="{{ asset.fabricante if asset else '' }}" placeholder="Opcional. Ex: Hillrom">
             </div>
         </div>
     </form>
@@ -43,7 +63,7 @@ ARQUIVO: app/web/templates/assets_list.html
     <h1>Ativos</h1>
     <div class="header-actions">
         <form method="get" action="{{ url_for('list_assets') }}" class="search-bar">
-            <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
+            <input type="text" name="search" placeholder="Pesquisar por nome, MAC, quarto ou tipo" value="{{ search or '' }}">
             <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
 </button>
         </form>
@@ -52,29 +72,30 @@ ARQUIVO: app/web/templates/assets_list.html
     </div>
 </div>
 
-{# FORMULÁRIO MOVIDO PARA CIMA E USANDO O CONTAINER VERTICAL #}
 <div class="forms-container-vertical" id="forms-container">
     {% include 'asset_form.html' %}
 </div>
 
-{# TABELA AGORA VEM DEPOIS, EM UM CONTAINER DE LARGURA TOTAL #}
 <div class="list-container-full-width">
     <table class="data-table">
     <thead>
         <tr>
             <th style="text-align: center; width: 80px;">AÇÕES</th>
             {% set sort_order = 'asc' if current_filters.sort_by == 'nome_ativo' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=sort_order) }}">NOME DA CAMA</a>
+            <th><a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=sort_order) }}">NOME DO ATIVO</a>
                 {% if current_filters.sort_by == 'nome_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+            
             {% set sort_order = 'asc' if current_filters.sort_by == 'tipo_ativo' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='tipo_ativo', order=sort_order) }}">TIPO DE ATIVO</a>
                 {% if current_filters.sort_by == 'tipo_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+
             {% set sort_order = 'asc' if current_filters.sort_by == 'mac_beacon' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
                 {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
+            
             {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
                 {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -87,19 +108,16 @@ ARQUIVO: app/web/templates/assets_list.html
         <tr class="selectable-row" data-id="{{ asset.id }}">
             <td style="text-align: center;">
                 <div class="actions-menu-container">
-                    <button class="actions-menu-trigger" title="Abrir menu de ações">
-                        &#8942;
-                    </button>
+                    <button class="actions-menu-trigger" title="Abrir menu de ações">&#8942;</button>
                     <div class="actions-dropdown">
                         <a href="{{ url_for('edit_asset', asset_id=asset.id) }}" class="menu-item-link">Editar</a>
-                        <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o ativo {{ asset.nome_ativo }}?');">Excluir</a>
+                        <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza?');">Excluir</a>
                     </div>
                 </div>
             </td>
             <td>{{ asset.nome_ativo }}</td>
 
-            {# NOVOS DADOS #}
-            <td>{{ asset.tipo_ativo or '---' }}</td>
+            <td>{{ asset.tipo_de_ativo.nome if asset.tipo_de_ativo else '---' }}</td>
             
             <td>{{ asset.mac_beacon }}</td>
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
@@ -287,6 +305,7 @@ ARQUIVO: app/web/templates/base.html
 ========================================
 ARQUIVO: app/web/templates/embarcado_form.html
 ========================================
+{# embarcado_form.html (VERSÃO FINAL SIMPLIFICADA) #}
 <form action="{{ form_action }}" method="post">
     
     <div class="form-header">
@@ -296,31 +315,39 @@ ARQUIVO: app/web/templates/embarcado_form.html
         </button>
     </div>
     
-    <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+    <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
         <div class="form-group">
             <label for="id_esp">ID da ESP</label>
-            <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
+            <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="Ex: WRD00000001" required {% if embarcado %}readonly{% endif %}>
         </div>
         
         <div class="form-group">
-            <label for="andar_nome">Andar</label>
-            <input type="text" id="andar_nome" name="andar_nome" 
-                   value="{{ embarcado.quarto.andar.nome if embarcado and embarcado.quarto and embarcado.quarto.andar else '' }}" 
-                   placeholder="Ex: Térreo, 1º Andar" required>
-        </div>
-
-        <div class="form-group">
-            <label for="quarto_nome">Quarto</label>
-            <input type="text" id="quarto_nome" name="quarto_nome" 
-                   value="{{ embarcado.quarto.nome if embarcado and embarcado.quarto else '' }}" 
-                   placeholder="Ex: 101, UTI-02" required>
+            <label for="quarto_id">Associar ao Quarto</label>
+            <select id="quarto_id" name="quarto_id" required>
+                <option value="" disabled selected>Selecione um quarto disponível...</option>
+                
+                {% if embarcado and embarcado.quarto %}
+                    <option value="{{ embarcado.quarto.id }}" selected>{{ embarcado.quarto.nome }}</option>
+                {% endif %}
+                
+                {% for quarto in available_quartos %}
+                    <option value="{{ quarto.id }}">{{ quarto.nome }}</option>
+                {% endfor %}
+            </select>
         </div>
         
-        <div class="form-group" style="grid-column: 1 / 4;">
+        <div class="form-group">
             <label for="rssi_threshold">RSSI Mínimo Individual (dBm)</label>
             <input type="number" id="rssi_threshold" name="rssi_threshold"
                    value="{{ embarcado.rssi_threshold if embarcado and embarcado.rssi_threshold is not none else '' }}"
-                   placeholder="Deixe em branco para usar o global">
+                   placeholder="Opcional. Padrão: Global">
+        </div>
+
+        <div class="form-group">
+            <label for="connecta_id">ID de Integração</label>
+            <input type="text" id="connecta_id" name="connecta_id" 
+                   value="{{ embarcado.connecta_id if embarcado and embarcado.connecta_id else '' }}"
+                   placeholder="Opcional. Ex: BA010101">
         </div>
     </div>
 </form>
@@ -353,35 +380,29 @@ ARQUIVO: app/web/templates/embarcados_list.html
     </div>
     
     <div class="form-card">
-    <form action="{{ url_for('update_settings') }}" method="post">
-        
-        <div class="form-header">
-            <h3>Configurações Globais</h3>
-            <button type="submit" class="icon-btn icon-btn-primary" title="Salvar Configurações Globais">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-            </button>
-        </div>
-        
-        <div class="form-fields-grid" style="grid-template-columns: 1fr 1fr;">
-            <div class="form-group">
-                <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
-                <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
+          <form action="{{ url_for('update_settings') }}" method="post">
+            <div class="form-header">
+                <h3>Configurações Globais</h3>
+                <button type="submit" class="icon-btn icon-btn-primary" title="Salvar Configurações Globais">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                </button>
             </div>
-            <div class="form-group">
-                <label for="conflict_margin_db">Margem de Conflito (dB)</label>
-                <input type="number" name="conflict_margin_db" value="{{ global_settings.conflict_margin_db }}" required>
+            <div class="form-fields-grid", style="grid-template-columns: repeat(2, 1fr);">
+                <div class="form-group">
+                    <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
+                    <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_entrada">Inércia de Entrada (ms)</label>
+                    <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="inercia_saida">Inércia de Saída (ms)</label>
+                    <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="inercia_entrada">Inércia de Entrada (ms)</label>
-                <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
-            </div>
-            <div class="form-group">
-                <label for="inercia_saida">Inércia de Saída (ms)</label>
-                <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
-            </div>
-        </div>
-    </form>
-</div>
+        </form>
+    </div>
 </div>
 
 {# 2. TABELA AGORA VEM DEPOIS DOS FORMULÁRIOS #}
@@ -433,7 +454,6 @@ ARQUIVO: app/web/templates/embarcados_list.html
         <tbody>
             {% for emb in embarcados %}
             <tr class="selectable-row" data-id="{{ emb.id }}">
-                {# 1. Ações #}
                 <td style="text-align: center;">
                     <div class="actions-menu-container">
                         <button class="actions-menu-trigger" title="Abrir menu de ações">
@@ -442,27 +462,36 @@ ARQUIVO: app/web/templates/embarcados_list.html
                         <div class="actions-dropdown">
                             <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar</a>
                             <a href="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o embarcado {{ emb.id_esp }}?');">Excluir</a>
-                            <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
+                            
+                            <div class="menu-divider"></div>
+
+                            <button type="button" class="menu-item-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
                             <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
                                 <button type="submit" class="menu-item-btn">Reconfigurar</button>
                             </form>
                             <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
-                                <button type="submit" class="menu-item-btn">Reiniciar</button>
+                                <button type="submit" class="menu-item-btn">Reiniciar ESP</button>
                             </form>
+
+                            {# --- NOVO BLOCO ADICIONADO AQUI --- #}
+                            {% if emb.quarto %}
+                            <div class="menu-divider"></div>
+                            <form action="{{ url_for('force_quarto_cleanup', quarto_id=emb.quarto.id) }}" method="post" onsubmit="return confirm('Tem certeza que deseja forçar a remoção de TODOS os ativos do quarto {{ emb.quarto.nome }}?');">
+                                <button type="submit" class="menu-item-btn delete">
+                                    Limpar Quarto
+                                </button>
+                            </form>
+                            {% endif %}
+                            {# --- FIM DO NOVO BLOCO --- #}
+
                         </div>
                     </div>
                 </td>
 
-                {# 2. ID do Embarcado #}
+                {# O resto das colunas da tabela continua igual #}
                 <td>{{ emb.id_esp }}</td>
-
-                {# 3. Andar #}
                 <td>{{ emb.quarto.andar.nome if emb.quarto and emb.quarto.andar else '---' }}</td>
-
-                {# 4. Quarto #}
                 <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
-
-                {# 5. Status #}
                 <td>
                     {% if emb.status_rede == 'online' %}
                         <span class="status-indicator online" title="Último contato: {{ emb.last_seen_str }}"></span> ON
@@ -470,20 +499,9 @@ ARQUIVO: app/web/templates/embarcados_list.html
                         <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
                     {% endif %}
                 </td>
-
-                {# 6. Sinal Wi-Fi #}
-                <td>
-                    {% if emb.wifi_signal %}
-                        {{ emb.wifi_signal }} dBm
-                    {% else %}
-                        ---
-                    {% endif %}
-                </td>
-
+                <td>{{ emb.wifi_signal or '---' }} dBm</td>
                 <td>{% if emb.status_rede == 'online' %}{{ emb.mac_address or '---' }}{% else %}---{% endif %}</td>
                 <td>{% if emb.status_rede == 'online' %}{{ emb.ip_address or '---' }}{% else %}---{% endif %}</td>
-
-                {# 9. RSSI Mín. #}
                 <td>
                     {% if emb.rssi_threshold is not none %}
                         <span title="RSSI Individual">{{ emb.rssi_threshold }}</span>
@@ -591,7 +609,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
                 
-                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
+                modalTitle.textContentg_mana = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
                 
                 let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
 
@@ -705,11 +723,6 @@ ARQUIVO: app/web/templates/events_list.html
                     {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
                 {# === FIM DAS MUDANÇAS === #}
-
-                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
-                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'rssi' and current_filters.order == 'desc' else 'desc' %}
                 <th><a href="{{ request.url.replace_query_params(sort_by='rssi', order=sort_order) }}">SINAL BLE</a>
                     {% if current_filters.sort_by == 'rssi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -718,9 +731,9 @@ ARQUIVO: app/web/templates/events_list.html
                 <th><a href="{{ request.url.replace_query_params(sort_by='wifi', order=sort_order) }}">SINAL WI-FI</a>
                     {% if current_filters.sort_by == 'wifi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
-                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
+                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
             </tr>
         </thead>
@@ -736,26 +749,18 @@ ARQUIVO: app/web/templates/events_list.html
                 <td>{{ event.andar_nome or '---' }}</td>
                 {# === FIM DAS MUDANÇAS === #}
 
-                <td>
-                    {% if event.action == 'GET' %}
-                        <span class="action-get">Conectar</span>
-                    {% elif event.action == 'OUT' %}
-                        <span class="action-out">Desconectar</span>
-                    {% elif event.action == 'ALERTA' %}
-                        <span class="action-warning">Alerta</span>
-                    {% else %}
-                        <span>{{ event.action }}</span>
-                    {% endif %}
-                </td>
                 <td>{{ event.rssi or '---' }}</td>     
                 <td>{{ event.wifi or '---' }}</td>     
                 <td>
-                    {% if event.status %}
-                        <span class="status-box status-{{ event.status | lower }}"
-                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
-                            {{ event.status }}
-                        </span>
-                    {% endif %}
+                    <span class="action-{{ event.action | lower }} action-tooltip" 
+                        {% if event.tooltip_text %} title="{{ event.tooltip_text }}" {% endif %}>
+
+                        {% if event.action == 'GET' %} Conectado
+                        {% elif event.action == 'OUT' %} Desconectado
+                        {% elif event.action == 'ALERTA' %} Alerta
+                        {% else %} {{ event.action }}
+                        {% endif %}
+                    </span>
                 </td>
             </tr>
             {% endfor %}
@@ -1168,6 +1173,7 @@ ARQUIVO: app/web/templates/main.html
 ========================================
 ARQUIVO: app/web/templates/planta.html
 ========================================
+{# app/web/templates/planta.html (VERSÃO FINAL COM JAVASCRIPT INTELIGENTE) #}
 {% extends "base.html" %}
 {% block title %}{{ painel_atual.nome }}{% endblock %}
 
@@ -1184,8 +1190,29 @@ ARQUIVO: app/web/templates/planta.html
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const rendererContainer = document.getElementById('renderer-container');
-    // A variável 'painel_atual' é passada pelo backend (main.py)
     const slugPainel = "{{ painel_atual.slug }}";
+
+    function getPriorityStatus(quarto) {
+        // Define a prioridade de status para determinar a cor principal do quarto.
+        if (quarto.status_embarcado === 'Offline') return { status: 'Offline', cor: '#6c757d', animacao: false, texto: '(Offline)' };
+        if (quarto.ativos.some(a => a.status === 'ALERTA')) return { status: 'ALERTA', cor: '#e74c3c', animacao: true, texto: 'Alerta!' };
+        if (quarto.ativos.some(a => a.status === 'PENDENTE')) return { status: 'PENDENTE', cor: '#fd7e14', animacao: false, texto: 'Pendente' };
+        if (quarto.ativos.length > 0) return { status: 'CONFIRMADO', cor: '#28a745', animacao: false, texto: `${quarto.numero_ativos} ativo(s)` };
+        return { status: 'LIVRE', cor: '#dc3545', animacao: false, texto: 'Livre' };
+    }
+
+    function buildTooltip(quarto) {
+        // Constrói o texto que aparece ao passar o mouse.
+        let tooltipText = `${quarto.nome_quarto}`;
+        if (quarto.status_embarcado === 'Offline') {
+            tooltipText += `\n(Embarcado Offline)`;
+        } else if (quarto.ativos.length > 0) {
+            quarto.ativos.forEach(a => { tooltipText += `\n- ${a.nome} (${a.status})`; });
+        } else {
+            tooltipText += `\nLivre`;
+        }
+        return tooltipText;
+    }
 
     // --- RENDERIZADOR 1: Grade de Quartos (Estilo HSA) ---
     function renderizarGradeDeQuartos(data) {
@@ -1281,78 +1308,70 @@ document.addEventListener('DOMContentLoaded', function () {
         data.andares.forEach(andar => {
             if (!andar.imagem_url) return;
 
-            // A lógica de criar o bloco do andar e o sumário continua a mesma
+            // 1. Cria os containers principais
             const blocoAndar = document.createElement('div');
             blocoAndar.className = 'planta-bloco';
-
+            
             const andarContainer = document.createElement('div');
             andarContainer.className = 'planta-container-dinamica';
             andarContainer.style.backgroundImage = `url(${andar.imagem_url})`;
             
             const pontosContainer = document.createElement('div');
             pontosContainer.className = 'planta-pontos-container';
-            
-            // --- INÍCIO DA LÓGICA CORRIGIDA ---
+
+            // 2. Adiciona os pontos ao container de pontos (lógica sem alterações)
             andar.quartos.forEach(quarto => {
                 if (quarto.pos_x != null && quarto.pos_y != null) {
-                    // 1. Cria apenas a "bolinha" (o ponto de status)
                     const ponto = document.createElement('div');
                     ponto.className = 'ponto-quarto-status';
-                    ponto.style.position = 'absolute';
                     ponto.style.left = `${quarto.pos_x}%`;
                     ponto.style.top = `${quarto.pos_y}%`;
-                    
-                    // 2. Define a cor da bolinha (lógica inalterada)
-                    const statusColor = quarto.status_embarcado === 'Online' ? (quarto.numero_ativos > 0 ? '#28a745' : '#dc3545') : '#6c757d';
-                    ponto.style.backgroundColor = statusColor;
 
-                    // 3. Constrói o texto completo para o Tooltip
-                    let tooltipText = `${quarto.nome_quarto}`;
-                    if (quarto.status_embarcado === 'Offline') {
-                        tooltipText += '\n(Offline)';
-                    } else if (quarto.numero_ativos > 0) {
-                        quarto.ativos.forEach(ativo => {
-                            tooltipText += `\n- ${ativo.nome} (desde ${ativo.horario_entrada})`;
-                        });
-                    } else {
-                        tooltipText += '\nLivre';
+                    const statusInfo = getPriorityStatus(quarto);
+                    ponto.style.backgroundColor = statusInfo.cor;
+                    if (statusInfo.animacao) {
+                        ponto.classList.add('blinking-animation');
                     }
-                    ponto.title = tooltipText; // Atribui o texto completo ao tooltip
-
+                    ponto.title = buildTooltip(quarto);
                     pontosContainer.appendChild(ponto);
                 }
             });
-            // --- FIM DA LÓGICA CORRIGIDA ---
 
-            andarContainer.appendChild(pontosContainer);
+            // --- INÍCIO DA CORREÇÃO ---
+            // 3. Monta a estrutura na ordem correta usando appendChild (forma não destrutiva)
+            const tituloH3 = document.createElement('h3');
+            tituloH3.textContent = andar.nome_andar;
+            blocoAndar.appendChild(tituloH3); // Adiciona o título primeiro
 
-            // 4. Cria o sumário
-            const sumario = andar.sumario;
-            const sumarioDiv = document.createElement('div');
-            sumarioDiv.className = 'planta-sumario';
-            sumarioDiv.innerHTML = `
-                <div class="sumario-card card-quartos">
-                    <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/quarto.svg)"></span></div>
-                    <div class="sumario-texto">
-                        <div class="sumario-numero">${sumario.quartos_online}</div>
-                        <div class="sumario-label">Quartos Online</div>
+            andarContainer.appendChild(pontosContainer); // Coloca os pontos dentro da imagem
+            blocoAndar.appendChild(andarContainer); // Adiciona a imagem com os pontos ao bloco principal
+
+            // 4. Cria e adiciona o sumário (se existir)
+            if (andar.sumario) {
+                const sumario = andar.sumario;
+                const sumarioDiv = document.createElement('div');
+                sumarioDiv.className = 'planta-sumario';
+                sumarioDiv.innerHTML = `
+                    <div class="sumario-card card-quartos">
+                        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/quarto.svg)"></span></div>
+                        <div class="sumario-texto">
+                            <div class="sumario-numero">${sumario.quartos_online}</div>
+                            <div class="sumario-label">Quartos Online</div>
+                        </div>
                     </div>
-                </div>
-                <div class="sumario-card card-ativos">
-                    <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/ativo.svg)"></span></div>
-                    <div class="sumario-texto">
-                        <div class="sumario-numero">${sumario.total_ativos}</div>
-                        <div class="sumario-label">Ativos no Andar</div>
+                    <div class="sumario-card card-ativos">
+                        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/ativo.svg)"></span></div>
+                        <div class="sumario-texto">
+                            <div class="sumario-numero">${sumario.total_ativos}</div>
+                            <div class="sumario-label">Ativos no Andar</div>
+                        </div>
                     </div>
-                </div>
-            `;
-            
-            // 5. Adiciona tudo (título, planta, sumário) ao bloco principal do andar, na ordem correta
-            blocoAndar.innerHTML = `<h3>${andar.nome_andar}</h3>`;
-            blocoAndar.appendChild(andarContainer);
-            blocoAndar.appendChild(sumarioDiv);
+                `;
+                blocoAndar.appendChild(sumarioDiv); // Adiciona o sumário ao final do bloco
+            }
+            // --- FIM DA CORREÇÃO ---
 
-            // 6. Adiciona o bloco completo do andar ao container principal
+            // 5. Adiciona o bloco do andar completo à página
             rendererContainer.appendChild(blocoAndar);
         });
     }
@@ -1367,21 +1386,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         fetch(`/api/painel/${slug}`)
-            .then(response => {
-                if (!response.ok) { throw new Error('API retornou um erro'); }
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                // Lógica para decidir qual função de renderização chamar
                 if (data.tipo_layout === 'grade_quartos') {
-                    renderizarGradeDeQuartos(data);
-                } else if (data.tipo_layout === 'planta_unica' || data.tipo_layout === 'multi_planta') {
+                    renderizarGradeDeQuartos(data); // Implementar esta função se precisar do layout de grade
+                } else {
                     renderizarPlanta(data);
                 }
             })
             .catch(error => {
-                rendererContainer.innerHTML = `<p style="color: red;">Erro ao carregar o painel: ${error.message}. Verifique o console para mais detalhes.</p>`;
-                console.error("Erro no fetch:", error);
+                rendererContainer.innerHTML = `<p style="color: red;">Erro ao carregar o painel: ${error.message}.</p>`;
             });
     }
 
@@ -1408,14 +1422,44 @@ document.addEventListener('DOMContentLoaded', function () {
 ========================================
 ARQUIVO: app/web/templates/quarto_form.html
 ========================================
+{# app/web/templates/quarto_form.html #}
 <div class="form-card">
-    <h3>{% if quarto %}Editar Quarto{% else %}Cadastro de Quarto{% endif %}</h3>
     <form action="{{ form_action }}" method="post">
-        <div class="form-group">
-            <label for="nome">Nome do Quarto</label>
-            <input type="text" id="nome" name="nome" value="{{ quarto.nome if quarto else '' }}" placeholder="Ex: Sala de Reunião 1" required>
+        <div class="form-header">
+            <h3>{% if quarto %}Editar Quarto{% else %}Cadastro de Quartos{% endif %}</h3>
+            <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if quarto else 'Salvar' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            </button>
         </div>
-        <button type="submit" class="btn-primary form-btn">{{ 'Atualizar' if quarto else 'Salvar' }}</button>
+        
+        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="form-group">
+                <label for="nome">Nome do Quarto</label>
+                <input type="text" id="nome" name="nome" value="{{ quarto.nome if quarto else '' }}" placeholder="Ex: 101, UTI-02" required>
+            </div>
+            <div class="form-group">
+                <label for="andar_id">Andar</label>
+                <select id="andar_id" name="andar_id" required>
+                    <option value="" disabled {% if not quarto %}selected{% endif %}>Selecione um andar...</option>
+                    {% for andar in all_andares %}
+                        <option value="{{ andar.id }}" {% if quarto and quarto.andar_id == andar.id %}selected{% endif %}>
+                            {{ andar.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="tipo_quarto_id">Tipo de Quarto</label>
+                <select id="tipo_quarto_id" name="tipo_quarto_id" required>
+                    <option value="" disabled {% if not quarto %}selected{% endif %}>Selecione um tipo...</option>
+                    {% for tipo in all_tipos_de_quarto %}
+                        <option value="{{ tipo.id }}" {% if quarto and quarto.tipo_quarto_id == tipo.id %}selected{% endif %}>
+                            {{ tipo.nome }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
     </form>
 </div>
 
@@ -1423,37 +1467,59 @@ ARQUIVO: app/web/templates/quarto_form.html
 ========================================
 ARQUIVO: app/web/templates/quartos_list.html
 ========================================
+{# app/web/templates/quartos_list.html (VERSÃO FINAL UNIFICADA) #}
 {% extends "base.html" %}
 
-{% block title %}Status dos Quartos{% endblock %}
+{% block title %}Status e Gestão de Quartos{% endblock %}
 
 {% block content %}
 <div class="content-header">
-    <h1>Status dos Quartos</h1>
+    <h1>Quartos</h1>
+    <div class="header-actions">
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulário</button>
+    </div>
 </div>
 
+{# 1. FORMULÁRIO DE GERENCIAMENTO NO TOPO (RECOLHÍVEL) #}
+<div class="forms-container-vertical" id="forms-container">
+    {# O formulário de criação/edição é incluído aqui #}
+    {% include 'quarto_form.html' %}
+</div>
+
+{# 2. SEU GRID DE STATUS VISUAL ABAIXO (INTACTO) #}
 <div class="room-cards-container-fullwidth">
     {% for quarto in quartos %}
     <div class="room-card">
-        <form class="room-card-header" action="{{ url_for('update_quarto', quarto_id=quarto.id) }}" method="post">
-            
+        <div class="room-card-header">
             <div>
                 <h3 class="room-name-display">{{ quarto.nome }}</h3>
-                {% if quarto.andar %}
-                    <span style="font-size: 0.8rem; color: var(--text-secondary);">{{ quarto.andar.nome }}</span>
-                {% endif %}
+                <span style="font-size: 0.8rem; color: var(--text-secondary);">
+                    {{ quarto.andar.nome if quarto.andar else '' }} | {{ quarto.tipo_de_quarto.nome if quarto.tipo_de_quarto else 'Sem tipo' }} | {{ quarto.embarcados[0].id_esp if quarto.embarcados else '---' }} 
+                </span>
             </div>
             
-            <input type="text" name="nome" value="{{ quarto.nome }}" class="room-name-input" hidden>
-            
-            <button type="button" class="icon-btn room-edit-btn" title="Editar nome">
-                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lapis.svg') }})"></span>
-            </button>
-
-            <button type="submit" class="icon-btn room-save-btn" title="Salvar" hidden>
-                <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/check.svg') }})"></span>
-            </button>
-        </form>
+            <div class="actions-menu-container">
+                <button class="actions-menu-trigger icon-btn" title="Ações do quarto">&#8942;</button>
+                <div class="actions-dropdown">
+                    <a href="{{ url_for('edit_quarto', quarto_id=quarto.id) }}" class="menu-item-link">Editar</a>
+                    {% if quarto.embarcados or quarto.assets %}
+                        {# CASO 1: O quarto está OCUPADO. Botão desabilitado que mostra um alerta. #}
+                        <button type="button" class="menu-item-btn delete-disabled" 
+                                onclick="alert('Não é possível excluir este quarto pois ele está ocupado por um embarcado ou um ativo.');">
+                            Excluir
+                        </button>
+                    {% else %}
+                        {# CASO 2: O quarto está LIVRE. Gera o formulário de exclusão com método POST. #}
+                        <form action="{{ url_for('delete_quarto', quarto_id=quarto.id) }}" method="post" style="margin: 0;">
+                            <button type="submit" class="menu-item-btn delete" 
+                                    onclick="return confirm('Tem certeza que deseja apagar o quarto {{ quarto.nome }}? Esta ação não pode ser desfeita.');">
+                                Excluir
+                            </button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
 
         <div class="room-block-body">
             {% if quarto.assets %}
@@ -1477,32 +1543,22 @@ ARQUIVO: app/web/templates/quartos_list.html
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const editButtons = document.querySelectorAll('.room-edit-btn');
-
-    editButtons.forEach(btn => {
-        btn.addEventListener('click', function() {
-            const header = this.closest('.room-card-header');
-            
-            // --- Lógica para encontrar os elementos ---
-            const nameWrapper = header.querySelector('div'); // O novo div que agrupa nome e andar
-            const nameDisplay = nameWrapper.querySelector('.room-name-display');
-            const andarDisplay = nameWrapper.querySelector('span');
-            const nameInput = header.querySelector('.room-name-input');
-            const saveBtn = header.querySelector('.room-save-btn');
-
-            // Esconde o wrapper do nome/andar e o botão de editar
-            nameWrapper.hidden = true;
-            this.hidden = true;
-
-            // Mostra o campo de input e o botão de salvar
-            nameInput.hidden = false;
-            saveBtn.hidden = false;
-            
-            // Foca no campo de input
-            nameInput.focus();
-            nameInput.select();
+    // Lógica para controlar o menu de ações
+    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
+        button.addEventListener('click', function (event) {
+            event.stopPropagation();
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                if (d !== this.nextElementSibling) d.classList.remove('show');
+            });
+            this.nextElementSibling.classList.toggle('show');
         });
     });
+    window.addEventListener('click', (event) => {
+        if (!event.target.matches('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+        }
+    });
+    // O script para recolher o formulário já está no base.html e funcionará automaticamente.
 });
 </script>
 {% endblock %}
