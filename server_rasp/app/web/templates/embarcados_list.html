@@ -22,18 +22,26 @@
     </div>
     
     <div class="form-card">
-          <form action="{{ url_for('update_settings') }}" method="post">
+        <form action="{{ url_for('update_settings') }}" method="post">
             <div class="form-header">
                 <h3>Configurações Globais</h3>
                 <button type="submit" class="icon-btn icon-btn-primary" title="Salvar Configurações Globais">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
                 </button>
             </div>
-            <div class="form-fields-grid", style="grid-template-columns: repeat(2, 1fr);">
+            <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
                 <div class="form-group">
                     <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
                     <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
                 </div>
+
+                {# --- CAMPO ADICIONADO AQUI --- #}
+                <div class="form-group">
+                    <label for="conflict_margin_db">Margem de Conflito (dB)</label>
+                    <input type="number" name="conflict_margin_db" value="{{ global_settings.conflict_margin_db }}" required>
+                </div>
+                {# --- FIM DA ADIÇÃO --- #}
+
                 <div class="form-group">
                     <label for="inercia_entrada">Inércia de Entrada (ms)</label>
                     <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
