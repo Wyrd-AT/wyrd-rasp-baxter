@@ -256,24 +256,31 @@ document.addEventListener('DOMContentLoaded', function () {
                 const modalTitle = document.getElementById('modal-title');
                 const modalBody = document.getElementById('modal-body-content');
                 const esp_id = data.esp_id;
-
                 const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
                 
-                modalTitle.textContentg_mana = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
+                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
                 
-                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
+                // --- CORREÇÃO APLICADA AQUI ---
+                // 1. O cabeçalho da tabela agora tem 4 colunas.
+                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI Recente</th><th>Média (Calculada)</th></tr></thead><tbody>`;
 
                 if (data.report && data.report.length > 0) {
-                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
+                    // Ordena pela média, que é mais estável
+                    data.report.sort((a, b) => (b.avg_rssi || -1000) - (a.avg_rssi || -1000));
+                    
                     data.report.forEach(beacon => {
                         const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
                         const rssiValue = beacon.rssi;
-                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
+                        const avgValue = beacon.avg_rssi;
+                        // A decisão da cor agora se baseia na média, que é o que o aggregator usa.
+                        const rssiClass = avgValue >= threshold ? 'rssi-strong' : 'rssi-weak';
                         
-                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
+                        // 2. A linha da tabela agora tem 4 células, incluindo a média.
+                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td>${rssiValue} dBm</td><td class="${rssiClass}">${avgValue} dBm</td></tr>`;
                     });
                 } else {
-                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
+                    // 3. O colspan foi atualizado para 4 colunas.
+                    reportHtml += '<tr><td colspan="4" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
                 }
 
                 reportHtml += '</tbody></table>';

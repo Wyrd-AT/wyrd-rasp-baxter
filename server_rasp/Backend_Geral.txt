@@ -250,7 +250,7 @@ async def _processar_localizacoes():
                     if capacidade > 0:
                         ativos_no_quarto = sum(1 for a in _asset_map.values() if a['quarto_id'] == quarto_id_candidato)
                         if ativos_no_quarto >= capacidade: continue
-                    current_avg = state.get_average_rssi(esp_id)
+                    current_avg = state.get_overall_average_rssi()
                     threshold = rssi_min_embarcado if rssi_min_embarcado is not None else _global_settings["default_rssi_threshold"]
                     if current_avg > threshold and current_avg > strongest_candidate["avg_rssi"]:
                         strongest_candidate = {"esp_id": esp_id, "avg_rssi": current_avg, "quarto_id": quarto_id_candidato}
@@ -313,7 +313,7 @@ async def _processar_localizacoes():
                         
                         # Lógica da Margem de Conflito
                         esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
-                        sinais_no_quarto_atual = [state.get_average_rssi(e) for e in esps_no_quarto_atual if e in state.readings]
+                        sinais_no_quarto_atual = [state.get_overall_average_rssi() for e in esps_no_quarto_atual if e in state.readings]
                         rssi_para_comparacao = max(sinais_no_quarto_atual) if sinais_no_quarto_atual else -1000
                         
                         # Se o novo candidato não for forte o suficiente para superar a margem, não faz nada.

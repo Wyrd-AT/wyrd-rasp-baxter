@@ -195,7 +195,7 @@ async def _consume_scan_data_queue():
                 # 1. Busca as informações completas do ativo no cache ANTES de criar o estado.
                 asset_info = _asset_map.get(mac, {})
                 quarto_id_atual = asset_info.get("quarto_id")
-                location_status_atual = asset_info.get("location_status", "LIVRE") # Padrão é LIVRE se não existir
+                location_status_atual = asset_info.get("location_status", "LIVRE")
                 
                 tipo_de_ativo_regras = {
                     'algoritmo_media': asset_info.get('algoritmo_media', 'SMA'),
