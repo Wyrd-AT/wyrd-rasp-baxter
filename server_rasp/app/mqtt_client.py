@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from .config import settings
 import logging
 
+from typing import Optional
+
 logger = logging.getLogger(__name__)
 
 # Fila para dados de scan (localização)
@@ -87,3 +89,8 @@ def start_mqtt_client():
         client.loop_start() 
     except Exception as e:
         logger.error(f"[MQTT] Não foi possível conectar ao broker: {e}")
+
+def get_last_wifi_signal_for_esp(esp_id: str) -> Optional[int]:
+    """Busca no cache o último sinal de Wi-Fi conhecido para um ESP específico."""
+    with _cache_lock:
+        return _esp_status_cache.get(esp_id, {}).get("wifi_signal")

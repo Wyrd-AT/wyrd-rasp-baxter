@@ -330,7 +330,7 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
             reading = state.readings[embarcado.id_esp]
             last_rssi = reading.get("last_rssi", -1000)
             
-            average_rssi = round(state.get_overall_average_rssi())
+            average_rssi = round(state.get_average_rssi(embarcado.id_esp))
         
             report_data.append({
                 "mac": mac,
@@ -438,26 +438,28 @@ def update_settings(
 async def presence_callback(request: Request, db: Session = Depends(get_db), payload: Dict = Body(...)):
     """
     Endpoint genérico para receber confirmações de presença de sistemas externos.
-    Espera um JSON com 'nome_ativo' e 'status' ('Connected' ou 'Disconnected').
     """
     try:
         nome_ativo = payload.get("nome_ativo")
         status_conexao = payload.get("status")
         if not nome_ativo or not status_conexao:
-            raise HTTPException(status_code=400, detail="Payload inválido. 'nome_ativo' e 'status' são obrigatórios.")
+            raise HTTPException(status_code=400, detail="Payload inválido.")
 
         logger.info(f"[CALLBACK] Mensagem recebida para o ativo: {nome_ativo} com status: {status_conexao}")
         
         asset = db.query(Asset).filter(Asset.nome_ativo == nome_ativo).first()
         if not asset:
-            logger.warning(f"[CALLBACK] Ativo '{nome_ativo}' não encontrado no banco de dados.")
+            logger.warning(f"[CALLBACK] Ativo '{nome_ativo}' não encontrado.")
             return JSONResponse(content={"status": "Asset not found"}, status_code=404)
 
-        if status_conexao == 'Connected' and asset.location_status == 'PENDENTE':
-            logger.info(f"[CALLBACK] Ativo '{nome_ativo}' confirmado no quarto. Atualizando status.")
+        # --- INÍCIO DA CORREÇÃO ---
+        # Agora, a condição aceita a transição tanto de PENDENTE quanto de ALERTA para CONFIRMADO.
+        if status_conexao == 'Connected' and asset.location_status in ['PENDENTE', 'ALERTA']:
+        # --- FIM DA CORREÇÃO ---
+            logger.info(f"[CALLBACK] Ativo '{nome_ativo}' confirmado no quarto. Atualizando status de '{asset.location_status}' para 'CONFIRMADO'.")
             change = {
                 "asset_id": asset.id, "new_quarto_id": asset.quarto_id, "location_status": "CONFIRMADO",
-                "details": "Entrada confirmada via callback externo 'Connected'."
+                "details": f"Confirmação recebida via callback externo '{status_conexao}'."
             }
             await batch_update_asset_assignments(db, [change])
         
@@ -819,23 +821,27 @@ def create_quarto(request: Request, db: Session = Depends(get_db),
     aggregator.flag_for_reload()
     return RedirectResponse(request.url_for("list_quartos"), status_code=303)
 
-# A rota de edição agora apenas renderiza a mesma página, mas passando o objeto "quarto"
-# para que o formulário no topo seja preenchido para edição.
 @app.get("/quartos/{quarto_id}/edit", name="edit_quarto")
 def edit_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db)):
+    """Exibe o formulário de edição para um quarto específico."""
     quarto_para_editar = db.query(Quarto).get(quarto_id)
     if not quarto_para_editar:
         raise HTTPException(status_code=404, detail="Quarto não encontrado")
     
-    # A lógica é a mesma da list_quartos, mas passando o quarto a ser editado
+    # Busca todos os dados necessários para renderizar a página completa
     quartos = db.query(Quarto).options(
-        joinedload(Quarto.andar), joinedload(Quarto.tipo_de_quarto),
+        joinedload(Quarto.andar), joinedload(Quarto.tipo_de_quarto), 
         joinedload(Quarto.embarcados), joinedload(Quarto.assets)
     ).order_by(Quarto.nome).all()
+
     all_tipos_de_quarto = db.query(TipoDeQuarto).order_by(TipoDeQuarto.nome).all()
+    all_andares = db.query(Andar).order_by(Andar.nome).all()
 
     return templates.TemplateResponse("quartos_list.html", {
-        "request": request, "quartos": quartos, "all_tipos_de_quarto": all_tipos_de_quarto,
+        "request": request,
+        "quartos": quartos,
+        "all_tipos_de_quarto": all_tipos_de_quarto,
+        "all_andares": all_andares, # Passa a lista para o template
         "form_action": request.url_for("update_quarto", quarto_id=quarto_id),
         "quarto": quarto_para_editar # Passa o objeto para preencher o form
     })
@@ -843,16 +849,16 @@ def edit_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db))
 @app.post("/quartos/{quarto_id}/edit", name="update_quarto")
 def update_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db),
     nome: str = Form(...),
-    andar_nome: str = Form(...),
+    andar_id: int = Form(...),      # CORREÇÃO: Espera o ID do andar (andar_id)
     tipo_quarto_id: int = Form(...)
 ):
+    """Processa a atualização de um quarto existente."""
     quarto = db.query(Quarto).get(quarto_id)
     if not quarto:
         raise HTTPException(status_code=404, detail="Quarto não encontrado")
-    
-    andar = get_or_create_andar(db, andar_nome.strip())
+        
     quarto.nome = nome.strip()
-    quarto.andar_id = andar.id
+    quarto.andar_id = andar_id      # Salva o ID diretamente
     quarto.tipo_quarto_id = tipo_quarto_id
     
     db.commit()
@@ -1289,7 +1295,7 @@ def update_asset(
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
-@app.get("/ativos/{asset_id}/delete", name="delete_asset")
+@app.post("/ativos/{asset_id}/delete", name="delete_asset") # Mude de @app.get para @app.post
 def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     asset = db.query(Asset).get(asset_id)
     if asset:

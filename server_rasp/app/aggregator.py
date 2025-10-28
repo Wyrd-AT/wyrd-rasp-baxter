@@ -1,5 +1,3 @@
-# app/aggregator.py (VERSÃO FINAL UNIFICADA E ROBUSTA)
-
 import asyncio
 import time
 import json
@@ -7,64 +5,45 @@ import logging
 import collections
 from datetime import datetime, timezone
 
+from sqlalchemy.orm import joinedload
 from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting, TipoDeAtivo, TipoDeQuarto
 from .services import batch_update_asset_assignments
 from .mqtt_client import scan_data_queue
 from .config import settings
-from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 signal_logger = logging.getLogger('signals')
 
-# --- CACHES GLOBAIS EM MEMÓRIA ---
-# Estes dicionários armazenarão as regras e o estado em tempo real para performance máxima.
+# --- Caches e Configurações Globais ---
 _esp_map = {}
 _asset_map = {}
-_quarto_map = {} # NOVO: Cache para as regras dos quartos
+_quarto_map = {}
 _asset_realtime_state = {}
 _config_needs_reload = asyncio.Event()
 
-# --- CONFIGURAÇÕES CARREGADAS DO config.ini ---
 _config = {
     "process_interval_sec": float(settings.get('process_interval_sec', 2.0)),
     "reading_timeout_sec": int(settings.get('reading_timeout_sec', 10)),
     "disappearance_tolerance_cycles": int(settings.get('disappearance_tolerance_cycles', 10)),
 }
-
-# --- CONFIGURAÇÕES GLOBAIS (Carregadas do DB, com fallback) ---
 _global_settings = {
-    "default_rssi_threshold": -75,
-    "conflict_margin_db": 5,
-    "inertia_entrada_ms": 3000,
-    "inertia_saida_ms": 10000,
+    "default_rssi_threshold": -75, "conflict_margin_db": 5,
+    "inertia_entrada_ms": 3000, "inertia_saida_ms": 10000,
 }
 
-
 # ==============================================================================
-# CLASSE DE ESTADO DO ATIVO
+# CLASSE DE ESTADO DO ATIVO (FINAL)
 # ==============================================================================
 class AssetState:
     def __init__(self, mac, tipo_de_ativo, quarto_id_atual, location_status_atual):
         self.mac = mac
-        
-        # Define o estado inicial com base nos dados do banco de dados
-        if quarto_id_atual is None:
-            self.state = 'LIVRE'
-        else:
-            # Se já está em um quarto, o estado é o status de localização salvo
-            self.state = location_status_atual if location_status_atual in ['PENDENTE', 'CONFIRMADO', 'ALERTA'] else 'CONFIRMADO'
-
-        # --- Atributos de Leitura de Sinal ---
+        if quarto_id_atual is None: self.state = 'LIVRE'
+        else: self.state = location_status_atual if location_status_atual in ['PENDENTE', 'CONFIRMADO', 'ALERTA'] else 'CONFIRMADO'
         self.readings = {}
         self.last_processed_avg = {}
         self.algoritmo_media = tipo_de_ativo.get('algoritmo_media', 'SMA')
         self.parametro_media = tipo_de_ativo.get('parametro_media', 15)
-        if self.algoritmo_media == 'SMA':
-            self.samples = collections.deque(maxlen=int(self.parametro_media))
-        else:
-            self.samples = collections.deque(maxlen=2)
-
-        # --- Atributos para Gerenciamento de Transições de Estado ---
+        if self.algoritmo_media == 'SMA': self.samples_per_esp = {}
         self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "avg_rssi": -1000}
         self.candidate_quarto_id = None
         self.candidate_since = None
@@ -72,45 +51,42 @@ class AssetState:
         self.disappearance_count = 0
 
     def update_reading(self, esp_id, rssi, timestamp):
-        # TRANSIÇÃO: Se estava DESAPARECIDO, a chegada de um sinal o torna LIVRE.
-        if self.state == 'DESAPARECIDO':
-            logger.info(f"Ativo {self.mac} reapareceu. Estado mudando de DESAPARECIDO para LIVRE.")
-            self.state = 'LIVRE'
-        
+        if self.state == 'DESAPARECIDO': self.state = 'LIVRE'
         if esp_id not in self.readings: self.readings[esp_id] = {}
         self.readings[esp_id]["timestamp"] = timestamp
         self.readings[esp_id]["last_rssi"] = rssi
-        self.samples.append(rssi)
+        if self.algoritmo_media == 'SMA':
+            if esp_id not in self.samples_per_esp: self.samples_per_esp[esp_id] = collections.deque(maxlen=int(self.parametro_media))
+            self.samples_per_esp[esp_id].append(rssi)
         self.disappearance_count = 0
 
-    def get_overall_average_rssi(self): # Nome alterado, parâmetro removido
-        """Calcula a média de sinal GERAL do ativo, usando todas as amostras."""
-        if not self.samples: return -1000
-        
-        # A lógica de cálculo (SMA ou EMA) continua a mesma
+    def get_average_rssi(self, esp_id):
+        current_rssi = self.readings.get(esp_id, {}).get("last_rssi")
+        if current_rssi is None: return -1000
         if self.algoritmo_media == 'SMA':
-            avg = sum(self.samples) / len(self.samples)
+            samples = self.samples_per_esp.get(esp_id)
+            if not samples: return -1000
+            avg = sum(samples) / len(samples)
         elif self.algoritmo_media == 'EMA':
             alpha = float(self.parametro_media)
-            last_avg = self.last_processed_avg.get('overall', self.samples[0]) # Usa uma chave genérica
-            avg = (self.samples[-1] * alpha) + (last_avg * (1 - alpha))
-        else:
-            avg = sum(self.samples) / len(self.samples)
-        
-        self.last_processed_avg['overall'] = avg # Salva com a chave genérica
+            last_avg_for_esp = self.last_processed_avg.get(esp_id, current_rssi)
+            avg = (current_rssi * alpha) + (last_avg_for_esp * (1 - alpha))
+        else: avg = current_rssi
+        self.last_processed_avg[esp_id] = avg
         return avg
 
     def cleanup_old_readings(self):
-        now = time.time()
-        timeout = _config["reading_timeout_sec"]
-        self.readings = { esp_id: data for esp_id, data in self.readings.items() if now - data.get("timestamp", 0) <= timeout }
-        
-        # TRANSIÇÃO: Se não houver mais leituras, o ativo está DESAPARECIDO.
+        now = time.time(); timeout = _config["reading_timeout_sec"]; active_esps = set()
+        for esp_id, data in list(self.readings.items()):
+            if now - data.get("timestamp", 0) <= timeout: active_esps.add(esp_id)
+            else:
+                del self.readings[esp_id]
+                if esp_id in self.last_processed_avg: del self.last_processed_avg[esp_id]
+        if self.algoritmo_media == 'SMA':
+            for esp_id in list(self.samples_per_esp.keys()):
+                if esp_id not in active_esps: del self.samples_per_esp[esp_id]
         if not self.readings and self.state != 'DESAPARECIDO':
-            logger.debug(f"Ativo {self.mac} sem leituras. Estado mudando para DESAPARECIDO.")
-            self.state = 'DESAPARECIDO'
-            self.disappearance_count = 0 # Reseta a contagem ao entrar no estado
-        
+            self.state = 'DESAPARECIDO'; self.disappearance_count = 0
         return bool(self.readings)
 
 # ==============================================================================
@@ -215,8 +191,8 @@ async def _consume_scan_data_queue():
 
 async def _processar_localizacoes():
     """
-    O cérebro do sistema, implementado como uma Máquina de Estados explícita e definitiva,
-    incluindo a lógica de transição direta para "Modo Móvel".
+    Versão final com máquina de estados explícita de 5 estados,
+    respeitando todas as regras de negócio.
     """
     if not _esp_map or not _asset_map: return
 
@@ -224,15 +200,13 @@ async def _processar_localizacoes():
     db = SessionLocal()
     try:
         for mac, state in list(_asset_realtime_state.items()):
-            asset_info = _asset_map.get(mac, {})
-            asset_id = asset_info.get("id")
+            asset_info = _asset_map.get(mac, {}); asset_id = asset_info.get("id")
             if not asset_id: continue
 
-            # --- ETAPA 1: Pré-processamento e Cálculo de Candidato ---
             state.cleanup_old_readings()
+            
             strongest_candidate = {"esp_id": None, "avg_rssi": -1000, "quarto_id": None}
             if state.state != 'DESAPARECIDO':
-                # (lógica de cálculo do candidato mais forte, sem alterações)
                 for esp_id in state.readings:
                     if esp_id not in _esp_map: continue
                     quarto_id_candidato, rssi_min_embarcado = _esp_map[esp_id]
@@ -241,12 +215,14 @@ async def _processar_localizacoes():
                     if capacidade > 0:
                         ativos_no_quarto = sum(1 for a in _asset_map.values() if a['quarto_id'] == quarto_id_candidato)
                         if ativos_no_quarto >= capacidade: continue
-                    current_avg = state.get_overall_average_rssi()
+                    current_avg = state.get_average_rssi(esp_id)
                     threshold = rssi_min_embarcado if rssi_min_embarcado is not None else _global_settings["default_rssi_threshold"]
                     if current_avg > threshold and current_avg > strongest_candidate["avg_rssi"]:
                         strongest_candidate = {"esp_id": esp_id, "avg_rssi": current_avg, "quarto_id": quarto_id_candidato}
 
-            # --- ETAPA 2: Processamento da Máquina de Estados ---
+            # ========================================================
+            # MÁQUINA DE ESTADOS EXPLÍCITA
+            # ========================================================
 
             if state.state == 'DESAPARECIDO':
                 state.disappearance_count += 1
@@ -267,71 +243,53 @@ async def _processar_localizacoes():
 
                 if state.candidate_since and (time.time() - state.candidate_since) * 1000 > _global_settings["inertia_entrada_ms"]:
                     if state.candidate_quarto_id == candidate_quarto_id:
-                        change = {"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "details": f"Detecção BLE (Média: {strongest_candidate['avg_rssi']:.1f}dBm)."}
+                        change = {"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "rssi": strongest_candidate.get('avg_rssi'), "details": f"Detecção BLE (Média: {strongest_candidate['avg_rssi']:.1f}dBm)."}
                         if asset_info.get('requer_confirmacao_externa', False):
-                            change["location_status"] = "PENDENTE"
-                            state.state = 'PENDENTE'
+                            change["location_status"] = "PENDENTE"; state.state = 'PENDENTE'
                         else:
-                            change["location_status"] = "CONFIRMADO"
-                            state.state = 'CONFIRMADO'
+                            change["location_status"] = "CONFIRMADO"; state.state = 'CONFIRMADO'
                         changes_to_commit.append(change)
                         state.candidate_quarto_id, state.candidate_since = None, None
             
             elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
                 quarto_id_atual = asset_info.get("quarto_id")
-                regras_quarto_atual = _quarto_map.get(quarto_id_atual, {})
+                is_stable = (strongest_candidate.get("quarto_id") == quarto_id_atual)
 
-                if not regras_quarto_atual.get('permite_transicao_direta', True):
-                    # --- MODO LEITO ---
-                    # A única saída é por sinal fraco. Ignora outros candidatos.
-                    if strongest_candidate.get("quarto_id") == quarto_id_atual:
-                        state.weak_signal_since = None
-                    else:
-                        if state.weak_signal_since is None:
-                            state.weak_signal_since = time.time()
-                        elif (time.time() - state.weak_signal_since) * 1000 > _global_settings["inertia_saida_ms"]:
-                            changes_to_commit.append({
-                                "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE",
-                                "details": f"Sinal inconsistente com o quarto (Modo Leito) por mais de {_global_settings['inertia_saida_ms']}ms"
-                            })
-                            state.state = 'LIVRE'
-                            state.weak_signal_since, state.candidate_since, state.candidate_quarto_id = None, None, None
+                if is_stable:
+                    # O ativo está estável no seu quarto atual. Reseta o timer de saída.
+                    state.weak_signal_since = None
                 else:
-                    # --- MODO MÓVEL ---
-                    # Permite a transição direta se um novo candidato for forte o suficiente.
-                    candidate_quarto_id = strongest_candidate.get("quarto_id")
-                    if candidate_quarto_id is not None and candidate_quarto_id != quarto_id_atual:
-                        
-                        # Lógica da Margem de Conflito
-                        esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
-                        sinais_no_quarto_atual = [state.get_overall_average_rssi() for e in esps_no_quarto_atual if e in state.readings]
-                        rssi_para_comparacao = max(sinais_no_quarto_atual) if sinais_no_quarto_atual else -1000
-                        
-                        # Se o novo candidato não for forte o suficiente para superar a margem, não faz nada.
-                        if strongest_candidate["avg_rssi"] < (rssi_para_comparacao + _global_settings["conflict_margin_db"]):
-                            continue
+                    # O ativo está instável. Inicia ou continua o timer de saída.
+                    if state.weak_signal_since is None:
+                        state.weak_signal_since = time.time()
+                    
+                    # Se a inércia de saída foi atingida, decide como sair.
+                    elif (time.time() - state.weak_signal_since) * 1000 > _global_settings["inertia_saida_ms"]:
+                        regras_quarto_atual = _quarto_map.get(quarto_id_atual, {})
+                        new_candidate_id = strongest_candidate.get("quarto_id")
 
-                        # Se a margem for superada, executa a TRANSIÇÃO DIRETA.
-                        logger.info(f"TRANSIÇÃO DIRETA (MODO MÓVEL): Ativo {mac} de Q{quarto_id_atual} -> Q{candidate_quarto_id}.")
-                        
-                        # 1. Gera o evento de SAÍDA do quarto antigo.
-                        changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE",
-                            "details": f"Transição direta para o quarto {_quarto_map.get(candidate_quarto_id, {}).get('nome', candidate_quarto_id)}."
-                        })
-                        
-                        # 2. Gera o evento de ENTRADA no quarto novo.
-                        change_in = {"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "details": f"Transição direta de {_quarto_map.get(quarto_id_atual, {}).get('nome', quarto_id_atual)}."}
-                        if asset_info.get('requer_confirmacao_externa', False):
-                            change_in["location_status"] = "PENDENTE"
-                            state.state = 'PENDENTE'
+                        # CENÁRIO 1: TRANSIÇÃO DIRETA (MODO MÓVEL)
+                        if regras_quarto_atual.get('permite_transicao_direta', True) and new_candidate_id is not None:
+                            esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
+                            sinais_no_quarto_atual = [state.get_average_rssi(e) for e in esps_no_quarto_atual if e in state.readings]
+                            rssi_para_comparacao = max(sinais_no_quarto_atual) if sinais_no_quarto_atual else -1000
+                            
+                            if strongest_candidate["avg_rssi"] > (rssi_para_comparacao + _global_settings["conflict_margin_db"]):
+                                # Transição direta aprovada
+                                changes_to_commit.append({ "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE", "details": f"Transição direta para o local {_quarto_map.get(new_candidate_id, {}).get('nome', new_candidate_id)}." })
+                                change_in = {"asset_id": asset_id, "new_quarto_id": new_candidate_id, "rssi": strongest_candidate.get('avg_rssi'), "details": f"Transição direta de {_quarto_map.get(quarto_id_atual, {}).get('nome', quarto_id_atual)}."}
+                                if asset_info.get('requer_confirmacao_externa', False):
+                                    change_in["location_status"] = "PENDENTE"; state.state = 'PENDENTE'
+                                else:
+                                    change_in["location_status"] = "CONFIRMADO"; state.state = 'CONFIRMADO'
+                                changes_to_commit.append(change_in)
+                                state.weak_signal_since = None # Reseta o timer após a ação
                         else:
-                            change_in["location_status"] = "CONFIRMADO"
-                            state.state = 'CONFIRMADO'
-                        changes_to_commit.append(change_in)
-                        
-                        # 3. Limpa todos os timers para evitar comportamento inesperado.
-                        state.weak_signal_since, state.candidate_since, state.candidate_quarto_id = None, None, None
+                            # CENÁRIO 2: SAÍDA SIMPLES (MODO LEITO ou SINAL DESAPARECEU)
+                            # Isso acontece se for Modo Leito OU se for Modo Móvel mas o sinal simplesmente sumiu (sem novo candidato).
+                            changes_to_commit.append({ "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE", "details": f"Sinal no local atual tornou-se instável ou insuficiente." })
+                            state.state = 'LIVRE'
+                            state.weak_signal_since = None # Reseta o timer após a ação
 
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)

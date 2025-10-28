@@ -7,8 +7,6 @@ ARQUIVO: app/__init__.py
 ========================================
 ARQUIVO: app/aggregator.py
 ========================================
-# app/aggregator.py (VERSÃO FINAL UNIFICADA E ROBUSTA)
-
 import asyncio
 import time
 import json
@@ -16,64 +14,45 @@ import logging
 import collections
 from datetime import datetime, timezone
 
+from sqlalchemy.orm import joinedload
 from .models import SessionLocal, Asset, Embarcado, Quarto, GlobalSetting, TipoDeAtivo, TipoDeQuarto
 from .services import batch_update_asset_assignments
 from .mqtt_client import scan_data_queue
 from .config import settings
-from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
 signal_logger = logging.getLogger('signals')
 
-# --- CACHES GLOBAIS EM MEMÓRIA ---
-# Estes dicionários armazenarão as regras e o estado em tempo real para performance máxima.
+# --- Caches e Configurações Globais ---
 _esp_map = {}
 _asset_map = {}
-_quarto_map = {} # NOVO: Cache para as regras dos quartos
+_quarto_map = {}
 _asset_realtime_state = {}
 _config_needs_reload = asyncio.Event()
 
-# --- CONFIGURAÇÕES CARREGADAS DO config.ini ---
 _config = {
     "process_interval_sec": float(settings.get('process_interval_sec', 2.0)),
     "reading_timeout_sec": int(settings.get('reading_timeout_sec', 10)),
     "disappearance_tolerance_cycles": int(settings.get('disappearance_tolerance_cycles', 10)),
 }
-
-# --- CONFIGURAÇÕES GLOBAIS (Carregadas do DB, com fallback) ---
 _global_settings = {
-    "default_rssi_threshold": -75,
-    "conflict_margin_db": 5,
-    "inertia_entrada_ms": 3000,
-    "inertia_saida_ms": 10000,
+    "default_rssi_threshold": -75, "conflict_margin_db": 5,
+    "inertia_entrada_ms": 3000, "inertia_saida_ms": 10000,
 }
 
-
 # ==============================================================================
-# CLASSE DE ESTADO DO ATIVO
+# CLASSE DE ESTADO DO ATIVO (FINAL)
 # ==============================================================================
 class AssetState:
     def __init__(self, mac, tipo_de_ativo, quarto_id_atual, location_status_atual):
         self.mac = mac
-        
-        # Define o estado inicial com base nos dados do banco de dados
-        if quarto_id_atual is None:
-            self.state = 'LIVRE'
-        else:
-            # Se já está em um quarto, o estado é o status de localização salvo
-            self.state = location_status_atual if location_status_atual in ['PENDENTE', 'CONFIRMADO', 'ALERTA'] else 'CONFIRMADO'
-
-        # --- Atributos de Leitura de Sinal ---
+        if quarto_id_atual is None: self.state = 'LIVRE'
+        else: self.state = location_status_atual if location_status_atual in ['PENDENTE', 'CONFIRMADO', 'ALERTA'] else 'CONFIRMADO'
         self.readings = {}
         self.last_processed_avg = {}
         self.algoritmo_media = tipo_de_ativo.get('algoritmo_media', 'SMA')
         self.parametro_media = tipo_de_ativo.get('parametro_media', 15)
-        if self.algoritmo_media == 'SMA':
-            self.samples = collections.deque(maxlen=int(self.parametro_media))
-        else:
-            self.samples = collections.deque(maxlen=2)
-
-        # --- Atributos para Gerenciamento de Transições de Estado ---
+        if self.algoritmo_media == 'SMA': self.samples_per_esp = {}
         self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "avg_rssi": -1000}
         self.candidate_quarto_id = None
         self.candidate_since = None
@@ -81,45 +60,42 @@ class AssetState:
         self.disappearance_count = 0
 
     def update_reading(self, esp_id, rssi, timestamp):
-        # TRANSIÇÃO: Se estava DESAPARECIDO, a chegada de um sinal o torna LIVRE.
-        if self.state == 'DESAPARECIDO':
-            logger.info(f"Ativo {self.mac} reapareceu. Estado mudando de DESAPARECIDO para LIVRE.")
-            self.state = 'LIVRE'
-        
+        if self.state == 'DESAPARECIDO': self.state = 'LIVRE'
         if esp_id not in self.readings: self.readings[esp_id] = {}
         self.readings[esp_id]["timestamp"] = timestamp
         self.readings[esp_id]["last_rssi"] = rssi
-        self.samples.append(rssi)
+        if self.algoritmo_media == 'SMA':
+            if esp_id not in self.samples_per_esp: self.samples_per_esp[esp_id] = collections.deque(maxlen=int(self.parametro_media))
+            self.samples_per_esp[esp_id].append(rssi)
         self.disappearance_count = 0
 
-    def get_overall_average_rssi(self): # Nome alterado, parâmetro removido
-        """Calcula a média de sinal GERAL do ativo, usando todas as amostras."""
-        if not self.samples: return -1000
-        
-        # A lógica de cálculo (SMA ou EMA) continua a mesma
+    def get_average_rssi(self, esp_id):
+        current_rssi = self.readings.get(esp_id, {}).get("last_rssi")
+        if current_rssi is None: return -1000
         if self.algoritmo_media == 'SMA':
-            avg = sum(self.samples) / len(self.samples)
+            samples = self.samples_per_esp.get(esp_id)
+            if not samples: return -1000
+            avg = sum(samples) / len(samples)
         elif self.algoritmo_media == 'EMA':
             alpha = float(self.parametro_media)
-            last_avg = self.last_processed_avg.get('overall', self.samples[0]) # Usa uma chave genérica
-            avg = (self.samples[-1] * alpha) + (last_avg * (1 - alpha))
-        else:
-            avg = sum(self.samples) / len(self.samples)
-        
-        self.last_processed_avg['overall'] = avg # Salva com a chave genérica
+            last_avg_for_esp = self.last_processed_avg.get(esp_id, current_rssi)
+            avg = (current_rssi * alpha) + (last_avg_for_esp * (1 - alpha))
+        else: avg = current_rssi
+        self.last_processed_avg[esp_id] = avg
         return avg
 
     def cleanup_old_readings(self):
-        now = time.time()
-        timeout = _config["reading_timeout_sec"]
-        self.readings = { esp_id: data for esp_id, data in self.readings.items() if now - data.get("timestamp", 0) <= timeout }
-        
-        # TRANSIÇÃO: Se não houver mais leituras, o ativo está DESAPARECIDO.
+        now = time.time(); timeout = _config["reading_timeout_sec"]; active_esps = set()
+        for esp_id, data in list(self.readings.items()):
+            if now - data.get("timestamp", 0) <= timeout: active_esps.add(esp_id)
+            else:
+                del self.readings[esp_id]
+                if esp_id in self.last_processed_avg: del self.last_processed_avg[esp_id]
+        if self.algoritmo_media == 'SMA':
+            for esp_id in list(self.samples_per_esp.keys()):
+                if esp_id not in active_esps: del self.samples_per_esp[esp_id]
         if not self.readings and self.state != 'DESAPARECIDO':
-            logger.debug(f"Ativo {self.mac} sem leituras. Estado mudando para DESAPARECIDO.")
-            self.state = 'DESAPARECIDO'
-            self.disappearance_count = 0 # Reseta a contagem ao entrar no estado
-        
+            self.state = 'DESAPARECIDO'; self.disappearance_count = 0
         return bool(self.readings)
 
 # ==============================================================================
@@ -204,7 +180,7 @@ async def _consume_scan_data_queue():
                 # 1. Busca as informações completas do ativo no cache ANTES de criar o estado.
                 asset_info = _asset_map.get(mac, {})
                 quarto_id_atual = asset_info.get("quarto_id")
-                location_status_atual = asset_info.get("location_status", "LIVRE") # Padrão é LIVRE se não existir
+                location_status_atual = asset_info.get("location_status", "LIVRE")
                 
                 tipo_de_ativo_regras = {
                     'algoritmo_media': asset_info.get('algoritmo_media', 'SMA'),
@@ -224,8 +200,8 @@ async def _consume_scan_data_queue():
 
 async def _processar_localizacoes():
     """
-    O cérebro do sistema, implementado como uma Máquina de Estados explícita e definitiva,
-    incluindo a lógica de transição direta para "Modo Móvel".
+    Versão final com máquina de estados explícita de 5 estados,
+    respeitando todas as regras de negócio.
     """
     if not _esp_map or not _asset_map: return
 
@@ -233,15 +209,13 @@ async def _processar_localizacoes():
     db = SessionLocal()
     try:
         for mac, state in list(_asset_realtime_state.items()):
-            asset_info = _asset_map.get(mac, {})
-            asset_id = asset_info.get("id")
+            asset_info = _asset_map.get(mac, {}); asset_id = asset_info.get("id")
             if not asset_id: continue
 
-            # --- ETAPA 1: Pré-processamento e Cálculo de Candidato ---
             state.cleanup_old_readings()
+            
             strongest_candidate = {"esp_id": None, "avg_rssi": -1000, "quarto_id": None}
             if state.state != 'DESAPARECIDO':
-                # (lógica de cálculo do candidato mais forte, sem alterações)
                 for esp_id in state.readings:
                     if esp_id not in _esp_map: continue
                     quarto_id_candidato, rssi_min_embarcado = _esp_map[esp_id]
@@ -250,12 +224,14 @@ async def _processar_localizacoes():
                     if capacidade > 0:
                         ativos_no_quarto = sum(1 for a in _asset_map.values() if a['quarto_id'] == quarto_id_candidato)
                         if ativos_no_quarto >= capacidade: continue
-                    current_avg = state.get_overall_average_rssi()
+                    current_avg = state.get_average_rssi(esp_id)
                     threshold = rssi_min_embarcado if rssi_min_embarcado is not None else _global_settings["default_rssi_threshold"]
                     if current_avg > threshold and current_avg > strongest_candidate["avg_rssi"]:
                         strongest_candidate = {"esp_id": esp_id, "avg_rssi": current_avg, "quarto_id": quarto_id_candidato}
 
-            # --- ETAPA 2: Processamento da Máquina de Estados ---
+            # ========================================================
+            # MÁQUINA DE ESTADOS EXPLÍCITA
+            # ========================================================
 
             if state.state == 'DESAPARECIDO':
                 state.disappearance_count += 1
@@ -276,71 +252,53 @@ async def _processar_localizacoes():
 
                 if state.candidate_since and (time.time() - state.candidate_since) * 1000 > _global_settings["inertia_entrada_ms"]:
                     if state.candidate_quarto_id == candidate_quarto_id:
-                        change = {"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "details": f"Detecção BLE (Média: {strongest_candidate['avg_rssi']:.1f}dBm)."}
+                        change = {"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "rssi": strongest_candidate.get('avg_rssi'), "details": f"Detecção BLE (Média: {strongest_candidate['avg_rssi']:.1f}dBm)."}
                         if asset_info.get('requer_confirmacao_externa', False):
-                            change["location_status"] = "PENDENTE"
-                            state.state = 'PENDENTE'
+                            change["location_status"] = "PENDENTE"; state.state = 'PENDENTE'
                         else:
-                            change["location_status"] = "CONFIRMADO"
-                            state.state = 'CONFIRMADO'
+                            change["location_status"] = "CONFIRMADO"; state.state = 'CONFIRMADO'
                         changes_to_commit.append(change)
                         state.candidate_quarto_id, state.candidate_since = None, None
             
             elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
                 quarto_id_atual = asset_info.get("quarto_id")
-                regras_quarto_atual = _quarto_map.get(quarto_id_atual, {})
+                is_stable = (strongest_candidate.get("quarto_id") == quarto_id_atual)
 
-                if not regras_quarto_atual.get('permite_transicao_direta', True):
-                    # --- MODO LEITO ---
-                    # A única saída é por sinal fraco. Ignora outros candidatos.
-                    if strongest_candidate.get("quarto_id") == quarto_id_atual:
-                        state.weak_signal_since = None
-                    else:
-                        if state.weak_signal_since is None:
-                            state.weak_signal_since = time.time()
-                        elif (time.time() - state.weak_signal_since) * 1000 > _global_settings["inertia_saida_ms"]:
-                            changes_to_commit.append({
-                                "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE",
-                                "details": f"Sinal inconsistente com o quarto (Modo Leito) por mais de {_global_settings['inertia_saida_ms']}ms"
-                            })
-                            state.state = 'LIVRE'
-                            state.weak_signal_since, state.candidate_since, state.candidate_quarto_id = None, None, None
+                if is_stable:
+                    # O ativo está estável no seu quarto atual. Reseta o timer de saída.
+                    state.weak_signal_since = None
                 else:
-                    # --- MODO MÓVEL ---
-                    # Permite a transição direta se um novo candidato for forte o suficiente.
-                    candidate_quarto_id = strongest_candidate.get("quarto_id")
-                    if candidate_quarto_id is not None and candidate_quarto_id != quarto_id_atual:
-                        
-                        # Lógica da Margem de Conflito
-                        esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
-                        sinais_no_quarto_atual = [state.get_overall_average_rssi() for e in esps_no_quarto_atual if e in state.readings]
-                        rssi_para_comparacao = max(sinais_no_quarto_atual) if sinais_no_quarto_atual else -1000
-                        
-                        # Se o novo candidato não for forte o suficiente para superar a margem, não faz nada.
-                        if strongest_candidate["avg_rssi"] < (rssi_para_comparacao + _global_settings["conflict_margin_db"]):
-                            continue
+                    # O ativo está instável. Inicia ou continua o timer de saída.
+                    if state.weak_signal_since is None:
+                        state.weak_signal_since = time.time()
+                    
+                    # Se a inércia de saída foi atingida, decide como sair.
+                    elif (time.time() - state.weak_signal_since) * 1000 > _global_settings["inertia_saida_ms"]:
+                        regras_quarto_atual = _quarto_map.get(quarto_id_atual, {})
+                        new_candidate_id = strongest_candidate.get("quarto_id")
 
-                        # Se a margem for superada, executa a TRANSIÇÃO DIRETA.
-                        logger.info(f"TRANSIÇÃO DIRETA (MODO MÓVEL): Ativo {mac} de Q{quarto_id_atual} -> Q{candidate_quarto_id}.")
-                        
-                        # 1. Gera o evento de SAÍDA do quarto antigo.
-                        changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE",
-                            "details": f"Transição direta para o quarto {_quarto_map.get(candidate_quarto_id, {}).get('nome', candidate_quarto_id)}."
-                        })
-                        
-                        # 2. Gera o evento de ENTRADA no quarto novo.
-                        change_in = {"asset_id": asset_id, "new_quarto_id": candidate_quarto_id, "details": f"Transição direta de {_quarto_map.get(quarto_id_atual, {}).get('nome', quarto_id_atual)}."}
-                        if asset_info.get('requer_confirmacao_externa', False):
-                            change_in["location_status"] = "PENDENTE"
-                            state.state = 'PENDENTE'
+                        # CENÁRIO 1: TRANSIÇÃO DIRETA (MODO MÓVEL)
+                        if regras_quarto_atual.get('permite_transicao_direta', True) and new_candidate_id is not None:
+                            esps_no_quarto_atual = [esp for esp, (q_id, _) in _esp_map.items() if q_id == quarto_id_atual]
+                            sinais_no_quarto_atual = [state.get_average_rssi(e) for e in esps_no_quarto_atual if e in state.readings]
+                            rssi_para_comparacao = max(sinais_no_quarto_atual) if sinais_no_quarto_atual else -1000
+                            
+                            if strongest_candidate["avg_rssi"] > (rssi_para_comparacao + _global_settings["conflict_margin_db"]):
+                                # Transição direta aprovada
+                                changes_to_commit.append({ "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE", "details": f"Transição direta para o local {_quarto_map.get(new_candidate_id, {}).get('nome', new_candidate_id)}." })
+                                change_in = {"asset_id": asset_id, "new_quarto_id": new_candidate_id, "rssi": strongest_candidate.get('avg_rssi'), "details": f"Transição direta de {_quarto_map.get(quarto_id_atual, {}).get('nome', quarto_id_atual)}."}
+                                if asset_info.get('requer_confirmacao_externa', False):
+                                    change_in["location_status"] = "PENDENTE"; state.state = 'PENDENTE'
+                                else:
+                                    change_in["location_status"] = "CONFIRMADO"; state.state = 'CONFIRMADO'
+                                changes_to_commit.append(change_in)
+                                state.weak_signal_since = None # Reseta o timer após a ação
                         else:
-                            change_in["location_status"] = "CONFIRMADO"
-                            state.state = 'CONFIRMADO'
-                        changes_to_commit.append(change_in)
-                        
-                        # 3. Limpa todos os timers para evitar comportamento inesperado.
-                        state.weak_signal_since, state.candidate_since, state.candidate_quarto_id = None, None, None
+                            # CENÁRIO 2: SAÍDA SIMPLES (MODO LEITO ou SINAL DESAPARECEU)
+                            # Isso acontece se for Modo Leito OU se for Modo Móvel mas o sinal simplesmente sumiu (sem novo candidato).
+                            changes_to_commit.append({ "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE", "details": f"Sinal no local atual tornou-se instável ou insuficiente." })
+                            state.state = 'LIVRE'
+                            state.weak_signal_since = None # Reseta o timer após a ação
 
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)
@@ -941,7 +899,7 @@ async def test_rssi_esp(request: Request, db: Session = Depends(get_db)):
             reading = state.readings[embarcado.id_esp]
             last_rssi = reading.get("last_rssi", -1000)
             
-            average_rssi = round(state.get_overall_average_rssi())
+            average_rssi = round(state.get_average_rssi(embarcado.id_esp))
         
             report_data.append({
                 "mac": mac,
@@ -1049,26 +1007,28 @@ def update_settings(
 async def presence_callback(request: Request, db: Session = Depends(get_db), payload: Dict = Body(...)):
     """
     Endpoint genérico para receber confirmações de presença de sistemas externos.
-    Espera um JSON com 'nome_ativo' e 'status' ('Connected' ou 'Disconnected').
     """
     try:
         nome_ativo = payload.get("nome_ativo")
         status_conexao = payload.get("status")
         if not nome_ativo or not status_conexao:
-            raise HTTPException(status_code=400, detail="Payload inválido. 'nome_ativo' e 'status' são obrigatórios.")
+            raise HTTPException(status_code=400, detail="Payload inválido.")
 
         logger.info(f"[CALLBACK] Mensagem recebida para o ativo: {nome_ativo} com status: {status_conexao}")
         
         asset = db.query(Asset).filter(Asset.nome_ativo == nome_ativo).first()
         if not asset:
-            logger.warning(f"[CALLBACK] Ativo '{nome_ativo}' não encontrado no banco de dados.")
+            logger.warning(f"[CALLBACK] Ativo '{nome_ativo}' não encontrado.")
             return JSONResponse(content={"status": "Asset not found"}, status_code=404)
 
-        if status_conexao == 'Connected' and asset.location_status == 'PENDENTE':
-            logger.info(f"[CALLBACK] Ativo '{nome_ativo}' confirmado no quarto. Atualizando status.")
+        # --- INÍCIO DA CORREÇÃO ---
+        # Agora, a condição aceita a transição tanto de PENDENTE quanto de ALERTA para CONFIRMADO.
+        if status_conexao == 'Connected' and asset.location_status in ['PENDENTE', 'ALERTA']:
+        # --- FIM DA CORREÇÃO ---
+            logger.info(f"[CALLBACK] Ativo '{nome_ativo}' confirmado no quarto. Atualizando status de '{asset.location_status}' para 'CONFIRMADO'.")
             change = {
                 "asset_id": asset.id, "new_quarto_id": asset.quarto_id, "location_status": "CONFIRMADO",
-                "details": "Entrada confirmada via callback externo 'Connected'."
+                "details": f"Confirmação recebida via callback externo '{status_conexao}'."
             }
             await batch_update_asset_assignments(db, [change])
         
@@ -1430,23 +1390,27 @@ def create_quarto(request: Request, db: Session = Depends(get_db),
     aggregator.flag_for_reload()
     return RedirectResponse(request.url_for("list_quartos"), status_code=303)
 
-# A rota de edição agora apenas renderiza a mesma página, mas passando o objeto "quarto"
-# para que o formulário no topo seja preenchido para edição.
 @app.get("/quartos/{quarto_id}/edit", name="edit_quarto")
 def edit_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db)):
+    """Exibe o formulário de edição para um quarto específico."""
     quarto_para_editar = db.query(Quarto).get(quarto_id)
     if not quarto_para_editar:
         raise HTTPException(status_code=404, detail="Quarto não encontrado")
     
-    # A lógica é a mesma da list_quartos, mas passando o quarto a ser editado
+    # Busca todos os dados necessários para renderizar a página completa
     quartos = db.query(Quarto).options(
-        joinedload(Quarto.andar), joinedload(Quarto.tipo_de_quarto),
+        joinedload(Quarto.andar), joinedload(Quarto.tipo_de_quarto), 
         joinedload(Quarto.embarcados), joinedload(Quarto.assets)
     ).order_by(Quarto.nome).all()
+
     all_tipos_de_quarto = db.query(TipoDeQuarto).order_by(TipoDeQuarto.nome).all()
+    all_andares = db.query(Andar).order_by(Andar.nome).all()
 
     return templates.TemplateResponse("quartos_list.html", {
-        "request": request, "quartos": quartos, "all_tipos_de_quarto": all_tipos_de_quarto,
+        "request": request,
+        "quartos": quartos,
+        "all_tipos_de_quarto": all_tipos_de_quarto,
+        "all_andares": all_andares, # Passa a lista para o template
         "form_action": request.url_for("update_quarto", quarto_id=quarto_id),
         "quarto": quarto_para_editar # Passa o objeto para preencher o form
     })
@@ -1454,16 +1418,16 @@ def edit_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db))
 @app.post("/quartos/{quarto_id}/edit", name="update_quarto")
 def update_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db),
     nome: str = Form(...),
-    andar_nome: str = Form(...),
+    andar_id: int = Form(...),      # CORREÇÃO: Espera o ID do andar (andar_id)
     tipo_quarto_id: int = Form(...)
 ):
+    """Processa a atualização de um quarto existente."""
     quarto = db.query(Quarto).get(quarto_id)
     if not quarto:
         raise HTTPException(status_code=404, detail="Quarto não encontrado")
-    
-    andar = get_or_create_andar(db, andar_nome.strip())
+        
     quarto.nome = nome.strip()
-    quarto.andar_id = andar.id
+    quarto.andar_id = andar_id      # Salva o ID diretamente
     quarto.tipo_quarto_id = tipo_quarto_id
     
     db.commit()
@@ -1900,7 +1864,7 @@ def update_asset(
             
     return RedirectResponse(request.url_for("list_assets"), status_code=303)
 
-@app.get("/ativos/{asset_id}/delete", name="delete_asset")
+@app.post("/ativos/{asset_id}/delete", name="delete_asset") # Mude de @app.get para @app.post
 def delete_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
     asset = db.query(Asset).get(asset_id)
     if asset:
@@ -2341,6 +2305,8 @@ from datetime import datetime, timezone
 from .config import settings
 import logging
 
+from typing import Optional
+
 logger = logging.getLogger(__name__)
 
 # Fila para dados de scan (localização)
@@ -2422,6 +2388,11 @@ def start_mqtt_client():
     except Exception as e:
         logger.error(f"[MQTT] Não foi possível conectar ao broker: {e}")
 
+def get_last_wifi_signal_for_esp(esp_id: str) -> Optional[int]:
+    """Busca no cache o último sinal de Wi-Fi conhecido para um ESP específico."""
+    with _cache_lock:
+        return _esp_status_cache.get(esp_id, {}).get("wifi_signal")
+
 
 ========================================
 ARQUIVO: app/services.py
@@ -2437,29 +2408,31 @@ from sqlalchemy.orm import Session, joinedload
 from . import aggregator
 from .connection_manager import manager
 from .dispatcher import dispatch_event # Assumindo que teremos um dispatcher unificado
+from . import mqtt_client
 from .models import Asset, Embarcado, Quarto, ReceivedEvent, SessionLocal
 
 logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
-    Versão final que só despacha eventos se o Tipo de Ativo estiver configurado para isso.
+    Versão corrigida que registra o nome correto do quarto em eventos de SAÍDA.
     """
     if not changes: return
 
-    # ... (A primeira parte da função, que busca os dados e atualiza o DB, continua igual)
-    asset_ids = [c["asset_id"] for c in changes]
-    assets_to_update = {a.id: a for a in db.query(Asset).filter(Asset.id.in_(asset_ids)).options(joinedload(Asset.tipo_de_ativo), joinedload(Asset.quarto)).all()}
+    asset_ids = [c["asset_id"] for c in changes if "asset_id" in c]
+    assets_to_update = {a.id: a for a in db.query(Asset).filter(Asset.id.in_(asset_ids)).options(joinedload(Asset.tipo_de_ativo), joinedload(Asset.quarto).joinedload(Quarto.tipo_de_quarto)).all()}
     embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).all()
     quarto_nome_to_connecta_id_map = {e.quarto.nome: e.connecta_id for e in embarcados if e.quarto and e.connecta_id}
     events_to_dispatch = []
-
+    
     try:
-        # ETAPA 1: Atualizar o banco de dados e criar os eventos de histórico
         for change in changes:
             asset_id = change.get("asset_id")
             asset = assets_to_update.get(asset_id)
             if not asset: continue
+
+            # 1. Guarda o ID do quarto antigo ANTES de qualquer modificação.
+            old_quarto_id = asset.quarto_id
 
             new_quarto_id = change.get("new_quarto_id")
             new_location_status = change.get("location_status")
@@ -2469,18 +2442,27 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             if new_location_status:
                 asset.location_status = new_location_status
                 asset.location_status_updated_on = datetime.now(timezone.utc)
-
-            quarto_contexto_id = new_quarto_id if action == "GET" else asset.quarto_id
+            
+            # 2. Usa o ID do quarto antigo como contexto para eventos de SAÍDA.
+            quarto_contexto_id = new_quarto_id if action == "GET" else old_quarto_id
             quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_contexto_id).first() if quarto_contexto_id else None
             status_evento = new_location_status if new_location_status else "Confirmado"
 
+            esp_id_evento = change.get("source_esp_id", "server")
+            sinal_wifi = mqtt_client.get_last_wifi_signal_for_esp(esp_id_evento)
+
             event = ReceivedEvent(
-                esp_id=change.get("source_esp_id", "server"), ativo=asset.mac_beacon,
+                esp_id=esp_id_evento, 
+                ativo=asset.mac_beacon,
                 quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else "N/A",
                 andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
-                action=action, status=status_evento, status_detail=change.get("details"),
-                rssi=change.get("rssi"), data_on=datetime.now(timezone.utc),
-                raw={"source": "aggregator_unified", "old_quarto_id": asset.quarto_id}
+                action=action, 
+                status=status_evento, 
+                status_detail=change.get("details"),
+                rssi=change.get("rssi"), # Lê o RSSI passado pelo aggregator
+                wifi=sinal_wifi,         # Salva o sinal Wi-Fi buscado do cache
+                data_on=datetime.now(timezone.utc),
+                raw={"source": "aggregator_unified", "old_quarto_id": old_quarto_id}
             )
             db.add(event)
             events_to_dispatch.append(event)

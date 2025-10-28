@@ -20,8 +20,8 @@ document.addEventListener('DOMContentLoaded', function () {
     function getPriorityStatus(quarto) {
         // Define a prioridade de status para determinar a cor principal do quarto.
         if (quarto.status_embarcado === 'Offline') return { status: 'Offline', cor: '#6c757d', animacao: false, texto: '(Offline)' };
-        if (quarto.ativos.some(a => a.status === 'ALERTA')) return { status: 'ALERTA', cor: '#e74c3c', animacao: true, texto: 'Alerta!' };
-        if (quarto.ativos.some(a => a.status === 'PENDENTE')) return { status: 'PENDENTE', cor: '#fd7e14', animacao: false, texto: 'Pendente' };
+        if (quarto.ativos.some(a => a.status === 'ALERTA')) return { status: 'ALERTA', cor: '#fd7e14', animacao: true, texto: 'Alerta!' }; 
+        if (quarto.ativos.some(a => a.status === 'PENDENTE')) return { status: 'PENDENTE', cor: '#ffc107', animacao: false, texto: 'Pendente' }; 
         if (quarto.ativos.length > 0) return { status: 'CONFIRMADO', cor: '#28a745', animacao: false, texto: `${quarto.numero_ativos} ativo(s)` };
         return { status: 'LIVRE', cor: '#dc3545', animacao: false, texto: 'Livre' };
     }

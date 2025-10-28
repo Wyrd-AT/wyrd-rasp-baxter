@@ -55,7 +55,11 @@
                     <button class="actions-menu-trigger" title="Abrir menu de ações">&#8942;</button>
                     <div class="actions-dropdown">
                         <a href="{{ url_for('edit_asset', asset_id=asset.id) }}" class="menu-item-link">Editar</a>
-                        <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza?');">Excluir</a>
+                        <form action="{{ url_for('delete_asset', asset_id=asset.id) }}" method="post" style="margin: 0;">
+                            <button type="submit" class="menu-item-btn delete" onclick="return confirm('Tem certeza?');">
+                                Excluir
+                            </button>
+                        </form>
                     </div>
                 </div>
             </td>

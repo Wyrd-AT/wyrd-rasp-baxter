@@ -9,29 +9,31 @@ from sqlalchemy.orm import Session, joinedload
 from . import aggregator
 from .connection_manager import manager
 from .dispatcher import dispatch_event # Assumindo que teremos um dispatcher unificado
+from . import mqtt_client
 from .models import Asset, Embarcado, Quarto, ReceivedEvent, SessionLocal
 
 logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
-    Versão final que só despacha eventos se o Tipo de Ativo estiver configurado para isso.
+    Versão corrigida que registra o nome correto do quarto em eventos de SAÍDA.
     """
     if not changes: return
 
-    # ... (A primeira parte da função, que busca os dados e atualiza o DB, continua igual)
-    asset_ids = [c["asset_id"] for c in changes]
-    assets_to_update = {a.id: a for a in db.query(Asset).filter(Asset.id.in_(asset_ids)).options(joinedload(Asset.tipo_de_ativo), joinedload(Asset.quarto)).all()}
+    asset_ids = [c["asset_id"] for c in changes if "asset_id" in c]
+    assets_to_update = {a.id: a for a in db.query(Asset).filter(Asset.id.in_(asset_ids)).options(joinedload(Asset.tipo_de_ativo), joinedload(Asset.quarto).joinedload(Quarto.tipo_de_quarto)).all()}
     embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).all()
     quarto_nome_to_connecta_id_map = {e.quarto.nome: e.connecta_id for e in embarcados if e.quarto and e.connecta_id}
     events_to_dispatch = []
-
+    
     try:
-        # ETAPA 1: Atualizar o banco de dados e criar os eventos de histórico
         for change in changes:
             asset_id = change.get("asset_id")
             asset = assets_to_update.get(asset_id)
             if not asset: continue
+
+            # 1. Guarda o ID do quarto antigo ANTES de qualquer modificação.
+            old_quarto_id = asset.quarto_id
 
             new_quarto_id = change.get("new_quarto_id")
             new_location_status = change.get("location_status")
@@ -41,18 +43,27 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             if new_location_status:
                 asset.location_status = new_location_status
                 asset.location_status_updated_on = datetime.now(timezone.utc)
-
-            quarto_contexto_id = new_quarto_id if action == "GET" else asset.quarto_id
+            
+            # 2. Usa o ID do quarto antigo como contexto para eventos de SAÍDA.
+            quarto_contexto_id = new_quarto_id if action == "GET" else old_quarto_id
             quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_contexto_id).first() if quarto_contexto_id else None
             status_evento = new_location_status if new_location_status else "Confirmado"
 
+            esp_id_evento = change.get("source_esp_id", "server")
+            sinal_wifi = mqtt_client.get_last_wifi_signal_for_esp(esp_id_evento)
+
             event = ReceivedEvent(
-                esp_id=change.get("source_esp_id", "server"), ativo=asset.mac_beacon,
+                esp_id=esp_id_evento, 
+                ativo=asset.mac_beacon,
                 quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else "N/A",
                 andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
-                action=action, status=status_evento, status_detail=change.get("details"),
-                rssi=change.get("rssi"), data_on=datetime.now(timezone.utc),
-                raw={"source": "aggregator_unified", "old_quarto_id": asset.quarto_id}
+                action=action, 
+                status=status_evento, 
+                status_detail=change.get("details"),
+                rssi=change.get("rssi"), # Lê o RSSI passado pelo aggregator
+                wifi=sinal_wifi,         # Salva o sinal Wi-Fi buscado do cache
+                data_on=datetime.now(timezone.utc),
+                raw={"source": "aggregator_unified", "old_quarto_id": old_quarto_id}
             )
             db.add(event)
             events_to_dispatch.append(event)
