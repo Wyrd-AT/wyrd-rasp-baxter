@@ -1287,6 +1287,17 @@ async def check_background_tasks_health():
 
 @app.on_event("startup")
 async def on_startup():
+    logger.info("[main] Startup: Resetando status de todos os embarcados para 'offline'.")
+    db = SessionLocal()
+    try:
+        db.query(Embarcado).update({"status_rede": "offline", "wifi_signal": None})
+        db.commit()
+    except Exception as e:
+        logger.error(f"Falha ao resetar status dos embarcados: {e}")
+        db.rollback()
+    finally:
+        db.close()
+        
     logger.info("[main] Startup: Iniciando serviços em background.")
     running_tasks["aggregator"] = asyncio.create_task(main_aggregator_loop())
     running_tasks["liveness_check"] = asyncio.create_task(check_esp_liveness())

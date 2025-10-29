@@ -593,19 +593,25 @@ document.addEventListener('DOMContentLoaded', function () {
                 
                 modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
                 
-                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
+                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI Recente</th><th>MÉDIA (SMA)</th></tr></thead><tbody>`;
 
                 if (data.report && data.report.length > 0) {
-                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
+                    // Ordena pelo sinal MÉDIO, que é mais estável
+                    data.report.sort((a, b) => (b.avg_rssi || -1000) - (a.avg_rssi || -1000));
+           
                     data.report.forEach(beacon => {
                         const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
                         const rssiValue = beacon.rssi;
-                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
+                        // A decisão de cor agora se baseia na MÉDIA, que é o que importa para a localização
+                        const avgValue = beacon.avg_rssi;
+                        const rssiClass = avgValue >= threshold ? 'rssi-strong' : 'rssi-weak';
                         
-                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
+                        // Adicionamos a nova célula (<td>) para exibir a média
+                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td>${rssiValue} dBm</td><td class="${rssiClass}">${avgValue} dBm</td></tr>`;
                     });
                 } else {
-                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
+                    // Atualiza o colspan para 4 colunas
+                    reportHtml += '<tr><td colspan="4" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
                 }
 
                 reportHtml += '</tbody></table>';
@@ -705,11 +711,6 @@ ARQUIVO: app/web/templates/events_list.html
                     {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
                 {# === FIM DAS MUDANÇAS === #}
-
-                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
-                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
                 {% set sort_order = 'asc' if current_filters.sort_by == 'rssi' and current_filters.order == 'desc' else 'desc' %}
                 <th><a href="{{ request.url.replace_query_params(sort_by='rssi', order=sort_order) }}">SINAL BLE</a>
                     {% if current_filters.sort_by == 'rssi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -718,9 +719,9 @@ ARQUIVO: app/web/templates/events_list.html
                 <th><a href="{{ request.url.replace_query_params(sort_by='wifi', order=sort_order) }}">SINAL WI-FI</a>
                     {% if current_filters.sort_by == 'wifi' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
-                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+                {% set sort_order = 'asc' if current_filters.sort_by == 'action' and current_filters.order == 'desc' else 'desc' %}
+                <th><a href="{{ request.url.replace_query_params(sort_by='action', order=sort_order) }}">AÇÃO</a>
+                    {% if current_filters.sort_by == 'action' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
                 </th>
             </tr>
         </thead>
@@ -736,26 +737,18 @@ ARQUIVO: app/web/templates/events_list.html
                 <td>{{ event.andar_nome or '---' }}</td>
                 {# === FIM DAS MUDANÇAS === #}
 
-                <td>
-                    {% if event.action == 'GET' %}
-                        <span class="action-get">Conectar</span>
-                    {% elif event.action == 'OUT' %}
-                        <span class="action-out">Desconectar</span>
-                    {% elif event.action == 'ALERTA' %}
-                        <span class="action-warning">Alerta</span>
-                    {% else %}
-                        <span>{{ event.action }}</span>
-                    {% endif %}
-                </td>
                 <td>{{ event.rssi or '---' }}</td>     
                 <td>{{ event.wifi or '---' }}</td>     
                 <td>
-                    {% if event.status %}
-                        <span class="status-box status-{{ event.status | lower }}"
-                              {% if event.status_detail %} title="{{ event.status_detail }}" {% endif %}>
-                            {{ event.status }}
-                        </span>
-                    {% endif %}
+                    <span class="action-{{ event.action | lower }} action-tooltip" 
+                        {% if event.tooltip_text %} title="{{ event.tooltip_text }}" {% endif %}>
+
+                        {% if event.action == 'GET' %} Conectado
+                        {% elif event.action == 'OUT' %} Desconectado
+                        {% elif event.action == 'ALERTA' %} Alerta
+                        {% else %} {{ event.action }}
+                        {% endif %}
+                    </span>
                 </td>
             </tr>
             {% endfor %}
