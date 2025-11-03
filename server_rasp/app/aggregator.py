@@ -9,6 +9,7 @@ import asyncio
 import time
 import json
 import logging
+import collections
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session, joinedload
 
@@ -55,24 +56,75 @@ WIFI_FAILURE_INERTIA_SEC = int(settings.get('wifi_failure_inertia_sec', 180))
 
 # --- CLASSE DE ESTADO DO ATIVO ---
 class AssetState:
-    def __init__(self, mac):
-        self.mac = mac; self.readings = {}; self.last_known_ema = {}
-        self.last_strongest_signal = {"esp_id": None, "rssi": -1000, "ema_rssi": -1000}
-        self.last_known_wifi_signal = None; self.candidate_quarto_id = None
-        self.candidate_since = None; self.disappeared_since = None
-        self.disappearance_count = 0; 
-        self.wifi_unseen_since = None
+    """
+    Gerencia o estado completo de um único ativo em memória, incluindo sua
+    máquina de estados, timers de inércia e cálculos de média de sinal.
+    """
+    def __init__(self, mac, tipo_de_ativo_regras, quarto_id_atual, location_status_atual):
+        self.mac = mac
+        # Define o estado inicial ('Livre', 'Pendente', 'Confirmado') baseado no DB
+        if quarto_id_atual is None:
+            self.state = 'LIVRE'
+        else:
+            self.state = location_status_atual if location_status_atual in ['PENDENTE', 'CONFIRMADO', 'ALERTA'] else 'CONFIRMADO'
+        
+        self.readings = {} # Guarda a leitura mais recente de cada ESP
+        self.last_processed_avg = {} # Guarda a última média calculada (para EMA)
+        
+        # Carrega as regras do Tipo de Ativo
+        self.algoritmo_media = tipo_de_ativo_regras.get('algoritmo_media', 'SMA')
+        self.parametro_media = tipo_de_ativo_regras.get('parametro_media', 10) # 10 amostras para SMA, como no diagrama
+        
+        # Buffer para Média Móvel Simples (SMA), como no seu diagrama ("Calcula Média Chip BLE")
+        if self.algoritmo_media == 'SMA':
+            self.samples_per_esp = {}
+            
+        # Timers e estados para a lógica de localização
+        self.candidate_quarto_id = None # O quarto para o qual o ativo é um candidato a entrar
+        self.candidate_since = None     # Timer para inércia de ENTRADA
+        self.weak_signal_since = None     # Timer para inércia de SAÍDA
+        self.disappearance_count = 0      # Contador para o estado "Desaparecido"
 
-    def update_reading(self, esp_id, rssi, timestamp, wifi_signal=None):
-        old_ema = self.readings.get(esp_id, {}).get("ema_rssi", rssi); alpha = _config["ema_alpha"]
-        new_ema = (rssi * alpha) + (old_ema * (1 - alpha))
-        self.readings[esp_id] = {"rssi": rssi, "timestamp": timestamp, "ema_rssi": new_ema, "wifi_signal": wifi_signal}
-        self.last_known_ema[esp_id] = new_ema; self.disappearance_count = 0
-        if wifi_signal is not None: self.last_known_wifi_signal = wifi_signal
+    def update_reading(self, esp_id, rssi, timestamp):
+        """Adiciona uma nova leitura de RSSI. Corresponde ao "Recebeu algum sinal?" = SIM."""
+        if esp_id not in self.readings:
+            self.readings[esp_id] = {}
+            
+        self.readings[esp_id]["timestamp"] = timestamp
+        self.readings[esp_id]["last_rssi"] = rssi
+        
+        if self.algoritmo_media == 'SMA':
+            if esp_id not in self.samples_per_esp:
+                self.samples_per_esp[esp_id] = collections.deque(maxlen=int(self.parametro_media))
+            self.samples_per_esp[esp_id].append(rssi)
+            
+        self.disappearance_count = 0 # Reseta o contador pois recebemos um sinal
+
+    def get_average_rssi(self, esp_id):
+        """Corresponde ao "Calcula Média Chip BLE" do diagrama."""
+        current_rssi = self.readings.get(esp_id, {}).get("last_rssi", -1000)
+        
+        if self.algoritmo_media == 'SMA':
+            samples = self.samples_per_esp.get(esp_id)
+            if not samples: return -1000
+            avg = sum(samples) / len(samples)
+        else: # Outros algoritmos (aqui você poderia adicionar EMA, etc.)
+            avg = current_rssi
+            
+        self.last_processed_avg[esp_id] = avg
+        return avg
 
     def cleanup_old_readings(self):
+        """Remove leituras de ESPs que não enviam sinal há muito tempo."""
         now = time.time()
-        self.readings = {k: v for k, v in self.readings.items() if now - v["timestamp"] < _config["reading_timeout_sec"]}
+        timeout = _config["reading_timeout_sec"]
+        
+        active_esps = {esp_id for esp_id, data in self.readings.items() if (now - data.get("timestamp", 0)) <= timeout}
+        
+        self.readings = {esp_id: data for esp_id, data in self.readings.items() if esp_id in active_esps}
+        if self.algoritmo_media == 'SMA':
+            self.samples_per_esp = {esp_id: samples for esp_id, samples in self.samples_per_esp.items() if esp_id in active_esps}
+
         return bool(self.readings)
 
 # --- FUNÇÕES DE INTERFACE E CONTROLE ---
@@ -102,33 +154,37 @@ def flag_for_reload():
 
 # --- FUNÇÕES INTERNAS DO MOTOR RTLS ---
 async def _consume_scan_data_queue():
-    db = None
-    try:
-        while not scan_data_queue.empty():
-            item = await scan_data_queue.get()
-            esp_id_from_item = item.get("esp_id")
-            if esp_id_from_item:
-                now = time.time() 
-                last_log_time = _last_signal_log_times_per_esp.get(esp_id_from_item, 0) 
+    """Lê mensagens da fila MQTT e inicializa/atualiza o estado em memória dos ativos."""
+    while not scan_data_queue.empty():
+        item = await scan_data_queue.get()
+        esp_id, payload = item.get("esp_id"), item.get("payload", {})
+        beacons_obj = payload.get("b", {})
 
-                if (now - last_log_time) > SIGNAL_LOG_INTERVAL_SEC: 
-                    signal_logger.info(json.dumps(item)) 
-                    _last_signal_log_times_per_esp[esp_id_from_item] = now 
-            esp_id, payload = item.get("esp_id"), item.get("payload", {})
-            beacons_obj = payload.get("b", {}); wifi_signal = payload.get("w")
-            for mac, rssi in beacons_obj.items():
-                mac = mac.lower()
-                if not mac or mac not in _asset_map: continue
-                if mac not in _asset_realtime_state: _asset_realtime_state[mac] = AssetState(mac)
-                _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time(), wifi_signal)
-                asset_info = _asset_map.get(mac)
-                if asset_info and asset_info.get("status") == 'Offline':
-                    if db is None: db = SessionLocal()
-                    asset_db = db.query(Asset).get(asset_info.get("id"))
-                    if asset_db: asset_db.status = 'Online'
-                    _asset_map[mac]['status'] = 'Online'
-    finally:
-        if db: db.commit(); db.close()
+        for mac, rssi in beacons_obj.items():
+            mac = mac.lower()
+            if not mac or mac not in _asset_map:
+                continue
+
+            # Se for a primeira vez que vemos este ativo no ciclo de vida do servidor, criamos seu objeto de estado.
+            if mac not in _asset_realtime_state:
+                asset_info_from_cache = _asset_map.get(mac, {})
+                quarto_id_atual = asset_info_from_cache.get("quarto_id")
+                location_status_atual = asset_info_from_cache.get("location_status", "LIVRE")
+                
+                # Carrega as regras do tipo de ativo para o objeto de estado
+                tipo_de_ativo_regras = {
+                    'algoritmo_media': asset_info_from_cache.get('algoritmo_media', 'SMA'),
+                    'parametro_media': asset_info_from_cache.get('parametro_media', 10)
+                }
+                
+                _asset_realtime_state[mac] = AssetState(
+                    mac=mac, 
+                    tipo_de_ativo_regras=tipo_de_ativo_regras,
+                    quarto_id_atual=quarto_id_atual,
+                    location_status_atual=location_status_atual
+                )
+            
+            _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
 
 async def _processar_localizacoes():
     """O coração da lógica de localização, com a máquina de estados final e robusta."""
@@ -278,8 +334,14 @@ def _load_maps_from_db():
     try:
         esps = db.query(Embarcado).all()
         _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
-        assets = db.query(Asset).all()
-        _asset_map = { a.mac_beacon: {"id": a.id, "nome_ativo": a.nome_ativo, "modelo": a.modelo, "quarto_id": a.quarto_id, "wifi_mac": a.mac_address, "status": a.status, "location_status": a.location_status } for a in assets }
+        assets = db.query(Asset).options(joinedload(Asset.tipo_de_ativo)).all()
+        _asset_map = {
+            a.mac_beacon: {
+                "id": a.id, "nome_ativo": a.nome_ativo, "modelo": a.modelo, "quarto_id": a.quarto_id, 
+                "wifi_mac": a.mac_address, "status": a.status, "location_status": a.location_status,
+                "requer_confirmacao_externa": a.tipo_de_ativo.requer_confirmacao_externa if a.tipo_de_ativo else True
+            } for a in assets
+        }
         settings_from_db = {s.key: s.value for s in db.query(GlobalSetting).all()}
         _config["default_rssi_threshold"] = int(settings_from_db.get("rssi_threshold", _config["default_rssi_threshold"]))
         _config["inertia_entrada_ms"] = int(settings_from_db.get("inercia_entrada", _config["inertia_entrada_ms"]))

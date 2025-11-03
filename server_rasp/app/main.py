@@ -4,6 +4,7 @@ import asyncio
 import logging 
 from .logging_config import setup_logging
 from . import aggregator 
+from .models import TipoDeAtivo, TipoDeQuarto
 
 setup_logging() 
 
@@ -1313,6 +1314,35 @@ async def receive_hl7_presence(
         logger.error(f"[HL7-CALLBACK] Erro ao processar mensagem HL7: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao processar mensagem HL7.")
 
+def criar_tipos_padrao_baxter(db: Session):
+    """Garante que os tipos de ativo e quarto padrão da Baxter existam."""
+    # Tipo de Ativo Padrão: Cama
+    tipo_cama = db.query(TipoDeAtivo).filter_by(nome="Cama Hospitalar").first()
+    if not tipo_cama:
+        tipo_cama = TipoDeAtivo(
+            nome="Cama Hospitalar",
+            requer_confirmacao_externa=True,
+            precisa_de_despache=True,
+            algoritmo_media='SMA', # Você pode ajustar isso depois
+            parametro_media=10
+        )
+        db.add(tipo_cama)
+        logger.info("Criado TipoDeAtivo padrão: 'Cama Hospitalar'")
+
+    # Tipo de Quarto Padrão: Leito
+    tipo_leito = db.query(TipoDeQuarto).filter_by(nome="Leito").first()
+    if not tipo_leito:
+        tipo_leito = TipoDeQuarto(
+            nome="Leito",
+            capacidade_maxima=1,
+            permite_transicao_direta=False,
+            habilita_eventos_integracao=True
+        )
+        db.add(tipo_leito)
+        logger.info("Criado TipoDeQuarto padrão: 'Leito'")
+    
+    db.commit()
+
 @app.on_event("startup")
 async def on_startup():
     logger.info("[main] Startup: Iniciando serviços em background.")
@@ -1322,6 +1352,12 @@ async def on_startup():
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     running_tasks["pending_manager"] = asyncio.create_task(main_pending_manager_loop())
     running_tasks["state_logger"] = asyncio.create_task(log_aggregator_state_task())
+    db = SessionLocal()
+    try:
+        criar_tipos_padrao_baxter(db)
+    finally:
+        db.close()
+    
     mqtt_client.start_mqtt_client()
     start_cleanup_scheduler()
 
