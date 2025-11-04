@@ -29,6 +29,13 @@ def load_configuration():
             'mqtt_asset_list_topic': 'wyrd/rtls/assets/available',
             'mqtt_esp_command_topic': 'wyrd/rtls/esp/all/command'
         }
+
+        config['BedMQTT'] = {
+            'bed_mqtt_host': '172.28.74.51',
+            'bed_mqtt_port': '1883',
+            'bed_mqtt_user': 'usuario_hillrom',
+            'bed_mqtt_pass': 'senha_hillrom'
+        }
         
         config['Dispatcher'] = {
             'final_ip': '127.0.0.1',
@@ -45,7 +52,8 @@ def load_configuration():
             'reading_timeout_sec': '10',        
             'ema_alpha': '0.4',
             'dispatch_delay_after_wifi_sec': '5',
-            'state_log_interval_sec': '30'         
+            'state_log_interval_sec': '30',
+            'enable_pending_alert': 'true',        
         }
         
         config['Tasks'] = {

@@ -35,6 +35,7 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
         for e in embarcados if e.quarto and e.connecta_id
     }
     # --- FIM DA MUDANÇA ---
+    alert_enabled = settings.get('enable_pending_alert', 'true').lower() == 'true'
 
     events_to_dispatch = []
     
@@ -93,6 +94,11 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
 
         for event in events_to_dispatch:
             if event.action in ["GET", "OUT", "ALERTA"]:
+                
+                if event.action == "ALERTA" and not alert_enabled:
+                    logger.info(f"Evento de ALERTA {event.id} gerado, mas despacho ANULADO pela config global.")
+                    continue 
+
                 db.refresh(event)
                 
                 data_zulu = event.data_on.replace(tzinfo=timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
@@ -101,12 +107,8 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
                 if event.status in ["Pendente", "Confirmado"]:
                     status_to_dispatch = "GET"
 
-                # --- INÍCIO DA MUDANÇA ---
-                # 2. Usa o mapa para encontrar o ID Connecta.
-                #    Se não encontrar, usa o nome do quarto como fallback para não quebrar.
                 quarto_nome_original = event.quarto_nome
                 
-                # Usa o mapa para encontrar o ID Connecta correspondente
                 connecta_id_para_enviar = quarto_nome_to_connecta_id_map.get(quarto_nome_original) # Retornará None se não encontrar
 
                 dispatch_payload = {

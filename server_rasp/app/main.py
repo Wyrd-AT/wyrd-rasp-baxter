@@ -21,7 +21,6 @@ import os
 from typing import Optional, Dict, List
 from datetime import datetime, timedelta, timezone
 
-import hl7
 from fastapi import WebSocket, WebSocketDisconnect, BackgroundTasks
 from .connection_manager import manager
 from fastapi import FastAPI, Request, Response, Form, HTTPException, Query, Depends, status, Body
@@ -45,9 +44,10 @@ from .models import (
 )
 from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _asset_realtime_state
 from .services import force_asset_removal, release_assets_for_offline_esp
-from . import mqtt_client
+from . import mqtt_client, bed_mqtt_client
 from .aggregator import main_aggregator_loop, batch_update_asset_assignments, _asset_realtime_state
 from .config import settings
+from .bed_mqtt_client import bed_state_queue
 from .auth import authenticate_admin
 from .dispatcher import dispatch_event
 
@@ -380,65 +380,83 @@ FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
 
 async def pending_manager_task(db: Session):
     """
-    Verifica ativos pendentes no DB e gerencia a lógica de retentativas e alertas.
+    Verifica ativos PENDENTES.
+    1. Implementa o backoff de alerta (5m, 15m, 30m, 1h, 3h, 6h).
+    2. Verifica a flag 'enable_pending_alert' para decidir se deve
+       mover para ALERTA ou apenas registrar o evento no histórico.
     """
+    
+    # Lê a flag global de alerta do config.ini
+    alert_enabled = settings.get('enable_pending_alert', 'true').lower() == 'true'
+
+    # Define os limites de tempo do backoff em segundos
+    # (5m, 15m, 30m, 1h, 3h, 6h)
+    BACKOFF_THRESHOLDS_SEC = [300, 900, 1800, 3600, 10800, 21600]
+
+    now_utc = datetime.now(timezone.utc)
+    
     # Busca todos os ativos que estão no estado 'Pendente'
     pending_assets = db.query(Asset).filter(Asset.location_status == 'Pendente').all()
     if not pending_assets:
         return
 
-    now_utc = datetime.now(timezone.utc)
-    logger.info(f"[PENDING-MGR] Verificando {len(pending_assets)} ativo(s) pendente(s)...")
+    logger.info(f"[PENDING-MGR] Verificando {len(pending_assets)} ativo(s) pendente(s)... (Alertas: {'ON' if alert_enabled else 'OFF'})")
 
     for asset in pending_assets:
         if not asset.location_status_updated_on:
             continue
 
-        time_since_pending = now_utc - asset.location_status_updated_on.replace(tzinfo=timezone.utc)
-        
-        # Conta quantos GETs de retentativa já foram enviados
-        retry_events_count = db.query(ReceivedEvent).filter(
+        # Calcula há quanto tempo o ativo está pendente
+        time_since_pending = (now_utc - asset.location_status_updated_on.replace(tzinfo=timezone.utc)).total_seconds()
+
+        # Conta quantos alertas de timeout já foram gerados para este ativo
+        alert_count = db.query(ReceivedEvent).filter(
             ReceivedEvent.ativo == asset.mac_beacon,
-            ReceivedEvent.status == 'Pendente-Retry'
+            ReceivedEvent.action == "ALERTA",
+            ReceivedEvent.status.like('Pendente-Timeout-%') # Conta os alertas de timeout anteriores
         ).count()
 
-        change_to_commit = None
-        
-        # Lógica de retentativas e alerta
-        if time_since_pending > timedelta(minutes=2) and retry_events_count >= 2:
-            # Já passou o tempo total e todas as retentativas falharam -> Gera Alerta
-            if asset.location_status != 'Alertado':
-                logger.warning(f"[PENDING-MGR] Ativo {asset.nome_ativo} excedeu todas as tentativas. Gerando alerta.")
-                asset.location_status = 'Alertado'
+        # Verifica se já atingimos o limite máximo de alertas de backoff
+        if alert_count >= len(BACKOFF_THRESHOLDS_SEC):
+            continue # Já passou por todos os níveis de backoff
+
+        # Pega o próximo limite de tempo
+        current_threshold = BACKOFF_THRESHOLDS_SEC[alert_count]
+
+        # Se o tempo pendente ultrapassou o limite atual...
+        if time_since_pending > current_threshold:
+            
+            # Hora de gerar um evento de alerta.
+            # A decisão do que fazer depende da flag global.
+            
+            change_to_commit = None
+            
+            if alert_enabled:
+                # COMPORTAMENTO PADRÃO (Alertas LIGADOS)
+                logger.warning(f"[PENDING-MGR] Ativo {asset.nome_ativo} excedeu o Nível {alert_count + 1} de timeout. Movendo para ALERTA.")
                 change_to_commit = {
-                    "asset_id": asset.id, "action": "ALERTA", "status": "Pendente-Expirado",
-                    "details": "Ativo pendente não recebeu confirmação HL7 após múltiplas tentativas.",
+                    "asset_id": asset.id,
+                    "location_status": "ALERTA", # Mova para Alerta
+                    "action": "ALERTA",
+                    "status": f"Pendente-Timeout-{alert_count + 1}",
+                    "details": f"Ativo pendente excedeu o limite de {current_threshold}s. Alerta Nível {alert_count + 1}.",
                     "quarto_context_id": asset.quarto_id
                 }
-
-        elif time_since_pending > timedelta(seconds=90) and retry_events_count == 1:
-            # Passou 1min 30s, envia a segunda retentativa
-            logger.info(f"[PENDING-MGR] Ativo {asset.nome_ativo} pendente há 90s. Enviando 2ª retentativa de GET.")
-            change_to_commit = {
-                "asset_id": asset.id, "action": "GET", "status": "Pendente-Retry",
-                "details": "Retentativa (2/2) de verificação de presença.",
-                "quarto_context_id": asset.quarto_id
-            }
-
-        elif time_since_pending > timedelta(minutes=1) and retry_events_count == 0:
-            # Passou 1 min, envia a primeira retentativa
-            logger.info(f"[PENDING-MGR] Ativo {asset.nome_ativo} pendente há 60s. Enviando 1ª retentativa de GET.")
-            change_to_commit = {
-                "asset_id": asset.id, "action": "GET", "status": "Pendente-Retry",
-                "details": "Retentativa (1/2) de verificação de presença.",
-                "quarto_context_id": asset.quarto_id
-            }
-        
-        if change_to_commit:
-            # Usamos o _asset_map do aggregator que já está em memória
-            await batch_update_asset_assignments(db, [change_to_commit], aggregator._asset_map)
-            db.commit()
-
+            else:
+                # COMPORTAMENTO NOVO (Alertas DESLIGADOS)
+                logger.info(f"[PENDING-MGR] Ativo {asset.nome_ativo} excedeu o Nível {alert_count + 1} de timeout. Logando alerta (Alertas desativados).")
+                change_to_commit = {
+                    "asset_id": asset.id,
+                    "location_status": "PENDENTE", # Mantenha em Pendente
+                    "action": "ALERTA", # A *ação* ainda é um Alerta (para o histórico)
+                    "status": f"Ignorado-Timeout-{alert_count + 1}", # Status especial para o histórico
+                    "details": f"Timeout de pendência Nível {alert_count + 1}. Alertas globais desativados.",
+                    "quarto_context_id": asset.quarto_id
+                }
+            
+            if change_to_commit:
+                await batch_update_asset_assignments(db, [change_to_commit], aggregator._asset_map)
+                db.commit()
 
 async def main_pending_manager_loop():
     """Loop principal que executa a tarefa do gerenciador de pendências."""
@@ -810,12 +828,14 @@ def list_assets(
     sort_column = sortable_columns.get(sort_by, Asset.nome_ativo)
     query = query.order_by(asc(sort_column) if order == "asc" else desc(sort_column))
 
+    all_tipos_de_ativo = db.query(TipoDeAtivo).order_by(TipoDeAtivo.nome).all()
     assets = query.all()
     
     return templates.TemplateResponse("assets_list.html", {
         "request": request, "assets": assets,
         "form_action": request.url_for("create_asset"), "asset": None, 
-        "current_filters": {"search": search, "sort_by": sort_by, "order": order}
+        "current_filters": {"search": search, "sort_by": sort_by, "order": order},
+        "all_tipos_de_ativo": all_tipos_de_ativo
     })
 
 
@@ -825,18 +845,20 @@ def create_asset(
     nome_ativo: str = Form(...), 
     mac_address: str = Form(...),  
     mac_beacon: str = Form(...),
-    # --- NOVOS CAMPOS DO FORMULÁRIO ---
-    tipo_ativo: str = Form(None),
-    modelo: str = Form(None),
-    fabricante: str = Form(None),
+    tipo_ativo_id: int = Form(...), # Campo de COMPORTAMENTO (do Passo 2)
+    
+    # --- ADICIONE ESTES DE VOLTA ---
+    modelo: Optional[str] = Form(None),
+    fabricante: Optional[str] = Form(None),
+    # --- FIM DA ADIÇÃO ---
+    
     db: Session = Depends(get_db)
 ):
     asset = Asset(
         nome_ativo=nome_ativo, 
         mac_address=mac_address.lower(),  
         mac_beacon=mac_beacon.lower(),
-        # --- NOVOS DADOS PARA SALVAR ---
-        tipo_ativo=tipo_ativo,
+        tipo_ativo_id=tipo_ativo_id, # Salva o comportamento        
         modelo=modelo,
         fabricante=fabricante
     )
@@ -856,12 +878,17 @@ def create_asset(
 
 @app.get("/assets/{asset_id}/edit", name="edit_asset")
 def edit_asset(request: Request, asset_id: int, db: Session = Depends(get_db)):
-    # Esta rota não precisa de mudanças, ela apenas exibe o formulário.
+
+    assets = db.query(Asset).order_by(Asset.nome_ativo).all()
+    asset_para_editar = db.query(Asset).get(asset_id)
+    all_tipos_de_ativo = db.query(TipoDeAtivo).order_by(TipoDeAtivo.nome).all()
+
     return templates.TemplateResponse("assets_list.html", {
         "request": request, "assets": db.query(Asset).order_by(Asset.nome_ativo).all(),
         "form_action": request.url_for("update_asset", asset_id=asset_id),
         "asset": db.query(Asset).get(asset_id), "search": None,
-        "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"}
+        "current_filters": {"search": None, "sort_by": "nome_ativo", "order": "asc"},
+        "all_tipos_de_ativo": all_tipos_de_ativo # Passa a lista de tipos
     })
 
 @app.post("/assets/{asset_id}/edit", name="update_asset")
@@ -871,10 +898,13 @@ def update_asset(
     nome_ativo: str = Form(...), 
     mac_address: str = Form(...),
     mac_beacon: str = Form(...),
-    # --- NOVOS CAMPOS DO FORMULÁRIO ---
-    tipo_ativo: str = Form(None),
-    modelo: str = Form(None),
-    fabricante: str = Form(None),
+    tipo_ativo_id: int = Form(...), # Campo de COMPORTAMENTO
+    
+    # --- ADICIONE ESTES DE VOLTA ---
+    modelo: Optional[str] = Form(None),
+    fabricante: Optional[str] = Form(None),
+    # --- FIM DA ADIÇÃO ---
+    
     db: Session = Depends(get_db)
 ):
     asset = db.query(Asset).get(asset_id)
@@ -882,8 +912,7 @@ def update_asset(
         asset.nome_ativo = nome_ativo
         asset.mac_address=mac_address.lower()
         asset.mac_beacon = mac_beacon.lower()
-        # --- ATUALIZANDO OS NOVOS DADOS ---
-        asset.tipo_ativo = tipo_ativo
+        asset.tipo_ativo_id = tipo_ativo_id # Atualiza o comportamento
         asset.modelo = modelo
         asset.fabricante = fabricante
         
@@ -947,10 +976,10 @@ def get_planta_dados(db: Session = Depends(get_db)):
             
             if asset.location_status == 'Pendente':
                 status_visual = "pendente"
-                texto_conexao = "Aguardando Confirmação HL7"
+                texto_conexao = "Aguardando Confirmação"
             elif asset.location_status == 'Alertado':
                 status_visual = "alertado"
-                texto_conexao = "Alerta: Sem confirmação HL7"
+                texto_conexao = "Alerta: Sem confirmação"
             
             ativos_detalhados.append({
                 "nome": asset.nome_ativo, 
@@ -1224,6 +1253,99 @@ def start_cleanup_scheduler():
             purge_old_events()
     threading.Thread(target=loop, daemon=True).start()
 
+async def bed_state_processor_loop():
+    """
+    Processa mensagens de status da cama (connected/disconnected) vindas da fila MQTT.
+    Este é o novo "callback" que substitui o endpoint HL7.
+    """
+    logger.info("[BED_PROCESSOR] Processador de Status de Cama iniciado.")
+
+    # Lê a flag global de alerta do config.ini
+    alert_enabled = settings.get('enable_pending_alert', 'true').lower() == 'true'
+    if alert_enabled:
+        logger.info("[BED_PROCESSOR] Modo de Alerta de Desconexão: ATIVADO.")
+    else:
+        logger.info("[BED_PROCESSOR] Modo de Alerta de Desconexão: DESATIVADO (desconexões irão para PENDENTE).")
+
+    while True:
+        try:
+            # Espera por uma nova mensagem na fila
+            payload = await bed_state_queue.get()
+
+            nome_cama = payload.get("id")
+            is_connected = payload.get("connected")
+
+            if nome_cama is None or is_connected is None:
+                logger.warning(f"[BED_PROCESSOR] Payload de status de cama inválido recebido: {payload}")
+                continue
+
+            db = SessionLocal()
+            try:
+                # Encontra o ativo pelo nome (que é o campo "id" no JSON da cama)
+                asset = db.query(Asset).filter(Asset.nome_ativo == nome_cama).first()
+
+                if not asset:
+                    logger.warning(f"[BED_PROCESSOR] Status recebido para cama '{nome_cama}', mas ela não foi encontrada no DB.")
+                    continue
+
+                change_to_commit = None # Prepara a "ordem de mudança"
+
+                # --- LÓGICA DE MUDANÇA DE ESTADO ---
+
+                if is_connected:
+                    # Se o ativo estava Pendente OU Alertado, ele agora é Confirmado.
+                    if asset.location_status in ['PENDENTE', 'ALERTA']:
+                        logger.info(f"[BED_PROCESSOR] Ativo '{nome_cama}' (de {asset.location_status}) foi CONFIRMADO via MQTT.")
+                        change_to_commit = {
+                            "asset_id": asset.id,
+                            "new_quarto_id": asset.quarto_id, # Mantém o quarto que já estava
+                            "location_status": "CONFIRMADO", # O novo estado final
+                            "action": "GET",
+                            "status": "Confirmado",
+                            "details": "Entrada confirmada via callback MQTT 'connected: true'.",
+                            "quarto_context_id": asset.quarto_id
+                        }
+
+                else: # Se is_connected == false
+                    if asset.location_status == 'CONFIRMADO':
+                        
+                        if alert_enabled:
+                            # COMPORTAMENTO PADRÃO (Alertas LIGADOS)
+                            logger.warning(f"[BED_PROCESSOR] Ativo '{nome_cama}' desconectado. Gerando ALERTA.")
+                            change_to_commit = {
+                                "asset_id": asset.id,
+                                "location_status": "ALERTA", # Mova para Alerta
+                                "action": "ALERTA",
+                                "status": "Ativo",
+                                "details": f"Ativo perdeu conexão de rede (Callback MQTT 'connected: false'). Razão: {payload.get('disconnectreason', 'N/A')}",
+                                "quarto_context_id": asset.quarto_id
+                            }
+                        else:
+                            # COMPORTAMENTO NOVO (Alertas DESLIGADOS)
+                            logger.info(f"[BED_PROCESSOR] Ativo '{nome_cama}' desconectado. Movendo para PENDENTE (Alertas desativados).")
+                            change_to_commit = {
+                                "asset_id": asset.id,
+                                "location_status": "PENDENTE", # Mova para Pendente
+                                "action": "ALERTA", # A *ação* ainda é um Alerta (para o histórico)
+                                "status": "Ignorado-Desconexao", # Um status especial para o histórico
+                                "details": f"Desconexão de cama. Alertas globais desativados, movido para pendente.",
+                                "quarto_context_id": asset.quarto_id
+                            }
+
+                # Se uma mudança foi decidida, chama o "Executor"
+                if change_to_commit:
+                    # Passa o _asset_map do aggregator para a função de serviço
+                    await batch_update_asset_assignments(db, [change_to_commit], aggregator._asset_map)
+                    db.commit()
+                    await manager.broadcast("ATUALIZAR_ESTADO") # Notifica o frontend
+
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"[BED_PROCESSOR] Erro crítico no loop do processador de camas: {e}", exc_info=True)
+            # Adiciona um pequeno delay para evitar loops de erro muito rápidos
+            await asyncio.sleep(5)
+
 running_tasks = {} # Dicionário global para guardar as nossas tarefas
 
 async def check_background_tasks_health():
@@ -1242,77 +1364,6 @@ async def check_background_tasks_health():
                         exc_info=True
                     )
                     # Ação a tomar: Poderíamos 64:70:02:5f:e0:40tentar reiniciar a tarefa ou o servidor.
-
-@app.post("/api/hl7/presence", name="receive_hl7_presence")
-async def receive_hl7_presence(
-    request: Request, 
-    db: Session = Depends(get_db), 
-    body: bytes = Body(...)
-):
-    """
-    Recebe uma mensagem HL7, a processa e atualiza o status de localização do ativo.
-    """
-    try:
-        # Decodifica a mensagem HL7 recebida
-        hl7_string = body.decode('utf-8')
-        h = hl7.parse(hl7_string)
-
-        # Extrai os campos de interesse da mensagem HL7
-        # OBR[4][1] -> Nome do ativo (cama)
-        # PV1[3][1] -> Nome do quarto
-        # OBX[5]    -> Status da conexão (ex: '2~Connected')
-        nome_cama = str(h.segment('OBR')[4][1])
-        status_conexao = str(h.segment('OBX')[5])
-        
-        logger.info(f"[HL7-CALLBACK] Mensagem recebida para a cama: {nome_cama} com status: {status_conexao}")
-
-        # Encontra o ativo no banco de dados pelo seu nome
-        asset = db.query(Asset).filter(Asset.nome_ativo == nome_cama).first()
-        if not asset:
-            logger.warning(f"[HL7-CALLBACK] Ativo '{nome_cama}' não encontrado no banco de dados.")
-            return {"status": "Asset not found"}
-
-        # Lógica para tratar o status "Connected"
-        if status_conexao.startswith('2~'): # 2~Connected
-            # Se o ativo estava Pendente, agora ele será Confirmado
-            if asset.location_status == 'Pendente':
-                logger.info(f"[HL7-CALLBACK] Ativo '{nome_cama}' confirmado no quarto. Atualizando status e enviando GET final.")
-                asset.location_status = 'Confirmado'
-                
-                # Prepara e chama o serviço para criar o evento GET/Confirmado e despachá-lo
-                change = {
-                    "asset_id": asset.id,
-                    "new_quarto_id": asset.quarto_id, # Mantém o quarto que já estava
-                    "action": "GET",
-                    "status": "Confirmado",
-                    "details": "Entrada confirmada via mensagem HL7 'Connected'.",
-                    "quarto_context_id": asset.quarto_id
-                }
-                await batch_update_asset_assignments(db, [change], aggregator._asset_map)
-
-        # Lógica para tratar o status "Disconnected"
-        elif status_conexao.startswith('1~'): # 1~Disconnected
-            logger.warning(f"[HL7-CALLBACK] Ativo '{nome_cama}' desconectado. Gerando alerta e marcando como Pendente.")
-            # Marca o status da localização como Pendente, mas MANTÉM o quarto_id
-            asset.location_status = 'Pendente'
-
-            # Prepara e chama o serviço para criar o evento de ALERTA e despachá-lo
-            change = {
-                "asset_id": asset.id,
-                "action": "ALERTA",
-                "status": "Ativo",
-                "details": f"Ativo '{nome_cama}' perdeu a conexão de rede (HL7 'Disconnected').",
-                "quarto_context_id": asset.quarto_id
-            }
-            await batch_update_asset_assignments(db, [change], aggregator._asset_map)
-
-        db.commit()
-        await manager.broadcast("ATUALIZAR_ESTADO") # Notifica a interface para atualizar
-        return {"status": "ok"}
-
-    except Exception as e:
-        logger.error(f"[HL7-CALLBACK] Erro ao processar mensagem HL7: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Erro ao processar mensagem HL7.")
 
 def criar_tipos_padrao_baxter(db: Session):
     """Garante que os tipos de ativo e quarto padrão da Baxter existam."""
@@ -1352,13 +1403,16 @@ async def on_startup():
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
     running_tasks["pending_manager"] = asyncio.create_task(main_pending_manager_loop())
     running_tasks["state_logger"] = asyncio.create_task(log_aggregator_state_task())
+    running_tasks["bed_state_processor"] = asyncio.create_task(bed_state_processor_loop())
     db = SessionLocal()
     try:
         criar_tipos_padrao_baxter(db)
     finally:
         db.close()
-    
+
     mqtt_client.start_mqtt_client()
+    bed_mqtt_client.start_bed_client()
+
     start_cleanup_scheduler()
 
     await asyncio.sleep(5) 
