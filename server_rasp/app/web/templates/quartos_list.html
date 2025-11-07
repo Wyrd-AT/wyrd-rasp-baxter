@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Gestão de Quartos{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1>Quartos</h1>
+    <div class="header-actions">
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulário</button>
+    </div>
+</div>
+
+<div class="forms-container-vertical" id="forms-container">
+    {% include 'quarto_form.html' with context %}
+</div>
+
+<div class="list-container-full-width">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 80px; text-align: center;">AÇÕES</th>
+                <th>NOME DO QUARTO</th>
+                <th>ANDAR</th>
+                <th>TIPO DE QUARTO</th>
+                <th>EMBARCADO ASSOCIADO</th>
+                <th>ATIVO ATUAL</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for quarto in quartos %}
+            <tr class="selectable-row">
+                <td style="text-align: center;">
+                    <div class="actions-menu-container">
+                        <button class="actions-menu-trigger" title="Abrir menu de ações">&#8942;</button>
+                        <div class="actions-dropdown">
+                            <a href="{{ url_for('edit_quarto', quarto_id=quarto.id) }}" class="menu-item-link">Editar</a>
+                            {% if quarto.embarcados or quarto.assets %}
+                                <button type="button" class="menu-item-btn delete-disabled" 
+                                        onclick="alert('Não é possível excluir este quarto pois ele está ocupado por um embarcado ou um ativo.');">
+                                    Excluir (Ocupado)
+                                </button>
+                            {% else %}
+                                <form action="{{ url_for('delete_quarto', quarto_id=quarto.id) }}" method="post" style="margin: 0;">
+                                    <button type="submit" class="menu-item-btn delete" 
+                                            onclick="return confirm('Tem certeza que deseja apagar o quarto {{ quarto.nome }}?');">
+                                        Excluir
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </td>
+                <td>{{ quarto.nome }}</td>
+                <td>{{ quarto.andar.nome if quarto.andar else '---' }}</td>
+                <td>{{ quarto.tipo_de_quarto.nome if quarto.tipo_de_quarto else 'N/D' }}</td>
+                <td>{{ quarto.embarcados[0].id_esp if quarto.embarcados else '---' }}</td>
+                <td>{{ quarto.assets[0].nome_ativo if quarto.assets else '---' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    // Lógica para controlar o menu de ações (copiada de assets_list.html)
+    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
+        button.addEventListener('click', function (event) {
+            event.stopPropagation();
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                if (d !== this.nextElementSibling) d.classList.remove('show');
+            });
+            this.nextElementSibling.classList.toggle('show');
+        });
+    });
+    window.addEventListener('click', (event) => {
+        if (!event.target.matches('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+        }
+    });
+    // A lógica de recolher o formulário já está no base.html
+});
+</script>
+{% endblock %}

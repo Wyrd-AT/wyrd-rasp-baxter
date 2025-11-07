@@ -77,6 +77,7 @@ class Quarto(Base):
     id   = Column(Integer, primary_key=True, index=True)
     nome = Column(String, unique=True, nullable=False)
     andar_id = Column(Integer, ForeignKey("andares.id"), nullable=False)
+    connecta_id = Column(String, nullable=True, unique=True, index=True)
     andar = relationship("Andar", back_populates="quartos")
     embarcados = relationship("Embarcado", back_populates="quarto")
     assets     = relationship("Asset", back_populates="quarto")
@@ -97,8 +98,6 @@ class Embarcado(Base):
     quarto_id = Column(Integer, ForeignKey("quartos.id"), nullable=False)
     rssi_threshold = Column(Integer, nullable=True)
     quarto = relationship("Quarto", back_populates="embarcados")
-    connecta_id = Column(String, nullable=False)
-
 
 class ReceivedEvent(Base):
     __tablename__ = "received_events"

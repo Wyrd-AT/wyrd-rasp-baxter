@@ -18,18 +18,14 @@ ARQUIVO: app/web/templates/asset_form.html
                 <label for="mac_beacon">MAC do Beacon</label>
                 <input type="text" id="mac_beacon" name="mac_beacon" value="{{ asset.mac_beacon if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
             </div>
-            <div class="form-group">
+            <!-- <div class="form-group"> <hidden>
                 <label for="mac_address">MAC Address do Wi-Fi</label>
                 <input type="text" id="mac_address" name="mac_address" value="{{ asset.mac_address if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
-            </div>
-        </div>
-      
-        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1.5rem;">
-            
+            </div> -->
             <div class="form-group">
-                <label for="tipo_ativo_id">Tipo de Ativo (Regra)</label>
+                <label for="tipo_ativo_id">Tipo de Ativo</label>
                 <select id="tipo_ativo_id" name="tipo_ativo_id" required>
-                    <option value="" disabled {% if not asset %}selected{% endif %}>Selecione a regra...</option>
+                    <option value="" disabled {% if not asset %}selected{% endif %}>Selecione o tipo...</option>
                     {% for tipo in all_tipos_de_ativo %}
                         <option value="{{ tipo.id }}" {% if asset and asset.tipo_ativo_id == tipo.id %}selected{% endif %}>
                             {{ tipo.nome }}
@@ -37,6 +33,11 @@ ARQUIVO: app/web/templates/asset_form.html
                     {% endfor %}
                 </select>
             </div>
+        </div>
+      
+        <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr); margin-top: 1.5rem;">
+            
+            
             
             <div class="form-group">
                 <label for="modelo">Modelo (para JSON)</label>
@@ -104,10 +105,6 @@ ARQUIVO: app/web/templates/assets_list.html
             <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
                 {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
             </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'mac_address' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='mac_address', order=sort_order) }}">MAC WI-FI</a>
-                {% if current_filters.sort_by == 'mac_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-            </th>
             {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
             <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
                 {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
@@ -137,7 +134,6 @@ ARQUIVO: app/web/templates/assets_list.html
             <td>{{ asset.fabricante or '---' }}</td>
             
             <td>{{ asset.mac_beacon }}</td>
-            <td>{{ asset.mac_address }}</td>
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
             <td>
                 {% if asset.status == 'Online' %}
@@ -337,25 +333,23 @@ ARQUIVO: app/web/templates/embarcado_form.html
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         
-        <div class="form-group" hidden>
-            <label for="connecta_id">ID Connecta</label>
-            <input type="text" id="connecta_id" name="connecta_id" 
-                   value="{{ embarcado.connecta_id if embarcado else '' }}" 
-                   placeholder="ID usado no sistema final">
-        </div>
-
         <div class="form-group">
-            <label for="andar_nome">Andar</label>
-            <input type="text" id="andar_nome" name="andar_nome" 
-                   value="{{ embarcado.quarto.andar.nome if embarcado and embarcado.quarto and embarcado.quarto.andar else '' }}" 
-                   placeholder="Ex: Térreo, 1º Andar" required>
-        </div>
-
-        <div class="form-group">
-            <label for="quarto_nome">Quarto</label>
-            <input type="text" id="quarto_nome" name="quarto_nome" 
-                   value="{{ embarcado.quarto.nome if embarcado and embarcado.quarto else '' }}" 
-                   placeholder="Ex: 101, UTI-02" required>
+            <label for="quarto_id">Associar ao Quarto</label>
+            <select id="quarto_id" name="quarto_id" required>
+                <option value="" disabled selected>Selecione um quarto disponível...</option>
+                
+                {% if embarcado and embarcado.quarto %}
+                    <option value="{{ embarcado.quarto.id }}" selected>
+                        {{ embarcado.quarto.andar.nome }} - {{ embarcado.quarto.nome }}
+                    </option>
+                {% endif %}
+                
+                {% for quarto in available_quartos %}
+                    <option value="{{ quarto.id }}">
+                        {{ quarto.andar.nome }} - {{ quarto.nome }}
+                    </option>
+                {% endfor %}
+            </select>
         </div>
         
         <div class="form-group">
@@ -1067,6 +1061,10 @@ ARQUIVO: app/web/templates/sidebar.html
         <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'assets' in request.url.path %}active{% endif %}" title="Ativos">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
             <span class="nav-text">Camas</span>
+        </a>
+        <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
+             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
+            <span class="nav-text">Quartos</span>
         </a>
         <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>

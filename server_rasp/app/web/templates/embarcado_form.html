@@ -13,25 +13,23 @@
             <input type="text" id="id_esp" name="id_esp" value="{{ embarcado.id_esp if embarcado else '' }}" placeholder="XXXXXXXXXXXX" required {% if embarcado %}readonly{% endif %}>
         </div>
         
-        <div class="form-group" hidden>
-            <label for="connecta_id">ID Connecta</label>
-            <input type="text" id="connecta_id" name="connecta_id" 
-                   value="{{ embarcado.connecta_id if embarcado else '' }}" 
-                   placeholder="ID usado no sistema final">
-        </div>
-
         <div class="form-group">
-            <label for="andar_nome">Andar</label>
-            <input type="text" id="andar_nome" name="andar_nome" 
-                   value="{{ embarcado.quarto.andar.nome if embarcado and embarcado.quarto and embarcado.quarto.andar else '' }}" 
-                   placeholder="Ex: Térreo, 1º Andar" required>
-        </div>
-
-        <div class="form-group">
-            <label for="quarto_nome">Quarto</label>
-            <input type="text" id="quarto_nome" name="quarto_nome" 
-                   value="{{ embarcado.quarto.nome if embarcado and embarcado.quarto else '' }}" 
-                   placeholder="Ex: 101, UTI-02" required>
+            <label for="quarto_id">Associar ao Quarto</label>
+            <select id="quarto_id" name="quarto_id" required>
+                <option value="" disabled selected>Selecione um quarto disponível...</option>
+                
+                {% if embarcado and embarcado.quarto %}
+                    <option value="{{ embarcado.quarto.id }}" selected>
+                        {{ embarcado.quarto.andar.nome }} - {{ embarcado.quarto.nome }}
+                    </option>
+                {% endif %}
+                
+                {% for quarto in available_quartos %}
+                    <option value="{{ quarto.id }}">
+                        {{ quarto.andar.nome }} - {{ quarto.nome }}
+                    </option>
+                {% endfor %}
+            </select>
         </div>
         
         <div class="form-group">

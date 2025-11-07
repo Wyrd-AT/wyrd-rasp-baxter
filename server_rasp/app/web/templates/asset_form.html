@@ -15,18 +15,14 @@
                 <label for="mac_beacon">MAC do Beacon</label>
                 <input type="text" id="mac_beacon" name="mac_beacon" value="{{ asset.mac_beacon if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
             </div>
-            <div class="form-group">
+            <!-- <div class="form-group"> <hidden>
                 <label for="mac_address">MAC Address do Wi-Fi</label>
                 <input type="text" id="mac_address" name="mac_address" value="{{ asset.mac_address if asset else '' }}" placeholder="XX:XX:XX:XX:XX:XX" required>
-            </div>
-        </div>
-      
-        <div class="form-fields-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 1.5rem;">
-            
+            </div> -->
             <div class="form-group">
-                <label for="tipo_ativo_id">Tipo de Ativo (Regra)</label>
+                <label for="tipo_ativo_id">Tipo de Ativo</label>
                 <select id="tipo_ativo_id" name="tipo_ativo_id" required>
-                    <option value="" disabled {% if not asset %}selected{% endif %}>Selecione a regra...</option>
+                    <option value="" disabled {% if not asset %}selected{% endif %}>Selecione o tipo...</option>
                     {% for tipo in all_tipos_de_ativo %}
                         <option value="{{ tipo.id }}" {% if asset and asset.tipo_ativo_id == tipo.id %}selected{% endif %}>
                             {{ tipo.nome }}
@@ -34,6 +30,11 @@
                     {% endfor %}
                 </select>
             </div>
+        </div>
+      
+        <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr); margin-top: 1.5rem;">
+            
+            
             
             <div class="form-group">
                 <label for="modelo">Modelo (para JSON)</label>

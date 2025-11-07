@@ -116,6 +116,27 @@ class QuartoAdmin(ModelView, model=Quarto):
     name_plural = "Quartos"
     icon = "fa-solid fa-door-closed"
 
+class TipoDeAtivoAdmin(ModelView, model=TipoDeAtivo):
+    name = "Tipo de Ativo"
+    name_plural = "Tipos de Ativo (Regras)"
+    icon = "fa-solid fa-shapes"
+    column_list = [TipoDeAtivo.nome, TipoDeAtivo.requer_confirmacao_externa, TipoDeAtivo.precisa_de_despache, TipoDeAtivo.algoritmo_media]
+    form_columns = [TipoDeAtivo.nome, TipoDeAtivo.requer_confirmacao_externa, TipoDeAtivo.precisa_de_despache, TipoDeAtivo.algoritmo_media, TipoDeAtivo.parametro_media]
+
+class TipoDeQuartoAdmin(ModelView, model=TipoDeQuarto):
+    name = "Tipo de Quarto"
+    name_plural = "Tipos de Quarto (Regras)"
+    icon = "fa-solid fa-vector-square"
+    column_list = [TipoDeQuarto.nome, TipoDeQuarto.capacidade_maxima, TipoDeQuarto.permite_transicao_direta, TipoDeQuarto.habilita_eventos_integracao]
+    form_columns = [TipoDeQuarto.nome, TipoDeQuarto.capacidade_maxima, TipoDeQuarto.permite_transicao_direta, TipoDeQuarto.habilita_eventos_integracao]
+
+class AndarAdmin(ModelView, model=Andar):
+    name = "Andar"
+    name_plural = "Andares"
+    icon = "fa-solid fa-layer-group"
+    column_list = [Andar.id, Andar.nome]
+    form_columns = [Andar.nome]
+
 class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
     can_create = False
     can_edit = False
@@ -133,6 +154,9 @@ class ReceivedEventAdmin(ModelView, model=ReceivedEvent):
 admin.add_view(AssetAdmin)
 admin.add_view(EmbarcadoAdmin)
 admin.add_view(QuartoAdmin)
+admin.add_view(TipoDeAtivoAdmin)
+admin.add_view(TipoDeQuartoAdmin)
+admin.add_view(AndarAdmin)
 admin.add_view(ReceivedEventAdmin)
 
 # --- Dependência do Banco de Dados ---
@@ -684,7 +708,7 @@ def list_embarcados(
 
     assigned_quarto_ids = {emb.quarto_id for emb in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
     
-    available_quartos = db.query(Quarto).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
+    available_quartos = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id.notin_(assigned_quarto_ids)).order_by(Quarto.nome).all()
     
     return templates.TemplateResponse("embarcados_list.html", {
         "request": request,
@@ -702,19 +726,20 @@ def list_embarcados(
 def create_embarcado(
     request: Request, 
     id_esp: str = Form(...), 
-    andar_nome: str = Form(...), # Novo campo
-    quarto_nome: str = Form(...),
-    connecta_id: str = Form(...),
+    quarto_id: int = Form(...), # <-- MUDANÇA AQUI
     rssi_threshold: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
-    andar_obj = get_or_create_andar(db, andar_nome.strip())
-    quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
+    # REMOVEMOS a lógica de get_or_create_andar/quarto
     
     rssi_value = int(rssi_threshold) if rssi_threshold else None
     
-    novo_embarcado = Embarcado(id_esp=id_esp, quarto_id=quarto_obj.id, connecta_id=connecta_id, rssi_threshold=rssi_value)
-        
+    novo_embarcado = Embarcado(
+        id_esp=id_esp, 
+        quarto_id=quarto_id, # <-- MUDANÇA AQUI
+        rssi_threshold=rssi_value
+    )
+
     try:
         db.add(novo_embarcado)
         db.commit()
@@ -764,22 +789,18 @@ def edit_embarcado(request: Request, embarcado_id: int, db: Session = Depends(ge
 def update_embarcado(
     request: Request, 
     embarcado_id: int, 
-    andar_nome: str = Form(...), # Novo campo
-    quarto_nome: str = Form(...),
+    quarto_id: int = Form(...), # <-- MUDANÇA AQUI
     rssi_threshold: Optional[str] = Form(None),
-    connecta_id: str = Form(...),
     db: Session = Depends(get_db)
 ):
     emb = db.query(Embarcado).get(embarcado_id)
     if emb:
-        andar_obj = get_or_create_andar(db, andar_nome.strip())
-        quarto_obj = get_or_create_quarto(db, quarto_nome.strip(), andar_obj.id)
+        # REMOVEMOS a lógica de get_or_create_andar/quarto
         
         rssi_value = int(rssi_threshold) if rssi_threshold else None
         
-        emb.quarto_id = quarto_obj.id
+        emb.quarto_id = quarto_id # <-- MUDANÇA AQUI
         emb.rssi_threshold = rssi_value
-        emb.connecta_id = connecta_id
         db.commit()
         aggregator.flag_for_reload()
         logger.info(f"[main] Embarcado '{emb.id_esp}' atualizado. Disparando reset automático.")
@@ -798,6 +819,124 @@ def delete_embarcado(request: Request, embarcado_id: int, db: Session = Depends(
 
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
+# ===================================================================
+# SEÇÃO (NOVA): CRUD PARA QUARTOS
+# ===================================================================
+
+@app.get("/quartos", name="list_quartos")
+def list_quartos(request: Request, db: Session = Depends(get_db)):
+    """Exibe a página de status e gerenciamento de quartos."""
+    
+    # Busca os dados para a lista de status
+    quartos = db.query(Quarto).options(
+        joinedload(Quarto.andar),
+        joinedload(Quarto.tipo_de_quarto),
+        joinedload(Quarto.embarcados),
+        joinedload(Quarto.assets)
+    ).order_by(Quarto.nome).all()
+
+    # Busca os dados para o formulário de cadastro/edição
+    all_tipos_de_quarto = db.query(TipoDeQuarto).order_by(TipoDeQuarto.nome).all()
+    
+    return templates.TemplateResponse("quartos_list.html", {
+        "request": request,
+        "quartos": quartos,
+        "all_tipos_de_quarto": all_tipos_de_quarto,
+        "form_action": request.url_for("create_quarto"),
+        "quarto": None # Para o formulário de criação
+    })
+
+@app.post("/quartos", name="create_quarto")
+def create_quarto(
+    request: Request, db: Session = Depends(get_db),
+    nome: str = Form(...),
+    andar_nome: str = Form(...),
+    tipo_quarto_id: int = Form(...),
+    connecta_id: Optional[str] = Form(None)
+):    
+    # Reutiliza a lógica de get_or_create_andar
+    andar_obj = get_or_create_andar(db, andar_nome.strip())
+    
+    # Verifica se já existe um quarto com o mesmo nome
+    quarto_existente = db.query(Quarto).filter_by(nome=nome.strip()).first()
+    if quarto_existente:
+        logger.error(f"Tentativa de criar quarto com nome duplicado: {nome.strip()}")
+        return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
+    novo_quarto = Quarto(
+        nome=nome.strip(),
+        andar_id=andar_obj.id,
+        tipo_quarto_id=tipo_quarto_id,
+        connecta_id=connecta_id.strip() if connecta_id else None
+    )
+    db.add(novo_quarto)
+    db.commit()
+    
+    aggregator.flag_for_reload()
+    return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
+@app.get("/quartos/{quarto_id}/edit", name="edit_quarto")
+def edit_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db)):
+    """Exibe o formulário de edição para um quarto específico."""
+    quarto_para_editar = db.query(Quarto).get(quarto_id)
+    if not quarto_para_editar:
+        raise HTTPException(status_code=404, detail="Quarto não encontrado")
+    
+    # Busca todos os dados necessários para renderizar a página completa
+    quartos = db.query(Quarto).options(
+        joinedload(Quarto.andar), 
+        joinedload(Quarto.tipo_de_quarto), 
+        joinedload(Quarto.embarcados), 
+        joinedload(Quarto.assets)
+    ).order_by(Quarto.nome).all()
+
+    all_tipos_de_quarto = db.query(TipoDeQuarto).order_by(TipoDeQuarto.nome).all()
+
+    return templates.TemplateResponse("quartos_list.html", {
+        "request": request,
+        "quartos": quartos,
+        "all_tipos_de_quarto": all_tipos_de_quarto,
+        "form_action": request.url_for("update_quarto", quarto_id=quarto_id),
+        "quarto": quarto_para_editar # Passa o objeto para preencher o form
+    })
+
+@app.post("/quartos/{quarto_id}/edit", name="update_quarto")
+def update_quarto(
+    request: Request, quarto_id: int, db: Session = Depends(get_db),
+    nome: str = Form(...),
+    andar_nome: str = Form(...),
+    tipo_quarto_id: int = Form(...),
+    connecta_id: Optional[str] = Form(None)
+):
+    """Processa a atualização de um quarto existente."""
+    quarto = db.query(Quarto).get(quarto_id)
+    if not quarto:
+        raise HTTPException(status_code=404, detail="Quarto não encontrado")
+    
+    # Reutiliza a lógica de get_or_create_andar
+    andar_obj = get_or_create_andar(db, andar_nome.strip())
+        
+    quarto.nome = nome.strip()
+    quarto.andar_id = andar_obj.id
+    quarto.tipo_quarto_id = tipo_quarto_id
+    quarto.connecta_id = connecta_id.strip() if connecta_id else None
+    
+    db.commit()
+    aggregator.flag_for_reload()
+    return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
+@app.post("/quartos/{quarto_id}/delete", name="delete_quarto")
+def delete_quarto(request: Request, quarto_id: int, db: Session = Depends(get_db)):
+    quarto = db.query(Quarto).get(quarto_id)
+    if quarto:
+        if quarto.embarcados or quarto.assets:
+             logger.error(f"Tentativa de excluir quarto ocupado: {quarto.nome}")
+        else:
+            db.delete(quarto)
+            db.commit()
+            aggregator.flag_for_reload()
+    return RedirectResponse(request.url_for("list_quartos"), status_code=303)
+
 
 # ===================================================================
 # SEÇÃO 4: CRUD PARA ATIVOS
@@ -813,7 +952,7 @@ def list_assets(
     if search:
         search_term = f"%{search}%"
         query = query.outerjoin(Asset.quarto).filter(
-            or_(Asset.nome_ativo.ilike(search_term), Asset.mac_beacon.ilike(search_term), Asset.mac_address.ilike(search_term), Quarto.nome.ilike(search_term), Asset.tipo_ativo.ilike(search_term), Asset.modelo.ilike(search_term), Asset.fabricante.ilike(search_term))
+            or_(Asset.nome_ativo.ilike(search_term), Asset.mac_beacon.ilike(search_term), Quarto.nome.ilike(search_term), Asset.tipo_ativo.ilike(search_term), Asset.modelo.ilike(search_term), Asset.fabricante.ilike(search_term))
         )
 
     # --- LÓGICA DE ORDENAÇÃO ---
@@ -843,7 +982,7 @@ def list_assets(
 def create_asset(
     request: Request, 
     nome_ativo: str = Form(...), 
-    mac_address: str = Form(...),  
+    mac_address: Optional[str] = Form(None),  
     mac_beacon: str = Form(...),
     tipo_ativo_id: int = Form(...), # Campo de COMPORTAMENTO (do Passo 2)
     
@@ -856,7 +995,7 @@ def create_asset(
 ):
     asset = Asset(
         nome_ativo=nome_ativo, 
-        mac_address=mac_address.lower(),  
+        mac_address=mac_address.lower() if mac_address else None,
         mac_beacon=mac_beacon.lower(),
         tipo_ativo_id=tipo_ativo_id, # Salva o comportamento        
         modelo=modelo,
@@ -896,7 +1035,7 @@ def update_asset(
     request: Request, 
     asset_id: int, 
     nome_ativo: str = Form(...), 
-    mac_address: str = Form(...),
+    mac_address: Optional[str] = Form(None),
     mac_beacon: str = Form(...),
     tipo_ativo_id: int = Form(...), # Campo de COMPORTAMENTO
     
@@ -910,7 +1049,7 @@ def update_asset(
     asset = db.query(Asset).get(asset_id)
     if asset:
         asset.nome_ativo = nome_ativo
-        asset.mac_address=mac_address.lower()
+        asset.mac_address = mac_address.lower() if mac_address else None
         asset.mac_beacon = mac_beacon.lower()
         asset.tipo_ativo_id = tipo_ativo_id # Atualiza o comportamento
         asset.modelo = modelo
@@ -1430,5 +1569,5 @@ async def on_startup():
 if __name__ == "__main__":
     uvicorn.run(
         "app.main:app", host=settings.get("ip", "0.0.0.0"),
-        port=int(settings.get("port", 8000)), reload=True
+        port=int(settings.get("port", 8000))
     )

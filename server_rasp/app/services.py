@@ -29,12 +29,13 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map: 
     # --- INÍCIO DA MUDANÇA ---
     # 1. Cria um mapa de consulta {nome_do_quarto: connecta_id} para ser usado depois.
     #    Isso é feito uma vez para evitar múltiplas consultas ao DB.
-    embarcados = db.query(Embarcado).options(joinedload(Embarcado.quarto)).all()
+    quartos_com_id_connecta = db.query(Quarto).filter(Quarto.connecta_id.isnot(None)).all()
+    
+    # 2. Crie o mapa a partir dos Quartos
     quarto_nome_to_connecta_id_map = {
-        e.quarto.nome: e.connecta_id 
-        for e in embarcados if e.quarto and e.connecta_id
+        q.nome: q.connecta_id 
+        for q in quartos_com_id_connecta
     }
-    # --- FIM DA MUDANÇA ---
     alert_enabled = settings.get('enable_pending_alert', 'true').lower() == 'true'
 
     events_to_dispatch = []
