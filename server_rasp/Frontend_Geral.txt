@@ -262,14 +262,6 @@ ARQUIVO: app/web/templates/base.html
                     return;
                 }
 
-                if (event.data === "ATUALIZAR_ESTADO") {
-                    console.log("Recebido sinal para atualizar. Recarregando a página...");
-                    // Adiciona um pequeno delay para garantir que o banco de dados foi atualizado
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 500); // 500ms de delay
-                }   
-
                 try {
                     const data = JSON.parse(event.data);
                     // Verifica se é a mensagem especial de conexão para receber o nosso "crachá"
@@ -1595,7 +1587,7 @@ ARQUIVO: app/web/templates/sidebar.html
         </div>
     </div>
     <nav class="sidebar-nav">
-        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
+        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'eventos' in request.url.path %}active{% endif %}" title="Histórico">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/hist.svg') }})"></span>
             <span class="nav-text">Histórico</span>
         </a>
@@ -1605,7 +1597,7 @@ ARQUIVO: app/web/templates/sidebar.html
             <span class="nav-text">Embarcados</span>
         </a>
 
-        <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'assets' in request.url.path %}active{% endif %}" title="Ativos">
+        <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'ativos' in request.url.path %}active{% endif %}" title="Ativos">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
             <span class="nav-text">Ativos</span>
         </a>

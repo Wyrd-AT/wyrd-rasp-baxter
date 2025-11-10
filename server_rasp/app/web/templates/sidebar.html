@@ -7,7 +7,7 @@
         </div>
     </div>
     <nav class="sidebar-nav">
-        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
+        <a href="{{ url_for('list_events') }}" class="nav-item {% if 'eventos' in request.url.path %}active{% endif %}" title="Histórico">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/hist.svg') }})"></span>
             <span class="nav-text">Histórico</span>
         </a>
@@ -17,7 +17,7 @@
             <span class="nav-text">Embarcados</span>
         </a>
 
-        <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'assets' in request.url.path %}active{% endif %}" title="Ativos">
+        <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'ativos' in request.url.path %}active{% endif %}" title="Ativos">
             <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
             <span class="nav-text">Ativos</span>
         </a>

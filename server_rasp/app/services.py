@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 async def batch_update_asset_assignments(db: Session, changes: list):
     """
-    Versão corrigida que registra o nome correto do quarto em eventos de SAÍDA.
+    Processa mudanças de localização (quarto) e status (online/offline)
+    dos ativos, gerando os eventos e despachos necessários.
     """
     if not changes: return
 
@@ -32,23 +33,46 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             asset = assets_to_update.get(asset_id)
             if not asset: continue
 
-            # 1. Guarda o ID do quarto antigo ANTES de qualquer modificação.
             old_quarto_id = asset.quarto_id
 
+            # --- Captura de todas as possíveis mudanças ---
             new_quarto_id = change.get("new_quarto_id")
             new_location_status = change.get("location_status")
-            action = "GET" if new_quarto_id is not None else "OUT"
+            new_status = change.get("new_status") # <-- MUDANÇA 2 (PASSO 1)
 
-            asset.quarto_id = new_quarto_id
+            # --- Atualização do Banco de Dados e Cache ---
+
+            # 1. Atualiza o Status (Online/Offline) se foi passado
+            if new_status:
+                asset.status = new_status
+                aggregator._asset_map[asset.mac_beacon]['status'] = new_status
+
+            # 2. Atualiza a Localização (Quarto) se foi passada
+            # A chave 'new_quarto_id' estará no 'change' tanto para entrada (ID) quanto para saída (None)
+            if "new_quarto_id" in change:
+                asset.quarto_id = new_quarto_id
+                aggregator._asset_map[asset.mac_beacon]['quarto_id'] = new_quarto_id
+
+            # 3. Atualiza o Status de Localização (Pendente/Confirmado) se foi passado
             if new_location_status:
                 asset.location_status = new_location_status
                 asset.location_status_updated_on = datetime.now(timezone.utc)
             
-            # 2. Usa o ID do quarto antigo como contexto para eventos de SAÍDA.
+            # --- Lógica de Criação de Evento ---
+            
+            # Se *NÃO* for uma mudança de localização, pule a criação de evento.
+            # Uma mudança de localização é definida por ter a chave 'new_quarto_id'.
+            if "new_quarto_id" not in change:
+                continue # Pula a criação de evento se for SÓ uma mudança de status
+            
+            # Se chegamos aqui, é uma mudança de localização (GET ou OUT) e devemos criar um evento.
+            action = "GET" if new_quarto_id is not None else "OUT"
+            
             quarto_contexto_id = new_quarto_id if action == "GET" else old_quarto_id
             quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_contexto_id).first() if quarto_contexto_id else None
+            
             status_evento = new_location_status if new_location_status else "Confirmado"
-
+            
             esp_id_evento = change.get("source_esp_id", "server")
             sinal_wifi = mqtt_client.get_last_wifi_signal_for_esp(esp_id_evento)
 
@@ -60,18 +84,17 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 action=action, 
                 status=status_evento, 
                 status_detail=change.get("details"),
-                rssi=change.get("rssi"), # Lê o RSSI passado pelo aggregator
-                wifi=sinal_wifi,         # Salva o sinal Wi-Fi buscado do cache
+                rssi=change.get("rssi"),
+                wifi=sinal_wifi,
                 data_on=datetime.now(timezone.utc),
                 raw={"source": "aggregator_unified", "old_quarto_id": old_quarto_id}
             )
             db.add(event)
             events_to_dispatch.append(event)
-            aggregator._asset_map[asset.mac_beacon]['quarto_id'] = new_quarto_id
 
         db.commit()
 
-        # ETAPA 2: Despachar eventos para sistemas externos (com a nova lógica "E")
+        # ETAPA 2: Despachar eventos para sistemas externos
         loop = asyncio.get_running_loop()
         for event in events_to_dispatch:
             db.refresh(event)
@@ -82,7 +105,6 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             )
             if not asset_to_dispatch or not asset_to_dispatch.tipo_de_ativo: continue
 
-            # 1. O ativo precisa ter o despacho habilitado?
             ativo_requer_despache = asset_to_dispatch.tipo_de_ativo.precisa_de_despache
 
             # 2. O quarto onde o evento ocorreu permite despachos?
@@ -93,9 +115,7 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             # 3. Só continua se AMBAS as condições forem verdadeiras.
             if not (ativo_requer_despache and quarto_habilita_despache):
                 continue
-            # =================================================================
 
-            # Se ambas as condições passaram, monta o payload e envia.
             connecta_id = quarto_nome_to_connecta_id_map.get(event.quarto_nome)
             dispatch_payload = {
                 "quarto": event.quarto_nome, "id_connecta": connecta_id,

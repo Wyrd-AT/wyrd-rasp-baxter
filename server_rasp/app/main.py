@@ -398,13 +398,6 @@ async def force_quarto_cleanup(request: Request, quarto_id: int, db: Session = D
         )
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
-@app.post("/api/assets/{mac_beacon}/clear_state", name="clear_asset_state_api")
-def clear_asset_state_api(mac_beacon: str):
-    """Endpoint de API para limpar o estado de um ativo da memória do aggregator."""
-    if aggregator.clear_asset_state(mac_beacon):
-        return Response(status_code=200)
-    return Response(status_code=404)
-
 @app.post("/settings/update", name="update_settings")
 def update_settings(
     request: Request, db: Session = Depends(get_db), 
@@ -536,9 +529,7 @@ async def batch_update_esp_status():
     # ESP_STATUS_UPDATE_INTERVAL_SEC = 90 
     
     logger.info("[BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.")
-    while True:
-        await asyncio.sleep(90) # Roda a cada 90 segundos
-        
+    while True:        
         status_updates = mqtt_client.get_and_clear_status_cache()
         if not status_updates:
             continue
@@ -564,6 +555,7 @@ async def batch_update_esp_status():
             db.rollback()
         finally:
             db.close()
+        await asyncio.sleep(90)
 
 def get_global_settings(db: Session) -> dict:
     settings_from_db = db.query(GlobalSetting).all()
@@ -664,10 +656,8 @@ def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
         quartos_data = []
         for quarto in andar.quartos:
             status_embarcado = "Offline"
-            if quarto.embarcados and quarto.embarcados[0].last_seen:
-                last_seen_utc = quarto.embarcados[0].last_seen.replace(tzinfo=timezone.utc)
-                if (now_utc - last_seen_utc).total_seconds() < ESP_TIMEOUT_SEC:
-                    status_embarcado = "Online"
+            if quarto.embarcados:
+                status_embarcado = quarto.embarcados[0].status_rede.capitalize()
             
             # --- LÓGICA ATUALIZADA AQUI ---
             # Para cada ativo, agora também pegamos o seu location_status.
