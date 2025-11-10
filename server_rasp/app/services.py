@@ -38,40 +38,51 @@ async def batch_update_asset_assignments(db: Session, changes: list):
             # --- Captura de todas as possíveis mudanças ---
             new_quarto_id = change.get("new_quarto_id")
             new_location_status = change.get("location_status")
-            new_status = change.get("new_status") # <-- MUDANÇA 2 (PASSO 1)
+            new_status = change.get("new_status")
 
-            # --- Atualização do Banco de Dados e Cache ---
-
-            # 1. Atualiza o Status (Online/Offline) se foi passado
+            # --- Atualização do Banco de Dados e Cache (Sempre ocorre) ---
             if new_status:
                 asset.status = new_status
                 aggregator._asset_map[asset.mac_beacon]['status'] = new_status
 
-            # 2. Atualiza a Localização (Quarto) se foi passada
-            # A chave 'new_quarto_id' estará no 'change' tanto para entrada (ID) quanto para saída (None)
             if "new_quarto_id" in change:
                 asset.quarto_id = new_quarto_id
                 aggregator._asset_map[asset.mac_beacon]['quarto_id'] = new_quarto_id
 
-            # 3. Atualiza o Status de Localização (Pendente/Confirmado) se foi passado
             if new_location_status:
                 asset.location_status = new_location_status
                 asset.location_status_updated_on = datetime.now(timezone.utc)
             
-            # --- Lógica de Criação de Evento ---
+            # --- LÓGICA DE CRIAÇÃO DE EVENTO (MODIFICADA) ---
             
-            # Se *NÃO* for uma mudança de localização, pule a criação de evento.
-            # Uma mudança de localização é definida por ter a chave 'new_quarto_id'.
+            # 1. Se for SÓ uma mudança de status Online/Offline, pula.
             if "new_quarto_id" not in change:
-                continue # Pula a criação de evento se for SÓ uma mudança de status
+                continue 
+
+            # 2. (NOVO) Se for uma entrada para o estado PENDENTE, pula.
+            # Isso "silencia" o PENDENTE no histórico de eventos.
+            if new_location_status == "PENDENTE":
+                continue 
             
-            # Se chegamos aqui, é uma mudança de localização (GET ou OUT) e devemos criar um evento.
-            action = "GET" if new_quarto_id is not None else "OUT"
+            # 3. (NOVO) Define a Ação e o Status para o evento
+            if new_location_status == "ALERTA":
+                action = "ALERTA"
+                # A 'change' veio do pending_manager e já tem um 'status' (ex: "Pendente-Timeout-1")
+                status_evento = change.get("status", "Alerta") 
+            else:
+                # Lógica original para GET (Confirmado) e OUT (Livre)
+                action = "GET" if new_quarto_id is not None else "OUT"
+                status_evento = new_location_status if new_location_status else "Confirmado"
+
+            # 4. (NOVO) Define o contexto do quarto para o evento
+            #    (Para Alertas, o new_quarto_id não é 'None', então precisamos do ID do asset)
+            if action == "ALERTA":
+                quarto_contexto_id = asset.quarto_id
+            else:
+                quarto_contexto_id = new_quarto_id if action == "GET" else old_quarto_id
             
-            quarto_contexto_id = new_quarto_id if action == "GET" else old_quarto_id
+            # --- Resto da criação do evento (sem alteração) ---
             quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_contexto_id).first() if quarto_contexto_id else None
-            
-            status_evento = new_location_status if new_location_status else "Confirmado"
             
             esp_id_evento = change.get("source_esp_id", "server")
             sinal_wifi = mqtt_client.get_last_wifi_signal_for_esp(esp_id_evento)
@@ -81,8 +92,8 @@ async def batch_update_asset_assignments(db: Session, changes: list):
                 ativo=asset.mac_beacon,
                 quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else "N/A",
                 andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
-                action=action, 
-                status=status_evento, 
+                action=action,  # <-- Usa a nova variável 'action'
+                status=status_evento, # <-- Usa a nova variável 'status_evento'
                 status_detail=change.get("details"),
                 rssi=change.get("rssi"),
                 wifi=sinal_wifi,

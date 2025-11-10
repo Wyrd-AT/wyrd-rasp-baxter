@@ -47,6 +47,8 @@ from . import mqtt_client
 from .aggregator import main_aggregator_loop, _asset_realtime_state
 from .config import settings
 from .auth import authenticate_admin
+from . import bed_mqtt_client
+from .bed_mqtt_client import bed_state_queue
 
 logger.info("[main] Módulo carregado para a versão MULTI-ATIVO.")
 
@@ -470,6 +472,98 @@ async def presence_callback(request: Request, db: Session = Depends(get_db), pay
     except Exception as e:
         logger.error(f"[CALLBACK] Erro ao processar mensagem: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno ao processar callback.")
+
+async def pending_manager_task(db: Session):
+    """
+    Verifica ativos PENDENTES.
+    1. Implementa o backoff de alerta (5m, 15m, 30m, 1h, 3h, 6h).
+    2. Verifica a flag 'enable_pending_alert' para decidir se deve
+       mover para ALERTA ou apenas registrar o evento no histórico.
+    """
+    
+    # Lê a flag global de alerta do config.ini
+    alert_enabled = settings.get('enable_pending_alert', 'true').lower() == 'true'
+
+    # Define os limites de tempo do backoff em segundos
+    # (5m, 15m, 30m, 1h, 3h, 6h)
+    BACKOFF_THRESHOLDS_SEC = [300, 900, 1800, 3600, 10800, 21600]
+
+    now_utc = datetime.now(timezone.utc)
+    
+    # Busca todos os ativos que estão no estado 'Pendente'
+    pending_assets = db.query(Asset).filter(Asset.location_status == 'Pendente').all()
+    if not pending_assets:
+        return
+
+    logger.info(f"[PENDING-MGR] Verificando {len(pending_assets)} ativo(s) pendente(s)... (Alertas: {'ON' if alert_enabled else 'OFF'})")
+
+    for asset in pending_assets:
+        if not asset.location_status_updated_on:
+            continue
+
+        # Calcula há quanto tempo o ativo está pendente
+        time_since_pending = (now_utc - asset.location_status_updated_on.replace(tzinfo=timezone.utc)).total_seconds()
+
+        # Conta quantos alertas de timeout já foram gerados para este ativo
+        alert_count = db.query(ReceivedEvent).filter(
+            ReceivedEvent.ativo == asset.mac_beacon,
+            ReceivedEvent.action == "ALERTA",
+            ReceivedEvent.status.like('Pendente-Timeout-%') # Conta os alertas de timeout anteriores
+        ).count()
+
+        # Verifica se já atingimos o limite máximo de alertas de backoff
+        if alert_count >= len(BACKOFF_THRESHOLDS_SEC):
+            continue # Já passou por todos os níveis de backoff
+
+        # Pega o próximo limite de tempo
+        current_threshold = BACKOFF_THRESHOLDS_SEC[alert_count]
+
+        # Se o tempo pendente ultrapassou o limite atual...
+        if time_since_pending > current_threshold:
+            
+            # Hora de gerar um evento de alerta.
+            # A decisão do que fazer depende da flag global.
+            
+            change_to_commit = None
+            
+            if alert_enabled:
+                # COMPORTAMENTO PADRÃO (Alertas LIGADOS)
+                logger.warning(f"[PENDING-MGR] Ativo {asset.nome_ativo} excedeu o Nível {alert_count + 1} de timeout. Movendo para ALERTA.")
+                change_to_commit = {
+                    "asset_id": asset.id,
+                    "location_status": "ALERTA", # Mova para Alerta
+                    "action": "ALERTA",
+                    "status": f"Pendente-Timeout-{alert_count + 1}",
+                    "details": f"Ativo pendente excedeu o limite de {current_threshold}s. Alerta Nível {alert_count + 1}.",
+                    "quarto_context_id": asset.quarto_id
+                }
+            else:
+                # COMPORTAMENTO NOVO (Alertas DESLIGADOS)
+                logger.info(f"[PENDING-MGR] Ativo {asset.nome_ativo} excedeu o Nível {alert_count + 1} de timeout. Logando alerta (Alertas desativados).")
+                change_to_commit = {
+                    "asset_id": asset.id,
+                    "location_status": "PENDENTE", # Mantenha em Pendente
+                    "action": "ALERTA", # A *ação* ainda é um Alerta (para o histórico)
+                    "status": f"Ignorado-Timeout-{alert_count + 1}", # Status especial para o histórico
+                    "details": f"Timeout de pendência Nível {alert_count + 1}. Alertas globais desativados.",
+                    "quarto_context_id": asset.quarto_id
+                }
+            
+            if change_to_commit:
+                await batch_update_asset_assignments(db, [change_to_commit], aggregator._asset_map)
+                db.commit()
+
+async def main_pending_manager_loop():
+    """Loop principal que executa a tarefa do gerenciador de pendências."""
+    logger.info("[PENDING-MGR] Serviço de gerenciamento de pendências iniciado.")
+    while True:
+        # Roda a verificação a cada 30 segundos
+        await asyncio.sleep(30) 
+        db = SessionLocal()
+        try:
+            await pending_manager_task(db)
+        finally:
+            db.close()
 
 LIVENESS_CHECK_INTERVAL_SEC = 30
 FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
@@ -1482,6 +1576,99 @@ def start_cleanup_scheduler():
             purge_old_events()
     threading.Thread(target=loop, daemon=True).start()
 
+async def bed_state_processor_loop():
+    """
+    Processa mensagens de status da cama (connected/disconnected) vindas da fila MQTT.
+    Este é o novo "callback" que substitui o endpoint HL7.
+    """
+    logger.info("[BED_PROCESSOR] Processador de Status de Cama iniciado.")
+
+    # Lê a flag global de alerta do config.ini
+    alert_enabled = settings.get('enable_pending_alert', 'true').lower() == 'true'
+    if alert_enabled:
+        logger.info("[BED_PROCESSOR] Modo de Alerta de Desconexão: ATIVADO.")
+    else:
+        logger.info("[BED_PROCESSOR] Modo de Alerta de Desconexão: DESATIVADO (desconexões irão para PENDENTE).")
+
+    while True:
+        try:
+            # Espera por uma nova mensagem na fila
+            payload = await bed_state_queue.get()
+
+            nome_cama = payload.get("id")
+            is_connected = payload.get("connected")
+
+            if nome_cama is None or is_connected is None:
+                logger.warning(f"[BED_PROCESSOR] Payload de status de cama inválido recebido: {payload}")
+                continue
+
+            db = SessionLocal()
+            try:
+                # Encontra o ativo pelo nome (que é o campo "id" no JSON da cama)
+                asset = db.query(Asset).filter(Asset.nome_ativo == nome_cama).first()
+
+                if not asset:
+                    logger.warning(f"[BED_PROCESSOR] Status recebido para cama '{nome_cama}', mas ela não foi encontrada no DB.")
+                    continue
+
+                change_to_commit = None # Prepara a "ordem de mudança"
+
+                # --- LÓGICA DE MUDANÇA DE ESTADO ---
+
+                if is_connected:
+                    # Se o ativo estava Pendente OU Alertado, ele agora é Confirmado.
+                    if asset.location_status in ['PENDENTE', 'ALERTA']:
+                        logger.info(f"[BED_PROCESSOR] Ativo '{nome_cama}' (de {asset.location_status}) foi CONFIRMADO via MQTT.")
+                        change_to_commit = {
+                            "asset_id": asset.id,
+                            "new_quarto_id": asset.quarto_id, # Mantém o quarto que já estava
+                            "location_status": "CONFIRMADO", # O novo estado final
+                            "action": "GET",
+                            "status": "Confirmado",
+                            "details": "Entrada confirmada via callback MQTT 'connected: true'.",
+                            "quarto_context_id": asset.quarto_id
+                        }
+
+                else: # Se is_connected == false
+                    if asset.location_status == 'CONFIRMADO':
+                        
+                        if alert_enabled:
+                            # COMPORTAMENTO PADRÃO (Alertas LIGADOS)
+                            logger.warning(f"[BED_PROCESSOR] Ativo '{nome_cama}' desconectado. Gerando ALERTA.")
+                            change_to_commit = {
+                                "asset_id": asset.id,
+                                "location_status": "ALERTA", # Mova para Alerta
+                                "action": "ALERTA",
+                                "status": "Ativo",
+                                "details": f"Ativo perdeu conexão de rede (Callback MQTT 'connected: false'). Razão: {payload.get('disconnectreason', 'N/A')}",
+                                "quarto_context_id": asset.quarto_id
+                            }
+                        else:
+                            # COMPORTAMENTO NOVO (Alertas DESLIGADOS)
+                            logger.info(f"[BED_PROCESSOR] Ativo '{nome_cama}' desconectado. Movendo para PENDENTE (Alertas desativados).")
+                            change_to_commit = {
+                                "asset_id": asset.id,
+                                "location_status": "PENDENTE", # Mova para Pendente
+                                "action": "ALERTA", # A *ação* ainda é um Alerta (para o histórico)
+                                "status": "Ignorado-Desconexao", # Um status especial para o histórico
+                                "details": f"Desconexão de cama. Alertas globais desativados, movido para pendente.",
+                                "quarto_context_id": asset.quarto_id
+                            }
+
+                # Se uma mudança foi decidida, chama o "Executor"
+                if change_to_commit:
+                    # Passa o _asset_map do aggregator para a função de serviço
+                    await batch_update_asset_assignments(db, [change_to_commit], aggregator._asset_map)
+                    db.commit()
+                    await manager.broadcast("ATUALIZAR_ESTADO") # Notifica o frontend
+
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"[BED_PROCESSOR] Erro crítico no loop do processador de camas: {e}", exc_info=True)
+            # Adiciona um pequeno delay para evitar loops de erro muito rápidos
+            await asyncio.sleep(5)
+
 running_tasks = {} # Dicionário global para guardar as nossas tarefas
 
 async def check_background_tasks_health():
@@ -1508,10 +1695,13 @@ async def on_startup():
     running_tasks["aggregator"] = asyncio.create_task(main_aggregator_loop())
     running_tasks["liveness_check"] = asyncio.create_task(check_esp_liveness())
     running_tasks["esp_status_updater"] = asyncio.create_task(batch_update_esp_status())
+    running_tasks["pending_manager"] = asyncio.create_task(main_pending_manager_loop())
+    running_tasks["bed_state_processor"] = asyncio.create_task(bed_state_processor_loop())
     # NOVA TAREFA ADICIONADA
     running_tasks["pending_manager"] = asyncio.create_task(main_pending_manager_loop())
     
     mqtt_client.start_mqtt_client()
+    bed_mqtt_client.start_bed_client()
     start_cleanup_scheduler()
     logger.info("[STARTUP] Startup concluído. Enviando comando de sincronização para todas as ESPs.")    
     command_payload = {"command": "fetch_config"} 

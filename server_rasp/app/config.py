@@ -26,6 +26,14 @@ def load_configuration():
             'MQTT_ASSET_LIST_TOPIC': 'wyrd/rtls/assets/available',
             'MQTT_ESP_COMMAND_TOPIC': 'wyrd/rtls/esp/all/command'
         }
+
+        config['BedMQTT'] = {
+            'bed_mqtt_host': '172.28.74.51',
+            'bed_mqtt_port': '1883',
+            'bed_mqtt_user': 'test',
+            'bed_mqtt_pass': 'test'
+        }
+
         # --- NOVA SEÇÃO ADICIONADA ---
         config['Aggregator'] = {
             'process_interval_sec': '2.0',
