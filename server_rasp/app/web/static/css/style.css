@@ -1300,3 +1300,44 @@ body.login-page {
 /* Animação de piscar para alertas */
 @keyframes blink { 50% { opacity: 0.2; } }
 .blinking-animation { animation: blink 0.8s linear infinite; }
+
+/* Garante que o ícone e o texto tenham um espaço */
+.asset-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Ajuste o espaço se necessário */
+}
+
+/* Esta regra assume que .asset-icon usa 'background-color' 
+  com 'mask-image' para colorir o SVG.
+*/
+
+/* Cor Padrão (Azul "bonitinho" para Confirmado) */
+.asset-icon.status-confirmado {
+    background-color: #007bff; /* Azul Padrão Bootstrap */
+}
+
+/* Cor Pendente (Amarelo) */
+.asset-icon.status-pendente {
+    background-color: #ffc107; /* Amarelo (Warning) */
+}
+
+/* Cor Alerta (Laranja) */
+.asset-icon.status-alerta {
+    background-color: #fd7e14; /* Laranja */
+    
+    /* Animação de piscar para o alerta */
+    animation: icon-blinking-animation 1.5s infinite ease-in-out;
+}
+
+/* Cor para Livre/Offline (se aplicável) */
+.asset-icon.status-livre {
+    background-color: #6c757d; /* Cinza */
+}
+
+/* Animação de piscar para o ícone de Alerta */
+@keyframes icon-blinking-animation {
+    0%   { background-color: #fd7e14; } /* Laranja */
+    50%  { background-color: #ffc107; } /* Amarelo */
+    100% { background-color: #fd7e14; } /* Laranja */
+}

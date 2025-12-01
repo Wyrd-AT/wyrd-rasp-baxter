@@ -9,6 +9,23 @@
 
 <div id="renderer-container" class="renderer-container">
     </div>
+
+<div class="planta-sumario" id="planta-sumario-bar">
+    <div class="sumario-card card-quartos">
+        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/quarto.svg)"></span></div>
+        <div class="sumario-texto">
+            <div class="sumario-numero" id="sumario-quartos-online">0</div>
+            <div class="sumario-label">Quartos Online</div>
+        </div>
+    </div>
+    <div class="sumario-card card-ativos">
+        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/ativo.svg)"></span></div>
+        <div class="sumario-texto">
+            <div class="sumario-numero" id="sumario-ativos-total">0</div>
+            <div class="sumario-label">Ativos na Planta</div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -218,10 +235,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 } else {
                     renderizarPlanta(data);
                 }
+                atualizarSumarioGlobal(data.sumario_geral);
             })
             .catch(error => {
                 rendererContainer.innerHTML = `<p style="color: red;">Erro ao carregar o painel: ${error.message}.</p>`;
             });
+    }
+
+    function atualizarSumarioGlobal(sumario) {
+        const quartosEl = document.getElementById('sumario-quartos-online');
+        const ativosEl = document.getElementById('sumario-ativos-total');
+
+        // Garante que os elementos existam
+        if (!quartosEl || !ativosEl) return; 
+
+        // Se o sumário não for indefinido, preenche os valores
+        if (sumario) {
+            quartosEl.textContent = sumario.quartos_online || '0';
+            ativosEl.textContent = sumario.total_ativos || '0';
+        } else {
+            quartosEl.textContent = '0';
+            ativosEl.textContent = '0';
+        }
     }
 
     // --- GATILHOS ---

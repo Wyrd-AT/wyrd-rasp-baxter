@@ -625,30 +625,29 @@ async def batch_update_esp_status():
     logger.info("[BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.")
     while True:        
         status_updates = mqtt_client.get_and_clear_status_cache()
-        if not status_updates:
-            continue
+        if status_updates:
 
-        logger.info(f"[BATCH-UPDATE-ESP] Atualizando status de {len(status_updates)} embarcados no banco de dados.")
-        db = SessionLocal()
-        try:
-            esp_ids_to_update = list(status_updates.keys())
-            embarcados_to_update = db.query(Embarcado).filter(Embarcado.id_esp.in_(esp_ids_to_update)).all()
-            
-            for emb in embarcados_to_update:
-                if emb.id_esp in status_updates:
-                    data = status_updates[emb.id_esp]
-                    emb.last_seen = data["last_seen"]
-                    if "wifi_signal" in data:
-                        emb.wifi_signal = data["wifi_signal"]
-                    if emb.status_rede == 'offline':
-                        emb.status_rede = 'online'
-            
-            db.commit()
-        except Exception as e:
-            logger.error(f"[BATCH-UPDATE-ESP] Erro ao atualizar status dos embarcados: {e}", exc_info=True)
-            db.rollback()
-        finally:
-            db.close()
+            logger.info(f"[BATCH-UPDATE-ESP] Atualizando status de {len(status_updates)} embarcados no banco de dados.")
+            db = SessionLocal()
+            try:
+                esp_ids_to_update = list(status_updates.keys())
+                embarcados_to_update = db.query(Embarcado).filter(Embarcado.id_esp.in_(esp_ids_to_update)).all()
+                
+                for emb in embarcados_to_update:
+                    if emb.id_esp in status_updates:
+                        data = status_updates[emb.id_esp]
+                        emb.last_seen = data["last_seen"]
+                        if "wifi_signal" in data:
+                            emb.wifi_signal = data["wifi_signal"]
+                        if emb.status_rede == 'offline':
+                            emb.status_rede = 'online'
+                
+                db.commit()
+            except Exception as e:
+                logger.error(f"[BATCH-UPDATE-ESP] Erro ao atualizar status dos embarcados: {e}", exc_info=True)
+                db.rollback()
+            finally:
+                db.close()
         await asyncio.sleep(90)
 
 def get_global_settings(db: Session) -> dict:
@@ -858,12 +857,15 @@ def list_quartos(request: Request, db: Session = Depends(get_db)):
     # Lógica para data de entrada dos ativos (da sua versão original)
     for quarto in quartos:
         for asset in quarto.assets:
+            # CORREÇÃO 1: Adiciona 'Confirmado' (maiúsculo) na lista
             ultimo_evento_entrada = db.query(ReceivedEvent).filter(
                 ReceivedEvent.ativo == asset.mac_beacon,
                 ReceivedEvent.action == 'GET',
-                ReceivedEvent.status.in_(['OK', 'Confirmado'])
+                ReceivedEvent.status.in_(['OK', 'CONFIRMADO', 'Confirmado']) 
             ).order_by(ReceivedEvent.data_on.desc()).first()
+            
             if ultimo_evento_entrada:
+                # CORREÇÃO 2: Formata para mostrar apenas a HORA
                 asset.data_entrada_str = ultimo_evento_entrada.data_on.strftime("%d/%m/%Y às %H:%M:%S")
             else:
                 asset.data_entrada_str = "Não registrado"

@@ -56,8 +56,21 @@
             {% if quarto.assets %}
                 <ul class="asset-list">
                     {% for asset in quarto.assets %}
-                        <li title="Entrada em: {{ asset.data_entrada_str }}">
-                            <span class="asset-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
+                        
+                        {% set status_texto = asset.location_status.capitalize() %}
+                        {% set tooltip_texto = "Status: " + status_texto %}
+                        
+                        {% if asset.data_entrada_str and asset.data_entrada_str != "Não registrado" %}
+                            {% set tooltip_texto = "Entrada às " + asset.data_entrada_str + " | Status: " + status_texto %}
+                        {% endif %}
+
+                        {% set status_class = "status-" + asset.location_status.lower() %}
+
+                        <li title="{{ tooltip_texto }}">
+                            
+                            <span class="asset-icon {{ status_class }}" 
+                                  style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
+                            
                             <span>{{ asset.nome_ativo }}</span>
                         </li>
                     {% endfor %}
