@@ -1247,7 +1247,26 @@ document.addEventListener('DOMContentLoaded', function () {
         rendererContainer.innerHTML = '';
         rendererContainer.className = 'renderer-container planta-grid-container';
 
-        data.quartos.forEach(quarto => {
+        let listaQuartos = data.quartos;
+
+        if (!listaQuartos && data.andares) {
+            console.warn("Aviso: Recebido formato hierárquico para grade. Achatando lista no frontend...");
+            listaQuartos = [];
+            data.andares.forEach(andar => {
+                if (andar.quartos) {
+                    listaQuartos.push(...andar.quartos);
+                }
+            });
+        }
+
+        if (!listaQuartos) {
+            console.error("Erro: Nenhum quarto encontrado no payload.");
+            rendererContainer.innerHTML = '<p style="text-align:center; padding:2rem;">Nenhum dado de quarto recebido.</p>';
+            return;
+        }
+        // -----------------------------
+
+        listaQuartos.forEach(quarto => {
             const statusCor = quarto.status_embarcado === 'Online' 
                 ? (quarto.numero_ativos > 0 ? '#28a745' : '#dc3545') 
                 : '#6c757d';

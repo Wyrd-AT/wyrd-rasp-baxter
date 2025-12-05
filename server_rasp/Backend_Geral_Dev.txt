@@ -1715,7 +1715,7 @@ def get_dados_painel(slug_painel: str, db: Session = Depends(get_db)):
         "nome_painel": painel.nome,
         "tipo_layout": painel.tipo_layout,
     }
-    if painel.tipo_layout == 'grade_quartos':
+    if painel.tipo_layout and painel.tipo_layout.strip() == 'grade_quartos':
         todos_os_quartos = []
         for andar_data in andares_data:
             todos_os_quartos.extend(andar_data["quartos"])
