@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Gestão de Quartos{% endblock %}
+{% block title %}Quartos{% endblock %}
 
 {% block content %}
 <div class="content-header">
@@ -11,76 +11,180 @@
 </div>
 
 <div class="forms-container-vertical" id="forms-container">
-    {% include 'quarto_form.html' with context %}
+    {% include 'quarto_form.html' %}
 </div>
 
-<div class="list-container-full-width">
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th style="width: 80px; text-align: center;">AÇÕES</th>
-                <th>NOME DO QUARTO</th>
-                <th>ANDAR</th>
-                <th>TIPO DE QUARTO</th>
-                <th>EMBARCADO ASSOCIADO</th>
-                <th>ATIVO ATUAL</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for quarto in quartos %}
-            <tr class="selectable-row">
-                <td style="text-align: center;">
-                    <div class="actions-menu-container">
-                        <button class="actions-menu-trigger" title="Abrir menu de ações">&#8942;</button>
-                        <div class="actions-dropdown">
-                            <a href="{{ url_for('edit_quarto', quarto_id=quarto.id) }}" class="menu-item-link">Editar</a>
-                            {% if quarto.embarcados or quarto.assets %}
-                                <button type="button" class="menu-item-btn delete-disabled" 
-                                        onclick="alert('Não é possível excluir este quarto pois ele está ocupado por um embarcado ou um ativo.');">
-                                    Excluir (Ocupado)
-                                </button>
-                            {% else %}
-                                <form action="{{ url_for('delete_quarto', quarto_id=quarto.id) }}" method="post" style="margin: 0;">
-                                    <button type="submit" class="menu-item-btn delete" 
-                                            onclick="return confirm('Tem certeza que deseja apagar o quarto {{ quarto.nome }}?');">
-                                        Excluir
-                                    </button>
-                                </form>
-                            {% endif %}
+<div class="room-grid">
+    {% if not quartos %}
+        <div class="empty-state"><p>Nenhum quarto cadastrado.</p></div>
+    {% endif %}
+
+    {% for quarto in quartos %}
+    <div class="room-card">
+        <div class="room-header">
+            <div class="room-title">
+                <h3>{{ quarto.nome }}</h3>
+                <div class="room-subtitle">
+                    <span>{{ quarto.andar.nome if quarto.andar else 'Térreo' }}</span>
+                    {% if quarto.connecta_id %}
+                        <span class="meta-tag">ID: {{ quarto.connecta_id }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="actions-menu-container">
+                <button class="actions-menu-trigger icon-btn">&#8942;</button>
+                <div class="actions-dropdown">
+                    <a href="{{ url_for('edit_quarto', quarto_id=quarto.id) }}" class="menu-item-link">Editar</a>
+                    {% if not quarto.embarcados and not quarto.assets %}
+                        <form action="{{ url_for('delete_quarto', quarto_id=quarto.id) }}" method="post"><button type="submit" class="menu-item-btn delete" onclick="return confirm('Apagar?');">Excluir</button></form>
+                    {% else %}
+                        <button class="menu-item-btn delete-disabled" onclick="alert('Esvazie primeiro.');">Excluir</button>
+                    {% endif %}
+                    <div class="menu-divider"></div>
+                    <form action="{{ url_for('force_quarto_cleanup', quarto_id=quarto.id) }}" method="post"><button type="submit" class="menu-item-btn" onclick="return confirm('Forçar limpeza?');">Resetar</button></form>
+                </div>
+            </div>
+        </div>
+
+        <div class="room-body">
+            {# Sensor #}
+            <div class="sensor-row">
+                {% if quarto.embarcados %}
+                    {% set s = quarto.embarcados[0] %}
+                    <span class="sensor-badge {{ s.status_rede }}">
+                        <span class="dot"></span> {{ s.id_esp }}
+                    </span>
+                {% else %}
+                    <span class="sensor-badge none">Sem Sensor</span>
+                {% endif %}
+            </div>
+
+            {# Ativos (Lista Limpa) #}
+            <div class="assets-container">
+                {% if quarto.assets %}
+                    {% for a in quarto.assets %}
+                        {% set st_class = 'confirmado' if a.location_status == 'CONFIRMADO' else ('pendente' if a.location_status == 'PENDENTE' else 'alerta') %}
+                        <div class="asset-row">
+                            <span class="status-dot-large {{ st_class }}"></span>
+                            <span class="asset-name">{{ a.nome_ativo }}</span>
                         </div>
-                    </div>
-                </td>
-                <td>{{ quarto.nome }}</td>
-                <td>{{ quarto.andar.nome if quarto.andar else '---' }}</td>
-                <td>{{ quarto.tipo_de_quarto.nome if quarto.tipo_de_quarto else 'N/D' }}</td>
-                <td>{{ quarto.embarcados[0].id_esp if quarto.embarcados else '---' }}</td>
-                <td>{{ quarto.assets[0].nome_ativo if quarto.assets else '---' }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-room">Vazio</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
 </div>
+
+<style>
+/* Grid mais largo para evitar o efeito "reduzido" */
+.room-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); /* Aumentado para 300px */
+    gap: 24px;
+    padding: 20px 0;
+}
+
+.room-card {
+    background: #fff;
+    border-radius: 12px; /* Bordas mais arredondadas */
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    border: 1px solid #eef2f7;
+    display: flex; flex-direction: column;
+    
+    /* CRÍTICO: Permite que o dropdown saia do card */
+    overflow: visible !important; 
+    position: relative;
+    transition: transform 0.2s;
+}
+.room-card:hover { transform: translateY(-3px); }
+
+.room-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    background-color: #fff;
+    border-radius: 12px 12px 0 0;
+}
+
+.room-title h3 { margin: 0; font-size: 1.25rem; color: #222; font-weight: 700; }
+.room-subtitle { margin-top: 4px; display: flex; gap: 8px; align-items: center; }
+.room-subtitle span { font-size: 0.85rem; color: #666; }
+.meta-tag { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; color: #555; }
+
+/* Menu de Ações (Correção de Corte) */
+.actions-menu-container { position: relative; }
+.actions-dropdown { 
+    right: 0; top: 100%; 
+    margin-top: 5px;
+    z-index: 9999; /* Z-Index alto para flutuar sobre tudo */
+    min-width: 160px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+}
+
+.room-body { padding: 20px; flex-grow: 1; display: flex; flex-direction: column; gap: 16px; }
+
+/* Sensor */
+.sensor-row { display: flex; align-items: center; }
+.sensor-badge { 
+    display: inline-flex; align-items: center; gap: 6px; 
+    padding: 4px 10px; border-radius: 20px; 
+    font-size: 0.8rem; font-weight: 600; 
+    background: #f8f9fa; color: #555; border: 1px solid #eee;
+}
+.sensor-badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+.sensor-badge.online .dot { background: #28a745; box-shadow: 0 0 4px #28a745; }
+.sensor-badge.offline .dot { background: #dc3545; }
+.sensor-badge.none { opacity: 0.7; }
+
+/* Lista de Ativos (Limpa) */
+.assets-container { display: flex; flex-direction: column; gap: 8px; }
+.empty-room { color: #ccc; font-style: italic; font-size: 0.9rem; padding-left: 5px; }
+
+.asset-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px dashed #f0f0f0;
+}
+.asset-row:last-child { border-bottom: none; }
+
+/* Bolinha de status grande */
+.status-dot-large { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.status-dot-large.confirmado { background: #28a745; box-shadow: 0 0 0 2px rgba(40,167,69,0.2); }
+.status-dot-large.pendente { background: #ffc107; box-shadow: 0 0 0 2px rgba(255,193,7,0.2); }
+.status-dot-large.alerta { background: #dc3545; box-shadow: 0 0 0 2px rgba(220,53,69,0.2); }
+
+.asset-name { font-size: 1rem; font-weight: 500; color: #333; }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // Lógica para controlar o menu de ações (copiada de assets_list.html)
-    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
-        button.addEventListener('click', function (event) {
-            event.stopPropagation();
+    // --- LÓGICA CORRIGIDA DO MENU ---
+    const triggers = document.querySelectorAll('.actions-menu-trigger');
+    
+    triggers.forEach(trigger => {
+        trigger.addEventListener('click', function (e) {
+            e.stopPropagation();
+            const current = this.nextElementSibling;
             document.querySelectorAll('.actions-dropdown.show').forEach(d => {
-                if (d !== this.nextElementSibling) d.classList.remove('show');
+                if (d !== current) d.classList.remove('show');
             });
-            this.nextElementSibling.classList.toggle('show');
+            current.classList.toggle('show');
         });
     });
-    window.addEventListener('click', (event) => {
-        if (!event.target.matches('.actions-menu-trigger')) {
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                d.classList.remove('show');
+            });
         }
     });
-    // A lógica de recolher o formulário já está no base.html
 });
 </script>
 {% endblock %}

@@ -4,116 +4,157 @@
 
 {% block content %}
 <div class="content-header">
-    <h1>Ativos</h1>
+    <h1>Ativos (Camas)</h1>
     <div class="header-actions">
         <form method="get" action="{{ url_for('list_assets') }}" class="search-bar">
-            <input type="text" name="search" placeholder="Pesquisar por nome, MAC ou quarto" value="{{ search or '' }}">
-            <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span>
-</button>
+            <input type="text" name="search" placeholder="Buscar por nome, MAC ou quarto..." value="{{ current_filters.search if current_filters.search else '' }}">
+            <input type="hidden" name="sort_by" value="{{ current_filters.sort_by }}">
+            <input type="hidden" name="order" value="{{ current_filters.order }}">
+            <button type="submit" class="icon-btn" title="Pesquisar">
+                <span class="svg-icon" style="--icon-url: url(/static/icons/lupa.svg)"></span>
+            </button>
         </form>
-        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
-        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">Baixar Dados</a>
+        
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Form</button>
+        <a href="{{ url_for('download_assets_csv') }}" class="btn-primary">CSV</a>
     </div>
 </div>
 
-{# FORMULÁRIO MOVIDO PARA CIMA E USANDO O CONTAINER VERTICAL #}
 <div class="forms-container-vertical" id="forms-container">
     {% include 'asset_form.html' %}
 </div>
 
-{# TABELA AGORA VEM DEPOIS, EM UM CONTAINER DE LARGURA TOTAL #}
 <div class="list-container-full-width">
     <table class="data-table">
     <thead>
         <tr>
-            <th style="text-align: center; width: 80px;">AÇÕES</th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'nome_ativo' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=sort_order) }}">NOME DA CAMA</a>
-                {% if current_filters.sort_by == 'nome_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            <th style="width: 80px; text-align:center;">AÇÕES</th>
+            
+            {# NOME #}
+            {% set new_order = 'desc' if current_filters.order == 'asc' else 'asc' %}
+            <th>
+                <a href="{{ request.url.replace_query_params(sort_by='nome_ativo', order=new_order) }}">
+                    NOME DA CAMA 
+                    {% if current_filters.sort_by == 'nome_ativo' %}
+                        {{ '▼' if current_filters.order == 'desc' else '▲' }}
+                    {% endif %}
+                </a>
             </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'tipo_ativo' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='tipo_ativo', order=sort_order) }}">TIPO DE ATIVO</a>
-                {% if current_filters.sort_by == 'tipo_ativo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            
+            {# NOVAS COLUNAS #}
+            <th>TIPO</th>
+            
+            <th>
+                <a href="{{ request.url.replace_query_params(sort_by='modelo', order=new_order) }}">
+                    MODELO
+                    {% if current_filters.sort_by == 'modelo' %}
+                        {{ '▼' if current_filters.order == 'desc' else '▲' }}
+                    {% endif %}
+                </a>
             </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'modelo' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='modelo', order=sort_order) }}">MODELO</a>
-                {% if current_filters.sort_by == 'modelo' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+
+            <th>
+                <a href="{{ request.url.replace_query_params(sort_by='fabricante', order=new_order) }}">
+                    FABRICANTE
+                    {% if current_filters.sort_by == 'fabricante' %}
+                        {{ '▼' if current_filters.order == 'desc' else '▲' }}
+                    {% endif %}
+                </a>
             </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'fabricante' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='fabricante', order=sort_order) }}">FABRICANTE</a>
-                {% if current_filters.sort_by == 'fabricante' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            
+            {# MAC BEACON #}
+            <th>
+                <a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=new_order) }}">
+                    MAC BEACON 
+                    {% if current_filters.sort_by == 'mac_beacon' %}
+                        {{ '▼' if current_filters.order == 'desc' else '▲' }}
+                    {% endif %}
+                </a>
             </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'mac_beacon' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='mac_beacon', order=sort_order) }}">MAC BEACON</a>
-                {% if current_filters.sort_by == 'mac_beacon' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
+            
+            {# QUARTO #}
+            <th>
+                <a href="{{ request.url.replace_query_params(sort_by='quarto', order=new_order) }}">
+                    QUARTO ATUAL
+                    {% if current_filters.sort_by == 'quarto' %}
+                        {{ '▼' if current_filters.order == 'desc' else '▲' }}
+                    {% endif %}
+                </a>
             </th>
-            {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
-            <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO ATUAL</a>
-                {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-            </th>
-            <th>STATUS</th>
+            
+            <th>STATUS LOCALIZAÇÃO</th>
         </tr>
     </thead>
     <tbody>
         {% for asset in assets %}
-        <tr class="selectable-row" data-id="{{ asset.id }}">
+        <tr>
             <td style="text-align: center;">
                 <div class="actions-menu-container">
-                    <button class="actions-menu-trigger" title="Abrir menu de ações">
-                        &#8942;
-                    </button>
+                    <button class="actions-menu-trigger">&#8942;</button>
                     <div class="actions-dropdown">
                         <a href="{{ url_for('edit_asset', asset_id=asset.id) }}" class="menu-item-link">Editar</a>
-                        <a href="{{ url_for('delete_asset', asset_id=asset.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o ativo {{ asset.nome_ativo }}?');">Excluir</a>
+                        <form action="{{ url_for('delete_asset', asset_id=asset.id) }}" method="post" style="margin:0;">
+                            <button type="submit" class="menu-item-btn delete" onclick="return confirm('Apagar {{ asset.nome_ativo }}?');">Excluir</button>
+                        </form>
                     </div>
                 </div>
             </td>
-            <td>{{ asset.nome_ativo }}</td>
-
-            {# NOVOS DADOS #}
-            <td>{{ asset.tipo_ativo or '---' }}</td>
+            
+            <td><strong>{{ asset.nome_ativo }}</strong></td>
+            
+            {# NOVAS CÉLULAS #}
+            <td>{{ asset.tipo_de_ativo.nome if asset.tipo_de_ativo else 'Cama Inteligente' }}</td>
             <td>{{ asset.modelo or '---' }}</td>
             <td>{{ asset.fabricante or '---' }}</td>
             
-            <td>{{ asset.mac_beacon }}</td>
+            <td><code>{{ asset.mac_beacon }}</code></td>
+            
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
+            
             <td>
-                {% if asset.status == 'Online' %}
-                    <span class="status-indicator online" title="Ativo online"></span> ON
+                {% if asset.location_status == 'CONFIRMADO' %}
+                    <span style="color: green; font-weight:bold; background:#e9f7ef; padding:2px 6px; border-radius:4px;">CONFIRMADO</span>
+                {% elif asset.location_status == 'PENDENTE' %}
+                    <span style="color: #b7791f; font-weight:bold; background:#fff3cd; padding:2px 6px; border-radius:4px;">PENDENTE</span>
+                {% elif asset.location_status == 'ALERTA' %}
+                    <span style="color: #c53030; font-weight:bold; background:#feb2b2; padding:2px 6px; border-radius:4px;">ALERTA</span>
                 {% else %}
-                    <span class="status-indicator offline" title="Ativo offline"></span> OFF
+                    <span style="color: #666;">LIVRE</span>
                 {% endif %}
             </td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="8" style="text-align:center; padding: 2rem; color: #666;">Nenhum ativo encontrado.</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
 </div>
-
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // Lógica para controlar a abertura e fechamento do menu de ações
-    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
-        button.addEventListener('click', function (event) {
-            event.stopPropagation(); // Impede que o clique feche o menu imediatamente
-            
-            // Fecha qualquer outro menu que esteja aberto
+    // --- LÓGICA CORRIGIDA DO MENU ---
+    const triggers = document.querySelectorAll('.actions-menu-trigger');
+    
+    triggers.forEach(trigger => {
+        trigger.addEventListener('click', function (e) {
+            e.stopPropagation();
+            const current = this.nextElementSibling;
             document.querySelectorAll('.actions-dropdown.show').forEach(d => {
-                if (d !== this.nextElementSibling) d.classList.remove('show');
+                if (d !== current) d.classList.remove('show');
             });
-
-            // Alterna a exibição do menu clicado
-            this.nextElementSibling.classList.toggle('show');
+            current.classList.toggle('show');
         });
     });
 
-    // Fecha o menu se o usuário clicar em qualquer outro lugar da tela
-    window.addEventListener('click', (event) => {
-        if (!event.target.matches('.actions-menu-trigger')) {
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                d.classList.remove('show');
+            });
         }
     });
 });

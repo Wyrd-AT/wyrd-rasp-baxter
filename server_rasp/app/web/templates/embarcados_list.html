@@ -7,39 +7,41 @@
     <h1>Embarcados</h1>
     <div class="header-actions">
         <form method="get" action="{{ url_for('list_embarcados') }}" class="search-bar">
-            <input type="text" name="search" placeholder="Pesquisar por ID, quarto, MAC ou IP" value="{{ search or '' }}">
-            <button type="submit" class="icon-btn" title="Pesquisar"><span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/lupa.svg') }})"></span></button>
+            <input type="text" name="search" placeholder="ID, Quarto ou IP..." value="{{ current_filters.search if current_filters.search else '' }}">
+            <input type="hidden" name="sort_by" value="{{ current_filters.sort_by }}">
+            <input type="hidden" name="order" value="{{ current_filters.order }}">
+            <button type="submit" class="icon-btn"><span class="svg-icon" style="--icon-url: url(/static/icons/lupa.svg)"></span></button>
         </form>
-        <button id="forms-toggle-btn" class="btn-primary">Recolher Formulários</button>
-        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">Baixar Dados</a>
+        
+        <button id="forms-toggle-btn" class="btn-primary">Recolher Form</button>
+        <a href="{{ url_for('download_embarcados_csv') }}" class="btn-primary">CSV</a>
     </div>
 </div>
 
-{# 1. FORMULÁRIOS MOVIDOS PARA CIMA #}
 <div class="forms-container-horizontal" id="forms-container">
     <div class="form-card">
-        {% include 'embarcado_form.html' with context %}
+        {% include 'embarcado_form.html' %}
     </div>
     
     <div class="form-card">
-          <form action="{{ url_for('update_settings') }}" method="post">
+        <form action="{{ url_for('update_settings') }}" method="post">
             <div class="form-header">
                 <h3>Configurações Globais</h3>
-                <button type="submit" class="icon-btn icon-btn-primary" title="Salvar Configurações Globais">
+                <button type="submit" class="icon-btn icon-btn-primary" title="Salvar">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
                 </button>
             </div>
-            <div class="form-fields-grid", style="grid-template-columns: repeat(2, 1fr);">
+            <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
                 <div class="form-group">
-                    <label for="rssi_threshold">RSSI Mínimo (dBm)</label>
+                    <label>RSSI Mínimo (dBm)</label>
                     <input type="number" name="rssi_threshold" value="{{ global_settings.rssi_threshold }}" required>
                 </div>
                 <div class="form-group">
-                    <label for="inercia_entrada">Inércia de Entrada (ms)</label>
+                    <label>Inércia Entrada (ms)</label>
                     <input type="number" name="inercia_entrada" value="{{ global_settings.inercia_entrada }}" required>
                 </div>
                 <div class="form-group">
-                    <label for="inercia_saida">Inércia de Saída (ms)</label>
+                    <label>Inércia Saída (ms)</label>
                     <input type="number" name="inercia_saida" value="{{ global_settings.inercia_saida }}" required>
                 </div>
             </div>
@@ -47,237 +49,184 @@
     </div>
 </div>
 
-{# 2. TABELA AGORA VEM DEPOIS DOS FORMULÁRIOS #}
 <div class="list-container-full-width">
     <table class="data-table">
-        <thead>
-            <tr>
-                <th style="text-align: center; width: 80px;">AÇÕES</th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'id_esp' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='id_esp', order=sort_order) }}">ID DO EMBARCADO</a>
-                    {% if current_filters.sort_by == 'id_esp' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'andar' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='andar', order=sort_order) }}">ANDAR</a>
-                    {% if current_filters.sort_by == 'andar' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'quarto' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='quarto', order=sort_order) }}">QUARTO</a>
-                    {% if current_filters.sort_by == 'quarto' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'status' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='status', order=sort_order) }}">STATUS</a>
-                    {% if current_filters.sort_by == 'status' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'wifi_signal' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='wifi_signal', order=sort_order) }}">SINAL WI-FI</a>
-                    {% if current_filters.sort_by == 'wifi_signal' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'mac_address' and current_filters.order == 'desc' else 'desc' %}
-                <th>
-                    <a href="{{ request.url.replace_query_params(sort_by='mac_address', order=sort_order) }}">
-                        MAC ADDRESS {% if current_filters.sort_by == 'mac_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                    </a>
-                </th>
-
-                {# Coluna IP Address agora ordenável #}
-                {% set sort_order = 'asc' if current_filters.sort_by == 'ip_address' and current_filters.order == 'desc' else 'desc' %}
-                <th>
-                    <a href="{{ request.url.replace_query_params(sort_by='ip_address', order=sort_order) }}">
-                        IP ADDRESS {% if current_filters.sort_by == 'ip_address' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                    </a>
-                </th>
-                {% set sort_order = 'asc' if current_filters.sort_by == 'rssi_min' and current_filters.order == 'desc' else 'desc' %}
-                <th><a href="{{ request.url.replace_query_params(sort_by='rssi_min', order=sort_order) }}">RSSI MÍN.</a>
-                    {% if current_filters.sort_by == 'rssi_min' %}{% if current_filters.order == 'desc' %} &#9660;{% else %} &#9650;{% endif %}{% endif %}
-                </th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for emb in embarcados %}
-            <tr class="selectable-row" data-id="{{ emb.id }}">
-                {# 1. Ações #}
-                <td style="text-align: center;">
-                    <div class="actions-menu-container">
-                        <button class="actions-menu-trigger" title="Abrir menu de ações">
-                            &#8942;
-                        </button>
-                        <div class="actions-dropdown">
-                            <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar</a>
-                            <a href="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" class="menu-item-link delete" onclick="return confirm('Tem certeza que deseja apagar o embarcado {{ emb.id_esp }}?');">Excluir</a>
-                            <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
-                            <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('Forçar reconfiguração para a ESP {{ emb.id_esp }}?');">
-                                <button type="submit" class="menu-item-btn">Reconfigurar</button>
-                            </form>
-                            <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post" onsubmit="return confirm('REINICIAR a ESP {{ emb.id_esp }}?');">
-                                <button type="submit" class="menu-item-btn">Reiniciar</button>
-                            </form>
-                        </div>
+    <thead>
+        <tr>
+            <th style="width: 80px; text-align:center;">AÇÕES</th>
+            
+            {% set new_order = 'desc' if current_filters.order == 'asc' else 'asc' %}
+            <th>
+                <a href="{{ request.url.replace_query_params(sort_by='id_esp', order=new_order) }}">
+                    ID ESP 
+                    {% if current_filters.sort_by == 'id_esp' %}{{ '▼' if current_filters.order == 'desc' else '▲' }}{% endif %}
+                </a>
+            </th>
+            
+            <th>QUARTO</th>
+            <th>STATUS</th>
+            <th>SINAL WI-FI</th>
+            <th>IP</th>
+            <th>RSSI MÍN.</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for emb in embarcados %}
+        <tr>
+            <td style="text-align: center;">
+                <div class="actions-menu-container">
+                    <button class="actions-menu-trigger">&#8942;</button>
+                    <div class="actions-dropdown">
+                        <a href="{{ url_for('edit_embarcado', embarcado_id=emb.id) }}" class="menu-item-link">Editar</a>
+                        
+                        <div class="menu-divider"></div>
+                        <button type="button" class="menu-item-btn test-rssi-btn" data-embarcado-id="{{ emb.id }}">Testar RSSI</button>
+                        
+                        <form action="{{ url_for('reconfigure_esp', embarcado_id=emb.id) }}" method="post">
+                            <button type="submit" class="menu-item-btn">Reconfigurar</button>
+                        </form>
+                        <form action="{{ url_for('reboot_esp', embarcado_id=emb.id) }}" method="post">
+                            <button type="submit" class="menu-item-btn">Reiniciar</button>
+                        </form>
+                        
+                        <div class="menu-divider"></div>
+                        <form action="{{ url_for('delete_embarcado', embarcado_id=emb.id) }}" method="post">
+                            <button type="submit" class="menu-item-btn delete" onclick="return confirm('Apagar ESP?');">Excluir</button>
+                        </form>
                     </div>
-                </td>
-
-                {# 2. ID do Embarcado #}
-                <td>{{ emb.id_esp }}</td>
-
-                {# 3. Andar #}
-                <td>{{ emb.quarto.andar.nome if emb.quarto and emb.quarto.andar else '---' }}</td>
-
-                {# 4. Quarto #}
-                <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
-
-                {# 5. Status #}
-                <td>
-                    {% if emb.status_rede == 'online' %}
-                        <span class="status-indicator online" title="Último contato: {{ emb.last_seen_str }}"></span> ON
-                    {% else %}
-                        <span class="status-indicator offline" title="Último contato: {{ emb.last_seen_str }}"></span> OFF
-                    {% endif %}
-                </td>
-
-                {# 6. Sinal Wi-Fi #}
-                <td>
-                    {% if emb.wifi_signal %}
-                        {{ emb.wifi_signal }} dBm
-                    {% else %}
-                        ---
-                    {% endif %}
-                </td>
-
-                <td>{% if emb.status_rede == 'online' %}{{ emb.mac_address or '---' }}{% else %}---{% endif %}</td>
-                <td>{% if emb.status_rede == 'online' %}{{ emb.ip_address or '---' }}{% else %}---{% endif %}</td>
-
-                {# 9. RSSI Mín. #}
-                <td>
-                    {% if emb.rssi_threshold is not none %}
-                        <span title="RSSI Individual">{{ emb.rssi_threshold }}</span>
-                    {% else %}
-                        <span title="Usando Configuração Global" style="color: #999;">Global</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                </div>
+            </td>
+            <td>{{ emb.id_esp }}</td>
+            <td>{{ emb.quarto.nome if emb.quarto else '---' }}</td>
+            <td>
+                {% if emb.status_rede == 'online' %}
+                    <span class="status-indicator online" title="Último contato: {{ emb.last_seen }}"></span> ON
+                {% else %}
+                    <span class="status-indicator offline"></span> OFF
+                {% endif %}
+            </td>
+            <td>{{ emb.wifi_signal or '--' }} dBm</td>
+            <td>{{ emb.ip_address or '---' }}</td>
+            <td>{{ emb.rssi_threshold if emb.rssi_threshold else 'Global' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
 </div>
 
+{# MODAL DE RSSI (Com CSS restaurado) #}
 <div id="rssi-modal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="modal-title">Relatório de RSSI</h3>
             <span class="close-btn" id="modal-close-btn">&times;</span>
         </div>
-        <div class="modal-body" id="modal-body-content">
-            </div>
+        <div class="modal-body" id="modal-body-content"></div>
     </div>
 </div>
+
+<style>
+/* CSS do Modal (Obrigatório para ele aparecer) */
+.modal {
+    display: none; position: fixed; z-index: 9999; 
+    left: 0; top: 0; width: 100%; height: 100%; 
+    background-color: rgba(0,0,0,0.5);
+}
+.modal-content {
+    background-color: #fefefe; margin: 10% auto; padding: 0; 
+    border: 1px solid #888; width: 600px; border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+.modal-header {
+    padding: 15px; border-bottom: 1px solid #eee; 
+    display: flex; justify-content: space-between; align-items: center;
+}
+.modal-body { padding: 20px; }
+.close-btn { color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer; }
+.close-btn:hover { color: black; }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Variável global para guardar nosso ID de cliente do WebSocket
 let myClientId = null;
-
 document.addEventListener('DOMContentLoaded', function () {
-    // Lógica para controlar a abertura e fechamento do modal
+    
+    // --- LÓGICA DE MENU (Específica desta página) ---
+    const triggers = document.querySelectorAll('.actions-menu-trigger');
+    triggers.forEach(trigger => {
+        trigger.addEventListener('click', function (e) {
+            e.stopPropagation();
+            const currentDropdown = this.nextElementSibling;
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                if (d !== currentDropdown) d.classList.remove('show');
+            });
+            currentDropdown.classList.toggle('show');
+        });
+    });
+
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('.actions-menu-trigger')) {
+            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
+                d.classList.remove('show');
+            });
+        }
+    });
+    // ----------------------------------------
+
     const modal = document.getElementById('rssi-modal');
     const closeBtn = document.getElementById('modal-close-btn');
     if (modal && closeBtn) {
         closeBtn.onclick = () => { modal.style.display = "none"; };
-        window.onclick = (event) => {
-            if (event.target == modal) {
-                modal.style.display = "none";
-            }
-        };
+        window.onclick = (event) => { if (event.target == modal) modal.style.display = "none"; };
     }
 
-    // Lógica para controlar o menu de três pontinhos (sem alterações)
-    document.querySelectorAll('.actions-menu-trigger').forEach(button => {
-        button.addEventListener('click', function (event) {
-            event.stopPropagation();
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => {
-                if (d !== this.nextElementSibling) d.classList.remove('show');
-            });
-            this.nextElementSibling.classList.toggle('show');
-        });
-    });
-    window.addEventListener('click', (event) => {
-        if (!event.target.matches('.actions-menu-trigger')) {
-            document.querySelectorAll('.actions-dropdown.show').forEach(d => d.classList.remove('show'));
-        }
-    });
-
-    // --- INÍCIO DA NOVA LÓGICA ---
-    // Mapeamento de MAC para Nome do Ativo (para o relatório)
+    // Thresholds (Parsing seguro)
     const rssiThresholds = JSON.parse('{{ rssi_thresholds | safe }}');
     let assetNameMap = {};
-    fetch("{{ url_for('get_assets_map') }}")
-        .then(response => response.json())
-        .then(data => { assetNameMap = data; });
+    fetch("{{ url_for('get_assets_map') }}").then(r=>r.json()).then(d=>{assetNameMap=d;});
 
-    // Adiciona o evento de clique para TODOS os botões de "Testar RSSI"
     document.querySelectorAll('.test-rssi-btn').forEach(button => {
         button.addEventListener('click', function() {
-            if (!myClientId) {
-                alert("Ainda a conectar ao servidor, por favor tente novamente em segundos.");
-                return;
-            }
+            if (!myClientId) { alert("Conectando..."); return; }
             const embarcadoId = this.dataset.embarcadoId;
-
-            // Mostra um feedback visual de carregamento
-            const modalTitle = document.getElementById('modal-title');
-            const modalBody = document.getElementById('modal-body-content');
-            modalTitle.textContent = 'Aguardando Relatório...';
-            modalBody.innerHTML = '<p style="text-align:center;">Solicitando dados do servidor...</p>';
+            document.getElementById('modal-title').textContent = 'Carregando...';
+            document.getElementById('modal-body-content').innerHTML = '<p style="text-align:center;">Aguardando dados...</p>';
             modal.style.display = 'block';
-
-            // Envia o pedido para o backend
+            
             fetch("{{ url_for('test_rssi_esp') }}", {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    embarcado_id: parseInt(embarcadoId),
-                    client_id: myClientId // Envia o nosso "crachá" de conexão
-                })
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ embarcado_id: parseInt(embarcadoId), client_id: myClientId })
             });
         });
     });
 
-    // "Ouvinte" global de mensagens WebSocket, que vai receber o relatório de volta
     window.addEventListener('websocket_message', function (event) {
         try {
             const data = JSON.parse(event.detail); 
-            
+            if (data.type === "CONNECTION_INFO") myClientId = data.client_id;
             if (data.type === "RSSI_REPORT") {
                 const modalTitle = document.getElementById('modal-title');
                 const modalBody = document.getElementById('modal-body-content');
                 const esp_id = data.esp_id;
-
                 const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
                 
-                modalTitle.textContent = `Relatório de RSSI da ESP: ${esp_id} (Limite: ${threshold} dBm)`;
+                modalTitle.textContent = `Relatório: ${esp_id} (Limite: ${threshold} dBm)`;
                 
-                let reportHtml = `<table class="data-table"><thead><tr><th>Nome do Ativo</th><th>MAC Address</th><th>RSSI</th></tr></thead><tbody>`;
-
+                let html = `<table class="data-table"><thead><tr><th>Ativo</th><th>MAC</th><th>Instantâneo</th><th>Média</th></tr></thead><tbody>`;
                 if (data.report && data.report.length > 0) {
-                    data.report.sort((a, b) => b.rssi - a.rssi); // Ordena do mais forte para o mais fraco
-                    data.report.forEach(beacon => {
-                        const assetName = assetNameMap[beacon.mac.toLowerCase()] || '<i>Desconhecido</i>';
-                        const rssiValue = beacon.rssi;
-                        const rssiClass = rssiValue >= threshold ? 'rssi-strong' : 'rssi-weak';
-                        
-                        reportHtml += `<tr><td>${assetName}</td><td>${beacon.mac}</td><td class="${rssiClass}">${rssiValue} dBm</td></tr>`;
+                    data.report.sort((a, b) => (b.avg_rssi||-1000) - (a.avg_rssi||-1000));
+                    data.report.forEach(b => {
+                        const name = assetNameMap[b.mac.toLowerCase()] || 'Unknown';
+                        const style = (b.avg_rssi >= threshold) ? "color:green;font-weight:bold;" : "color:red;";
+                        html += `<tr><td>${name}</td><td>${b.mac}</td><td>${b.rssi} dBm</td><td style="${style}">${b.avg_rssi} dBm</td></tr>`;
                     });
-                } else {
-                    reportHtml += '<tr><td colspan="3" style="text-align:center;">Nenhum beacon conhecido encontrado.</td></tr>';
-                }
-
-                reportHtml += '</tbody></table>';
-                modalBody.innerHTML = reportHtml;
-                modal.style.display = "block";
+                } else { html += '<tr><td colspan="4" style="text-align:center;">Nada detectado.</td></tr>'; }
+                html += '</tbody></table>';
+                modalBody.innerHTML = html;
             }
-        } catch (e) { /* Ignora outras mensagens que não sejam JSON */ }
+        } catch (e) {}
     });
-    // --- FIM DA NOVA LÓGICA ---
 });
 </script>
 {% endblock %}

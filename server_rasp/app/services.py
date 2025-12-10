@@ -1,210 +1,167 @@
+# app/services.py (VERSÃO BAXTER 2.0)
+
 import asyncio
 import logging
-from datetime import datetime, timezone, timedelta 
-
-FUSO_HORARIO_BRASIL = timezone(timedelta(hours=-3))
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session, joinedload
 
-from . import mqtt_client
 from . import aggregator
 from .connection_manager import manager
 from .dispatcher import dispatch_event
+from . import mqtt_client
 from .models import Asset, Embarcado, Quarto, ReceivedEvent, SessionLocal
-from .config import settings
-
-DISPATCH_DELAY_SEC = int(settings.get('dispatch_delay_after_wifi_sec', 15))
 
 logger = logging.getLogger(__name__)
 
-
-async def batch_update_asset_assignments(db: Session, changes: list, asset_map: dict):
+async def batch_update_asset_assignments(db: Session, changes: list, asset_map_snapshot: dict = None):
     """
-    (VERSÃO CORRIGIDA) Processa mudanças, garantindo que o ID Connecta seja usado
-    no payload despachado para o sistema final.
+    Processa mudanças de localização, salva no histórico e despacha para o Connecta.
     """
     if not changes:
         return
 
-    # --- INÍCIO DA MUDANÇA ---
-    # 1. Cria um mapa de consulta {nome_do_quarto: connecta_id} para ser usado depois.
-    #    Isso é feito uma vez para evitar múltiplas consultas ao DB.
-    quartos_com_id_connecta = db.query(Quarto).filter(Quarto.connecta_id.isnot(None)).all()
-    
-    # 2. Crie o mapa a partir dos Quartos
-    quarto_nome_to_connecta_id_map = {
-        q.nome: q.connecta_id 
-        for q in quartos_com_id_connecta
+    # Se não foi passado um snapshot, usamos o cache global atual
+    if asset_map_snapshot is None:
+        asset_map_snapshot = aggregator._asset_map
+
+    # Carrega os ativos envolvidos para ter acesso aos dados completos
+    asset_ids = [c["asset_id"] for c in changes if "asset_id" in c]
+    assets_to_update = {
+        a.id: a for a in db.query(Asset)
+        .filter(Asset.id.in_(asset_ids))
+        .options(joinedload(Asset.quarto).joinedload(Quarto.andar))
+        .all()
     }
-    alert_enabled = settings.get('enable_pending_alert', 'true').lower() == 'true'
+    
+    # Cria mapa de Connecta IDs dos Quartos
+    # (O ID Connecta agora fica no QUARTO, conforme sua solicitação)
+    quartos_com_id = db.query(Quarto).filter(Quarto.connecta_id.isnot(None)).all()
+    quarto_connecta_map = {q.nome: q.connecta_id for q in quartos_com_id}
 
     events_to_dispatch = []
     
     try:
-        # ETAPA 1 (sem alterações)
         for change in changes:
-            # ... (a lógica para criar o ReceivedEvent e salvar no SEU DB continua igual)
             asset_id = change.get("asset_id")
-            if not asset_id: continue
-
-            asset = db.query(Asset).options(joinedload(Asset.quarto).joinedload(Quarto.andar)).get(asset_id)
+            asset = assets_to_update.get(asset_id)
             if not asset: continue
 
-            action = change.get("action", "GET")
-            status = change.get("status", "OK")
+            old_quarto_id = asset.quarto_id
+
+            # --- Aplica Mudanças no Banco ---
+            if "new_quarto_id" in change:
+                asset.quarto_id = change["new_quarto_id"]
+                # Atualiza cache do aggregator imediatamente
+                if asset.mac_beacon in aggregator._asset_map:
+                    aggregator._asset_map[asset.mac_beacon]['quarto_id'] = change["new_quarto_id"]
+
+            if "location_status" in change:
+                asset.location_status = change["location_status"]
+                asset.location_status_updated_on = datetime.now(timezone.utc)
+                if asset.mac_beacon in aggregator._asset_map:
+                    aggregator._asset_map[asset.mac_beacon]['location_status'] = change["location_status"]
+
+            # --- Decide se gera Evento ---
+            # Ignora entrada em PENDENTE (para não poluir o histórico/integração)
+            if change.get("location_status") == "PENDENTE":
+                continue
+
+            # Define Ação (GET/OUT/ALERTA)
+            action = "GET"
+            if change.get("location_status") == "ALERTA":
+                action = "ALERTA"
+            elif change.get("new_quarto_id") is None and change.get("location_status") == "LIVRE":
+                action = "OUT"
             
-            quarto_evento_obj = None
-            quarto_context_id = change.get("quarto_context_id")
+            # Define o Quarto do Contexto (Onde aconteceu?)
+            quarto_contexto_id = change.get("new_quarto_id") if action == "GET" else old_quarto_id
             
-            if action == "OUT":
-                if asset.quarto:
-                    quarto_evento_obj = asset.quarto
-            elif quarto_context_id:
-                quarto_evento_obj = db.query(Quarto).options(joinedload(Quarto.andar)).filter(Quarto.id == quarto_context_id).first()
+            quarto_obj = None
+            if quarto_contexto_id:
+                quarto_obj = db.query(Quarto).options(joinedload(Quarto.andar)).get(quarto_contexto_id)
+
+            # Cria o evento
+            esp_id_origem = change.get("source_esp_id", "server")
+            sinal_wifi = mqtt_client.get_last_wifi_signal_for_esp(esp_id_origem)
 
             event = ReceivedEvent(
-                esp_id=change.get("source_esp_id", "server"),
+                esp_id=esp_id_origem,
                 ativo=asset.mac_beacon,
-                quarto_nome=quarto_evento_obj.nome if quarto_evento_obj else "N/A",
-                andar_nome=quarto_evento_obj.andar.nome if quarto_evento_obj and quarto_evento_obj.andar else None,
-                action=action, status=status, status_detail=change.get("details"),
-                rssi=change.get("rssi"), wifi=change.get("wifi_signal"),
+                quarto_nome=quarto_obj.nome if quarto_obj else "N/A",
+                andar_nome=quarto_obj.andar.nome if quarto_obj and quarto_obj.andar else None,
+                action=action,
+                status=change.get("location_status", "OK"),
+                status_detail=change.get("details"),
+                rssi=change.get("rssi"),
+                wifi=sinal_wifi,
                 data_on=datetime.now(timezone.utc),
-                raw={"source": "services_batch", "old_quarto_id": asset.quarto_id}
+                raw={"source": "batch_update", "old_quarto": old_quarto_id}
             )
-
-            new_location_status = change.get("location_status")
-            if new_location_status:
-                asset.location_status = new_location_status
-                asset.location_status_updated_on = datetime.now(timezone.utc)
-
-            if status == "Confirmado" or action == "OUT":
-                asset.quarto_id = change.get("new_quarto_id")
-                
             db.add(event)
             events_to_dispatch.append(event)
-            
-            if status == "Confirmado" or action == "OUT":
-                asset.quarto_id = change.get("new_quarto_id")
 
         db.commit()
 
-        # --- ETAPA 2: Tentar despachar os eventos ---
-        logger.info(f"Lote de {len(changes)} mudanças processado. Despachando eventos.")
+        # --- Despacho para Connecta ---
         loop = asyncio.get_running_loop()
-
         for event in events_to_dispatch:
-            if event.action in ["GET", "OUT", "ALERTA"]:
-                
-                if event.action == "ALERTA" and not alert_enabled:
-                    logger.info(f"Evento de ALERTA {event.id} gerado, mas despacho ANULADO pela config global.")
-                    continue 
+            # Na Baxter, TUDO é despachado se tiver ID Connecta associado ao quarto
+            connecta_id = quarto_connecta_map.get(event.quarto_nome)
+            
+            # Recupera dados do ativo para o payload (Modelo, Nome)
+            nome_ativo = asset_map_snapshot.get(event.ativo, {}).get("nome_ativo", event.ativo)
+            
+            dispatch_payload = {
+                "quarto": event.quarto_nome,
+                "id_connecta": connecta_id, # Pode ser None, o dispatcher lida com isso ou o receptor ignora
+                "cama": nome_ativo,
+                "status": event.action,
+                "dataOn": event.data_on.isoformat(),
+                "etapa": event.status
+            }
+            
+            # Envia em thread separada para não bloquear
+            await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 
-                db.refresh(event)
-                
-                data_zulu = event.data_on.replace(tzinfo=timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-
-                status_to_dispatch = event.action
-                if event.status in ["Pendente", "Confirmado"]:
-                    status_to_dispatch = "GET"
-
-                quarto_nome_original = event.quarto_nome
-                
-                connecta_id_para_enviar = quarto_nome_to_connecta_id_map.get(quarto_nome_original) # Retornará None se não encontrar
-
-                dispatch_payload = {
-                    "quarto": quarto_nome_original, # <-- Volta a enviar o nome do quarto
-                    "id_connecta": connecta_id_para_enviar, # <-- NOVO CAMPO com o ID
-                    "cama":   asset_map.get(event.ativo, {}).get("nome_ativo", event.ativo),
-                    "modelo": asset_map.get(event.ativo, {}).get("modelo"),
-                    "status": status_to_dispatch,
-                    "dataOn": data_zulu,
-                    "wifi":   event.wifi,
-                    "etapa": event.status
-                }
-                
-                # ... (resto da função de dispatch, tratamento de erro, etc. continua igual)
-                dispatch_successful = await loop.run_in_executor(None, dispatch_event, dispatch_payload)
-
-                if not dispatch_successful:
-                     logger.error(f"FALHA FINAL ao despachar evento ID {event.id}. Atualizando status para ERRO.")
-                     update_db = SessionLocal()
-                     try:
-                         event_to_update = update_db.query(ReceivedEvent).get(event.id)
-                         if event_to_update:
-                             event_to_update.status = "Erro"
-                             event_to_update.status_detail = "Falha no envio para o servidor final após 5 tentativas."
-                             update_db.commit()
-                     finally:
-                         update_db.close()
-        
-        aggregator.flag_for_reload()
+        # Atualiza Frontend via WebSocket
         await manager.broadcast("ATUALIZAR_ESTADO")
 
     except Exception as e:
-        logger.error(f"ERRO na transação de atualização em lote: {e}", exc_info=True)
+        logger.error(f"ERRO no batch_update: {e}", exc_info=True)
         db.rollback()
 
-async def force_asset_removal(db: Session, asset_id: int, details: str):
-    """
-    (NOVA FUNÇÃO) Força a remoção de um ativo de um quarto e limpa seu estado.
-    Esta é a forma correta de "resetar" o estado de um ativo no servidor.
-    """
-    asset = db.query(Asset).get(asset_id)
-    if not asset or asset.quarto_id is None:
-        logger.warning(f"[SERVICE] Tentativa de forçar remoção do ativo {asset_id}, mas ele não está em um quarto.")
-        return
-
-    logger.info(f"[SERVICE] Forçando remoção do ativo '{asset.nome_ativo}' do quarto ID {asset.quarto_id}.")
-    
-    aggregator.clear_asset_candidate_state(asset.mac_beacon)
-
-    change_info = [{
-        "asset_id": asset.id,
-        "new_quarto_id": None,
-        "source_esp_id": "service_forced_removal",
-        "action": "OUT",
-        "rssi": -999,
-        "details": details
-    }]
-    
-    # Adiciona o asset_map ao chamado para evitar erros
-    asset_map_info = { asset.mac_beacon: {"nome_ativo": asset.nome_ativo, "modelo": asset.modelo} }
-    await batch_update_asset_assignments(db, change_info, asset_map_info)
-
-
 async def release_assets_for_offline_esp(db: Session, esp_id: str):
-    """
-    (FUNÇÃO CORRIGIDA) Liberta todos os ativos de um quarto cuja ESP ficou offline.
-    """
+    """Se um ESP cai, remove os ativos dele."""
     embarcado = db.query(Embarcado).options(joinedload(Embarcado.quarto)).filter(Embarcado.id_esp == esp_id).first()
     if not embarcado or not embarcado.quarto_id:
         return
 
-    quarto_nome = embarcado.quarto.nome
-    logger.warning(f"[LIVENESS] ESP {esp_id} (Quarto: {quarto_nome}) ficou offline. Libertando seus ativos...")
-    
-    assets_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
-    if not assets_no_quarto:
-        return
-
-    changes_to_commit = []
-    asset_map_info = {}
-    for asset in assets_no_quarto:
-        logger.info(f"[LIVENESS] Preparando para libertar ativo '{asset.nome_ativo}'...")
-        
-        aggregator.clear_asset_candidate_state(asset.mac_beacon)
-
-        changes_to_commit.append({
+    assets = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).all()
+    changes = []
+    for asset in assets:
+        aggregator.clear_asset_state(asset.mac_beacon)
+        changes.append({
             "asset_id": asset.id,
             "new_quarto_id": None,
-            "source_esp_id": "liveness_check",
-            "action": "OUT",
-            "rssi": -999,
-            "details": f"Ativo libertado porque a ESP '{esp_id}' do quarto '{quarto_nome}' ficou offline."
+            "location_status": "LIVRE",
+            "details": f"ESP {esp_id} ficou offline."
         })
-        asset_map_info[asset.mac_beacon] = {"nome_ativo": asset.nome_ativo, "modelo": asset.modelo}
+    
+    if changes:
+        await batch_update_asset_assignments(db, changes)
 
-    if changes_to_commit:
-        logger.info(f"[LIVENESS] Processando a saída de {len(changes_to_commit)} ativos do quarto {quarto_nome}.")
-        await batch_update_asset_assignments(db, changes_to_commit, asset_map_info)
+async def force_asset_removal(db: Session, asset_id: int, details: str):
+    """Reset manual."""
+    asset = db.query(Asset).get(asset_id)
+    if not asset: return
+    
+    aggregator.clear_asset_state(asset.mac_beacon)
+    
+    change = [{
+        "asset_id": asset.id,
+        "new_quarto_id": None,
+        "location_status": "LIVRE",
+        "details": details
+    }]
+    await batch_update_asset_assignments(db, change)

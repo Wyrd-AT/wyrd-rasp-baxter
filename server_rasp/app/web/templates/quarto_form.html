@@ -1,37 +1,37 @@
 <div class="form-card">
     <form action="{{ form_action }}" method="post">
         <div class="form-header">
-            <h3>{% if quarto %}Editar Quarto{% else %}Cadastro de Quartos{% endif %}</h3>
-            <button type="submit" class="icon-btn icon-btn-primary" title="{{ 'Atualizar' if quarto else 'Salvar' }}">
+            <h3>{% if quarto %}Editar Quarto{% else %}Novo Quarto{% endif %}</h3>
+            <button type="submit" class="icon-btn icon-btn-primary" title="Salvar">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
             </button>
         </div>
         
         <div class="form-fields-grid" style="grid-template-columns: repeat(2, 1fr);">
             <div class="form-group">
-                <label for="nome">Nome do Quarto</label>
-                <input type="text" id="nome" name="nome" value="{{ quarto.nome if quarto else '' }}" placeholder="Ex: 101, UTI-02" required>
+                <label>Nome do Quarto</label>
+                <input type="text" name="nome" value="{{ quarto.nome if quarto else '' }}" placeholder="Ex: 101" required>
             </div>
             
             <div class="form-group">
-                <label for="andar_nome">Andar</label>
-                <input type="text" id="andar_nome" name="andar_nome" value="{{ quarto.andar.nome if quarto and quarto.andar else '' }}" placeholder="Ex: 1º Andar, Térreo" required>
+                <label>Tipo de Quarto</label>
+                <input type="text" value="Leito Padrão" readonly style="background-color: #fff; color: #333; cursor: default; border-color: #ddd;">
+                <input type="hidden" name="tipo_quarto_id" value="{{ all_tipos_de_quarto[0].id if all_tipos_de_quarto else 1 }}">
             </div>
 
             <div class="form-group">
-                <label for="connecta_id">ID Connecta</label>
-                <input type="text" id="connecta_id" name="connecta_id" value="{{ quarto.connecta_id if quarto and quarto.connecta_id else '' }}" placeholder="ID de integração (Opcional)">
-            </div>
-            <div class="form-group">
-                <label for="tipo_quarto_id">Tipo de Quarto</label>
-                <select id="tipo_quarto_id" name="tipo_quarto_id" required>
-                    <option value="" disabled {% if not quarto %}selected{% endif %}>Selecione um tipo...</option>
-                    {% for tipo in all_tipos_de_quarto %}
-                        <option value="{{ tipo.id }}" {% if quarto and quarto.tipo_quarto_id == tipo.id %}selected{% endif %}>
-                            {{ tipo.nome }}
-                        </option>
+                <label>Andar</label>
+                <select name="andar_id" required>
+                    <option value="" disabled {% if not quarto %}selected{% endif %}>Selecione...</option>
+                    {% for andar in all_andares %}
+                        <option value="{{ andar.id }}" {% if quarto and quarto.andar_id == andar.id %}selected{% endif %}>{{ andar.nome }}</option>
                     {% endfor %}
-                    </select>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>ID Connecta *</label>
+                <input type="text" name="connecta_id" value="{{ quarto.connecta_id or '' }}" placeholder="Obrigatório (Ex: ID-101)" required>
             </div>
         </div>
     </form>
