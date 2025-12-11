@@ -413,11 +413,32 @@ def list_embarcados(request: Request, db: Session = Depends(get_db), search: Opt
     assigned = {e.quarto_id for e in db.query(Embarcado).filter(Embarcado.quarto_id.isnot(None)).all()}
     available = db.query(Quarto).filter(Quarto.id.notin_(assigned)).order_by(Quarto.nome).all()
     
+    # --- CORREÇÃO AQUI: Carregar configurações do DB para exibir na tela ---
+    settings_db = db.query(GlobalSetting).all()
+    settings_dict = {s.key: s.value for s in settings_db}
+    
+    # Valores padrão caso o banco esteja vazio na primeira execução
+    display_settings = {
+        "rssi_threshold": settings_dict.get("rssi_threshold", -75),
+        "inercia_entrada": settings_dict.get("inercia_entrada", 3000),
+        "inercia_saida": settings_dict.get("inercia_saida", 15000)
+    }
+    # -----------------------------------------------------------------------
+
+    # Busca threshold individuais para passar ao JS
+    rssi_thresholds_json = json.dumps({
+        "global": int(display_settings["rssi_threshold"]),
+        "individuais": {e.id_esp: e.rssi_threshold for e in embarcados if e.rssi_threshold is not None}
+    })
+
     return templates.TemplateResponse("embarcados_list.html", {
-        "request": request, "embarcados": embarcados, "available_quartos": available,
-        "form_action": request.url_for("create_embarcado"), "embarcado": None,
-        "global_settings": {"rssi_threshold": -75, "inercia_entrada": 3000, "inercia_saida": 15000},
-        "rssi_thresholds": "{}", 
+        "request": request, 
+        "embarcados": embarcados, 
+        "available_quartos": available,
+        "form_action": request.url_for("create_embarcado"), 
+        "embarcado": None,
+        "global_settings": display_settings,  # Agora passa os valores REAIS
+        "rssi_thresholds": rssi_thresholds_json, 
         "current_filters": {"search": search, "sort_by": sort_by, "order": order} 
     })
 

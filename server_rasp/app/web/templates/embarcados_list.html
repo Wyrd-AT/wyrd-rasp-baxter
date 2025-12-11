@@ -209,7 +209,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const modalTitle = document.getElementById('modal-title');
                 const modalBody = document.getElementById('modal-body-content');
                 const esp_id = data.esp_id;
-                const threshold = rssiThresholds.individuais[esp_id] || rssiThresholds.global;
+                const threshold = (rssiThresholds.individuais && rssiThresholds.individuais[esp_id]) || rssiThresholds.global || -75;
                 
                 modalTitle.textContent = `Relatório: ${esp_id} (Limite: ${threshold} dBm)`;
                 

@@ -865,9 +865,235 @@ ARQUIVO: app/web/templates/main.html
 
 
 ========================================
-ARQUIVO: app/web/templates/planta_baixa.html
+ARQUIVO: app/web/templates/planta.html
 ========================================
+{# app/web/templates/planta.html #}
+{% extends "base.html" %}
+{% block title %}Planta Baixa{% endblock %}
 
+{% block content %}
+<div class="content-header">
+    <h1>{{ painel_atual.nome }}</h1>
+</div>
+
+<div id="renderer-container" class="renderer-container">
+    <p style="text-align:center; padding: 2rem; color: #666;">Carregando visualização...</p>
+</div>
+
+<div class="planta-sumario">
+    <div class="sumario-card card-quartos">
+        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/quarto.svg)"></span></div>
+        <div class="sumario-texto">
+            <div class="sumario-numero" id="sumario-quartos-online">--</div>
+            <div class="sumario-label">Quartos Online</div>
+        </div>
+    </div>
+    <div class="sumario-card card-ativos">
+        <div class="sumario-icon"><span class="svg-icon" style="--icon-url: url(/static/icons/ativo.svg)"></span></div>
+        <div class="sumario-texto">
+            <div class="sumario-numero" id="sumario-ativos-total">--</div>
+            <div class="sumario-label">Ativos Totais</div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .renderer-container { width: 100%; padding: 20px; box-sizing: border-box; }
+    
+    .planta-bloco {
+        margin-bottom: 30px;
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* Container Relativo para Posicionamento */
+    .planta-container-dinamica {
+        position: relative;
+        width: 100%;
+        height: auto;
+        line-height: 0;
+        background-color: #f9f9f9;
+        border: 1px solid #eee;
+        overflow: hidden; /* Garante que nada vaze */
+    }
+
+    /* A Imagem Real (Base do Mapa) */
+    .img-planta-real {
+        width: 100%;
+        height: auto;
+        display: block;
+    }
+
+    /* Camada de Pontos */
+    .planta-pontos-container {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 10;
+    }
+
+    /* A BOLINHA (Estilo Clássico / Geral_Dev) */
+    .ponto-quarto-status {
+        position: absolute;
+        width: 18px; 
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        transform: translate(-50%, -50%); /* Centralização Perfeita */
+        cursor: pointer;
+        z-index: 20;
+        transition: transform 0.2s ease;
+    }
+
+    .ponto-quarto-status:hover {
+        transform: translate(-50%, -50%) scale(1.3);
+        z-index: 30;
+    }
+
+    /* O RÓTULO (Nome do Quarto Embaixo) */
+    .ponto-rotulo {
+        position: absolute;
+        top: 20px; /* Logo abaixo da bolinha */
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(255, 255, 255, 0.9);
+        color: #333;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: bold;
+        white-space: nowrap;
+        pointer-events: none; /* Não interfere no clique */
+        text-shadow: 0 0 2px rgba(255,255,255,1);
+        z-index: 15;
+    }
+
+    /* Animação para Alertas */
+    @keyframes blink { 0% {opacity: 1;} 50% {opacity: 0.4;} 100% {opacity: 1;} }
+    .blinking-animation { animation: blink 1s infinite; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const rendererContainer = document.getElementById('renderer-container');
+    const slugPainel = "{{ painel_atual.slug }}";
+
+    function getPriorityStatus(quarto) {
+        if (quarto.status_embarcado === 'Offline') return { cor: '#6c757d', animacao: false };
+        if (quarto.ativos.some(a => a.status === 'ALERTA')) return { cor: '#dc3545', animacao: true };
+        if (quarto.ativos.some(a => a.status === 'PENDENTE')) return { cor: '#ffc107', animacao: false };
+        if (quarto.ativos.length > 0) return { cor: '#28a745', animacao: false };
+        return { cor: '#007bff', animacao: false }; // Azul (Livre)
+    }
+
+    function buildTooltip(quarto) {
+        // Tooltip Nativo Simples e Funcional
+        let text = `Quarto: ${quarto.nome_quarto}`;
+        if (quarto.status_embarcado === 'Offline') {
+            text += `\n[!] Sensor Offline`;
+        } else if (quarto.ativos.length > 0) {
+            text += `\nAtivos:`;
+            quarto.ativos.forEach(a => { text += `\n- ${a.nome} (${a.status})`; });
+        } else {
+            text += `\nStatus: Livre`;
+        }
+        return text;
+    }
+
+    function renderizarPlanta(data) {
+        rendererContainer.innerHTML = '';
+        
+        if (!data.andares || data.andares.length === 0) {
+            rendererContainer.innerHTML = '<p style="text-align:center">Nenhum andar configurado.</p>';
+            return;
+        }
+
+        data.andares.forEach(andar => {
+            if (!andar.imagem_url) return;
+
+            const bloco = document.createElement('div');
+            bloco.className = 'planta-bloco';
+            
+            const titulo = document.createElement('h3');
+            titulo.textContent = andar.nome_andar;
+            bloco.appendChild(titulo);
+
+            const containerDinamico = document.createElement('div');
+            containerDinamico.className = 'planta-container-dinamica';
+
+            // 1. Imagem Real
+            const img = document.createElement('img');
+            img.src = andar.imagem_url;
+            img.className = 'img-planta-real';
+            img.alt = "Planta";
+            img.onerror = function() { console.error("Erro imagem:", andar.imagem_url); };
+            
+            // 2. Container de Pontos
+            const pontosDiv = document.createElement('div');
+            pontosDiv.className = 'planta-pontos-container';
+
+            andar.quartos.forEach(quarto => {
+                if (quarto.pos_x != null && quarto.pos_y != null) {
+                    
+                    // Cria o Ponto (Bolinha)
+                    const ponto = document.createElement('div');
+                    ponto.className = 'ponto-quarto-status';
+                    ponto.style.left = `${quarto.pos_x}%`;
+                    ponto.style.top = `${quarto.pos_y}%`;
+                    
+                    const st = getPriorityStatus(quarto);
+                    ponto.style.backgroundColor = st.cor;
+                    if(st.animacao) ponto.classList.add('blinking-animation');
+                    
+                    ponto.title = buildTooltip(quarto); // Tooltip nativo
+
+                    // Cria o Rótulo (Texto embaixo)
+                    const rotulo = document.createElement('div');
+                    rotulo.className = 'ponto-rotulo';
+                    rotulo.textContent = quarto.nome_quarto;
+                    // Posiciona o rótulo relativo à bolinha
+                    ponto.appendChild(rotulo);
+
+                    pontosDiv.appendChild(ponto);
+                }
+            });
+
+            containerDinamico.appendChild(img);
+            containerDinamico.appendChild(pontosDiv);
+            bloco.appendChild(containerDinamico);
+            rendererContainer.appendChild(bloco);
+        });
+    }
+
+    function atualizarSumario(sumario) {
+        if (!sumario) return;
+        document.getElementById('sumario-quartos-online').textContent = sumario.quartos_online;
+        document.getElementById('sumario-ativos-total').textContent = sumario.total_ativos;
+    }
+
+    function carregarDados() {
+        fetch(`/api/painel/${slugPainel}`)
+            .then(res => res.json())
+            .then(data => {
+                renderizarPlanta(data);
+                atualizarSumario(data.sumario_geral);
+            })
+            .catch(err => console.error(err));
+    }
+
+    window.addEventListener('websocket_message', (e) => {
+        if (e.detail === "ATUALIZAR_ESTADO") carregarDados();
+    });
+
+    carregarDados();
+});
+</script>
+{% endblock %}
 
 
 ========================================
