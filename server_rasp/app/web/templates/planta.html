@@ -40,7 +40,6 @@
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
-    /* Container Relativo para Posicionamento */
     .planta-container-dinamica {
         position: relative;
         width: 100%;
@@ -48,35 +47,35 @@
         line-height: 0;
         background-color: #f9f9f9;
         border: 1px solid #eee;
-        overflow: hidden; /* Garante que nada vaze */
+        overflow: hidden;
     }
 
-    /* A Imagem Real (Base do Mapa) */
     .img-planta-real {
         width: 100%;
         height: auto;
         display: block;
     }
 
-    /* Camada de Pontos */
     .planta-pontos-container {
         position: absolute;
         top: 0; left: 0; width: 100%; height: 100%;
         z-index: 10;
     }
 
-    /* A BOLINHA (Estilo Clássico / Geral_Dev) */
+    /* --- BOLINHA (PONTO) --- */
     .ponto-quarto-status {
         position: absolute;
-        width: 18px; 
-        height: 18px;
+        /* AUMENTADO: de 18px para 26px */
+        width: 26px; 
+        height: 26px;
         border-radius: 50%;
-        border: 2px solid white;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.4);
-        transform: translate(-50%, -50%); /* Centralização Perfeita */
+        /* Borda padrão aumentada para ficar visível */
+        border: 3px solid white; 
+        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        transform: translate(-50%, -50%);
         cursor: pointer;
         z-index: 20;
-        transition: transform 0.2s ease;
+        transition: transform 0.2s ease, background-color 0.3s, border-color 0.3s;
     }
 
     .ponto-quarto-status:hover {
@@ -84,27 +83,63 @@
         z-index: 30;
     }
 
-    /* O RÓTULO (Nome do Quarto Embaixo) */
+    /* --- ESTADOS (CORES NOVAS) --- */
+    
+    /* Desligado: Borda Branca, Centro Cinza */
+    .st-offline {
+        background-color: #6c757d; /* Cinza */
+        border-color: #ffffff;
+    }
+
+    /* Livre: Borda Verde, Centro Branco */
+    .st-livre {
+        background-color: #ffffff; /* Branco */
+        border-color: #28a745;     /* Verde */
+    }
+
+    /* Pendente: Borda Branca, Centro Amarelo */
+    .st-pendente {
+        background-color: #ffc107; /* Amarelo */
+        border-color: #ffffff;
+    }
+
+    /* Confirmado: Borda Branca, Centro Azul */
+    .st-confirmado {
+        background-color: #007bff; /* Azul */
+        border-color: #ffffff;
+    }
+
+    /* Alerta: Borda Branca, Centro Laranja (Piscando) */
+    .st-alerta {
+        background-color: #fd7e14; /* Laranja */
+        border-color: #ffffff;
+        animation: blink 1s infinite;
+    }
+
+    /* --- RÓTULO (TEXTO) --- */
     .ponto-rotulo {
         position: absolute;
-        top: 20px; /* Logo abaixo da bolinha */
+        top: 30px; /* Ajustado para o novo tamanho da bolinha */
         left: 50%;
         transform: translateX(-50%);
-        background-color: rgba(255, 255, 255, 0.9);
-        color: #333;
-        padding: 1px 4px;
-        border-radius: 3px;
-        font-size: 10px;
-        font-weight: bold;
+        background-color: rgba(255, 255, 255, 0.95);
+        color: #000; /* Texto mais escuro para contraste */
+        padding: 2px 6px;
+        border-radius: 4px;
+        /* AUMENTADO: de 10px para 12px/13px */
+        font-size: 13px; 
+        font-weight: 800; /* Mais negrito */
         white-space: nowrap;
-        pointer-events: none; /* Não interfere no clique */
-        text-shadow: 0 0 2px rgba(255,255,255,1);
+        pointer-events: none;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
         z-index: 15;
     }
 
-    /* Animação para Alertas */
-    @keyframes blink { 0% {opacity: 1;} 50% {opacity: 0.4;} 100% {opacity: 1;} }
-    .blinking-animation { animation: blink 1s infinite; }
+    @keyframes blink { 
+        0% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 
+        50% { opacity: 0.6; transform: translate(-50%, -50%) scale(1.1); } 
+        100% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 
+    }
 </style>
 {% endblock %}
 
@@ -114,12 +149,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const rendererContainer = document.getElementById('renderer-container');
     const slugPainel = "{{ painel_atual.slug }}";
 
-    function getPriorityStatus(quarto) {
-        if (quarto.status_embarcado === 'Offline') return { cor: '#6c757d', animacao: false };
-        if (quarto.ativos.some(a => a.status === 'ALERTA')) return { cor: '#dc3545', animacao: true };
-        if (quarto.ativos.some(a => a.status === 'PENDENTE')) return { cor: '#ffc107', animacao: false };
-        if (quarto.ativos.length > 0) return { cor: '#28a745', animacao: false };
-        return { cor: '#007bff', animacao: false }; // Azul (Livre)
+    function getPriorityClass(quarto) {
+        if (quarto.status_embarcado === 'Offline') return 'st-offline';
+        if (quarto.ativos.some(a => a.status === 'ALERTA')) return 'st-alerta';
+        if (quarto.ativos.some(a => a.status === 'PENDENTE')) return 'st-pendente';
+        if (quarto.ativos.length > 0) return 'st-confirmado';
+        return 'st-livre';
     }
 
     function buildTooltip(quarto) {
@@ -138,7 +173,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderizarPlanta(data) {
         rendererContainer.innerHTML = '';
-        
         if (!data.andares || data.andares.length === 0) {
             rendererContainer.innerHTML = '<p style="text-align:center">Nenhum andar configurado.</p>';
             return;
@@ -157,39 +191,34 @@ document.addEventListener('DOMContentLoaded', function () {
             const containerDinamico = document.createElement('div');
             containerDinamico.className = 'planta-container-dinamica';
 
-            // 1. Imagem Real
             const img = document.createElement('img');
             img.src = andar.imagem_url;
             img.className = 'img-planta-real';
             img.alt = "Planta";
-            img.onerror = function() { console.error("Erro imagem:", andar.imagem_url); };
             
-            // 2. Container de Pontos
             const pontosDiv = document.createElement('div');
             pontosDiv.className = 'planta-pontos-container';
 
             andar.quartos.forEach(quarto => {
                 if (quarto.pos_x != null && quarto.pos_y != null) {
                     
-                    // Cria o Ponto (Bolinha)
                     const ponto = document.createElement('div');
-                    ponto.className = 'ponto-quarto-status';
+                    ponto.className = 'ponto-quarto-status'; // Classe base
+                    
+                    // --- MUDANÇA AQUI: Adiciona a classe de estado ---
+                    const classeEstado = getPriorityClass(quarto);
+                    ponto.classList.add(classeEstado);
+                    // ------------------------------------------------
+                    
                     ponto.style.left = `${quarto.pos_x}%`;
                     ponto.style.top = `${quarto.pos_y}%`;
-                    
-                    const st = getPriorityStatus(quarto);
-                    ponto.style.backgroundColor = st.cor;
-                    if(st.animacao) ponto.classList.add('blinking-animation');
-                    
-                    ponto.title = buildTooltip(quarto); // Tooltip nativo
+                    ponto.title = buildTooltip(quarto);
 
-                    // Cria o Rótulo (Texto embaixo)
                     const rotulo = document.createElement('div');
                     rotulo.className = 'ponto-rotulo';
                     rotulo.textContent = quarto.nome_quarto;
-                    // Posiciona o rótulo relativo à bolinha
+                    
                     ponto.appendChild(rotulo);
-
                     pontosDiv.appendChild(ponto);
                 }
             });

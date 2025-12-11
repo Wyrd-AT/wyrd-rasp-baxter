@@ -159,134 +159,109 @@ async def _consume_scan_data_queue():
             _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
 
 async def _processar_localizacoes():
-    """Motor de regras de localização."""
     if not _esp_map or not _asset_map: return
 
     changes_to_commit = []
     db = SessionLocal()
     try:
-        # Usa list() para evitar erro de mudança de tamanho do dicionário durante iteração
         for mac, state in list(_asset_realtime_state.items()):
             asset_info = _asset_map.get(mac, {})
             asset_id = asset_info.get("id")
             if not asset_id: continue
 
-            # 1. Limpeza de leituras velhas
+            # 1. Limpeza / Timeout de Sinal
             if not state.cleanup_old_readings():
                 state.disappearance_count += 1
                 if state.disappearance_count >= DISAPPEARANCE_TOLERANCE_CYCLES:
                     if asset_info.get("quarto_id") is not None:
-                        changes_to_commit.append({
-                            "asset_id": asset_id, 
-                            "new_quarto_id": None, 
-                            "details": "Sinal perdido (Timeout)."
-                        })
-                    # Remove da memória
-                    if mac in _asset_realtime_state:
-                        del _asset_realtime_state[mac]
+                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "details": "Sinal perdido."})
+                    if mac in _asset_realtime_state: del _asset_realtime_state[mac]
                 continue
 
-            # 2. Cálculo do Melhor Candidato
-            strongest_candidate = {"esp_id": None, "avg_rssi": -1000, "quarto_id": None}
-            
+            # 2. Cálculo do melhor sinal
+            strongest = {"esp_id": None, "avg_rssi": -1000, "quarto_id": None}
             for esp_id in state.readings:
-                # Verifica se o ESP ainda é válido
                 if esp_id not in _esp_map: continue
+                qid, thresh_individual = _esp_map[esp_id]
                 
-                quarto_id_candidato, rssi_min_embarcado = _esp_map[esp_id]
-                
-                # Regra: Só 1 ativo por quarto (se já tiver outro lá, ignora este sinal)
+                # Anti-roubo/Anti-conflito: Só considera se o quarto estiver vazio ou for o da própria cama
                 quarto_ocupado = False
-                for other_mac, other_info in _asset_map.items():
-                    if other_mac != mac and other_info.get("quarto_id") == quarto_id_candidato:
-                        quarto_ocupado = True
-                        break
+                for omac, oinfo in _asset_map.items():
+                    if omac != mac and oinfo.get("quarto_id") == qid:
+                        quarto_ocupado = True; break
                 if quarto_ocupado: continue
                 
-                # Obtém média
-                current_avg = state.get_average_rssi(esp_id)
-                
-                # --- CORREÇÃO DE THRESHOLD: Usa _config ---
-                # Prioridade: 1. Individual do ESP, 2. Global do _config
-                threshold = rssi_min_embarcado if rssi_min_embarcado is not None else _config["default_rssi_threshold"]
+                avg = state.get_average_rssi(esp_id)
+                thr = thresh_individual if thresh_individual is not None else _config["default_rssi_threshold"]
+                if avg > thr and avg > strongest["avg_rssi"]:
+                    strongest = {"esp_id": esp_id, "avg_rssi": avg, "quarto_id": qid}
 
-                if current_avg > threshold and current_avg > strongest_candidate["avg_rssi"]:
-                    strongest_candidate = {
-                        "esp_id": esp_id, 
-                        "avg_rssi": current_avg, 
-                        "quarto_id": quarto_id_candidato
-                    }
+            # 3. MÁQUINA DE ESTADOS
 
-            # 3. Máquina de Estados
-            
-            # --- Estado: LIVRE (Tentando Entrar) ---
+            # --- REGRA NOVA: TIMEOUT DE PENDENTE ---
+            if state.state == 'PENDENTE' and state.pending_start_time:
+                # Se passou de 30 minutos (1800s)
+                if (time.time() - state.pending_start_time) > _config.get("pending_timeout_sec", 1800):
+                    changes_to_commit.append({
+                        "asset_id": asset_id,
+                        # Mantém o mesmo quarto
+                        "new_quarto_id": asset_info.get("quarto_id"),
+                        "location_status": "ALERTA", # Muda apenas o status
+                        "details": "Tempo limite de Pendência excedido (30min)."
+                    })
+                    state.state = 'ALERTA'
+                    state.pending_start_time = None # Limpa timer
+
+            # --- Estado LIVRE (Entrada) ---
             if state.state == 'LIVRE':
-                candidate_quarto_id = strongest_candidate["quarto_id"]
-                
-                # Atualiza timer de candidatura
-                if candidate_quarto_id != state.candidate_quarto_id:
-                    state.candidate_quarto_id = candidate_quarto_id
-                    state.candidate_since = time.time() if candidate_quarto_id is not None else None
+                cand_qid = strongest["quarto_id"]
+                if cand_qid != state.candidate_quarto_id:
+                    state.candidate_quarto_id = cand_qid
+                    state.candidate_since = time.time() if cand_qid else None
 
-                # Verifica Inércia de Entrada
-                # --- CORREÇÃO: Usa _config ---
                 if state.candidate_since and (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
-                    if state.candidate_quarto_id == candidate_quarto_id:
-                        # ENTRADA CONFIRMADA
+                    if state.candidate_quarto_id == cand_qid:
+                        # Entra como PENDENTE e inicia o timer
                         change = {
-                            "asset_id": asset_id, 
-                            "new_quarto_id": candidate_quarto_id, 
-                            "rssi": strongest_candidate['avg_rssi'],
-                            "source_esp_id": strongest_candidate['esp_id']
+                            "asset_id": asset_id, "new_quarto_id": cand_qid, 
+                            "location_status": "PENDENTE", 
+                            "details": "Entrada no quarto (Aguardando Cabo).",
+                            "source_esp_id": strongest["esp_id"]
                         }
-                        
-                        # Verifica se vai para Pendente ou Confirmado
-                        if asset_info.get('requer_confirmacao_externa', True):
-                             change["location_status"] = "PENDENTE"
-                             change["details"] = "Aguardando conexão cabo."
-                             state.state = 'PENDENTE'
-                        else:
-                             change["location_status"] = "CONFIRMADO"
-                             change["details"] = "Confirmado via BLE."
-                             state.state = 'CONFIRMADO'
-                            
                         changes_to_commit.append(change)
-                        # Reseta timers
+                        state.state = 'PENDENTE'
+                        state.pending_start_time = time.time() # Inicia contagem dos 30 min
                         state.candidate_quarto_id, state.candidate_since = None, None
 
-            # --- Estado: DENTRO (Tentando Sair) ---
+            # --- Estado DENTRO (Saída) ---
+            # Isso vale para PENDENTE, CONFIRMADO e ALERTA
             elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
-                quarto_id_atual = asset_info.get("quarto_id")
+                current_qid = asset_info.get("quarto_id")
                 
-                # Verifica estabilidade: O sinal mais forte ainda é do quarto atual?
-                is_stable = (strongest_candidate.get("quarto_id") == quarto_id_atual)
+                # ANTI-TELETRANSPORTE:
+                # A única forma de sair é se o sinal do quarto ATUAL ficar ruim 
+                # ou se outro ficar melhor (o que implica que o atual não é mais o 'strongest')
+                # Em ambos os casos, a ação é ir para LIVRE primeiro.
+                
+                is_stable = (strongest.get("quarto_id") == current_qid)
 
                 if is_stable:
-                    state.weak_signal_since = None 
+                    state.weak_signal_since = None
                 else:
-                    if state.weak_signal_since is None:
-                        state.weak_signal_since = time.time()
+                    if state.weak_signal_since is None: state.weak_signal_since = time.time()
                     
-                    # Verifica Inércia de Saída
-                    # --- CORREÇÃO: Usa _config ---
-                    elif (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
-                        # SAÍDA CONFIRMADA
+                    if (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
                         changes_to_commit.append({
-                            "asset_id": asset_id, 
-                            "new_quarto_id": None, 
-                            "location_status": "LIVRE", 
-                            "details": "Saída por sinal fraco/instável."
+                            "asset_id": asset_id, "new_quarto_id": None, 
+                            "location_status": "LIVRE", "details": "Saída detectada."
                         })
                         state.state = 'LIVRE'
+                        state.pending_start_time = None
                         state.weak_signal_since = None
 
-        # 4. Commit no Banco
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)
             db.commit()
-            
-    except Exception as e:
-        logger.error(f"[PROCESSOR] Erro: {e}", exc_info=True)
     finally:
         db.close()
 

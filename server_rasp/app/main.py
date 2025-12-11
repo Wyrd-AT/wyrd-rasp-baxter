@@ -389,8 +389,16 @@ def esp_handshake(request: Request, db: Session = Depends(get_db),
 ):
     logger.info(f"HANDSHAKE: {id_esp}")
     embarcado = db.query(Embarcado).filter(Embarcado.id_esp == id_esp).first()
+    
     if embarcado:
-        embarcado.mac_address = mac; embarcado.ip_address = ip; db.commit()
+        # --- ATUALIZAÇÃO IMEDIATA ---
+        embarcado.mac_address = mac
+        embarcado.ip_address = ip
+        embarcado.status_rede = 'online' # Força online agora
+        embarcado.last_seen = datetime.now(timezone.utc) # Atualiza o visto por último
+        db.commit()
+        # ----------------------------
+        
     all_assets = db.query(Asset.mac_beacon).filter(Asset.mac_beacon.isnot(None)).all()
     return {"whitelist": [m for m, in all_assets]}
 
@@ -692,38 +700,82 @@ def download_events_csv(db: Session = Depends(get_db)):
 # ===================================================================
 
 async def bed_state_processor_loop():
-    logger.info("[BED] Processador de Camas Iniciado.")
+    logger.info("[BED] Processador Iniciado: Lógica 'Modelo-Nome'.")
     while True:
         try:
             payload = await bed_state_queue.get()
-            nome_cama = payload.get("id"); is_connected = payload.get("connected")
-            if not nome_cama or is_connected is None: continue
+            
+            # O ID vem completo do MQTT (ex: "Accella-HRP00000E9D2")
+            full_id_mqtt = payload.get("id")
+            is_connected = payload.get("connected")
+            
+            if not full_id_mqtt: continue
+
+            # --- LÓGICA DE SEPARAÇÃO (SPLIT) ---
+            # Esperamos algo como "MODELO-NOME"
+            if "-" in full_id_mqtt:
+                # Divide apenas no primeiro traço
+                partes = full_id_mqtt.split("-", 1)
+                modelo_mqtt = partes[0]  # "Accella"
+                nome_mqtt = partes[1]    # "HRP00000E9D2"
+            else:
+                # Se não tiver traço, assumimos que é tudo Nome e sem Modelo definido
+                modelo_mqtt = None
+                nome_mqtt = full_id_mqtt
+                logger.warning(f"[BED-WARN] Formato inesperado (sem hífen): {full_id_mqtt}")
+
+            logger.info(f"[BED-PROCESS] Full='{full_id_mqtt}' -> Buscando: Nome='{nome_mqtt}' + Modelo='{modelo_mqtt}'")
 
             db = SessionLocal()
             try:
-                asset = db.query(Asset).filter(Asset.nome_ativo == nome_cama).first()
-                if not asset: continue
+                # Busca Ativo:
+                # 1. Nome deve ser igual (HRP...)
+                # 2. Modelo deve ser igual (Accella...), ignorando maiúsculas/minúsculas
+                query = db.query(Asset).filter(Asset.nome_ativo == nome_mqtt)
+                
+                if modelo_mqtt:
+                    query = query.filter(Asset.modelo.ilike(modelo_mqtt))
+                
+                asset = query.first()
+                
+                if not asset:
+                    logger.warning(f"[BED-ERROR] Cama não encontrada no banco!")
+                    logger.warning(f"   -> Verifique se cadastrou o ativo com Nome: '{nome_mqtt}' e Modelo: '{modelo_mqtt}'")
+                    continue
 
+                # --- LÓGICA DE ATUALIZAÇÃO (Igual à anterior) ---
                 change = None
+                
+                # Conectou -> Confirma
                 if is_connected and asset.location_status in ['PENDENTE', 'ALERTA']:
-                    logger.info(f"[BED] Cama '{nome_cama}' conectada. Confirmando.")
+                    logger.info(f"[BED-ACTION] Conectando {nome_mqtt}. Status -> CONFIRMADO.")
                     change = {
-                        "asset_id": asset.id, "new_quarto_id": asset.quarto_id, 
-                        "location_status": "CONFIRMADO", "details": "Confirmado via Cabo Hillrom."
+                        "asset_id": asset.id, 
+                        "new_quarto_id": asset.quarto_id, 
+                        "location_status": "CONFIRMADO", 
+                        "details": f"Cabo Conectado ({modelo_mqtt})."
                     }
+                
+                # Desconectou -> Alerta
                 elif not is_connected and asset.location_status == 'CONFIRMADO':
-                    logger.info(f"[BED] Cama '{nome_cama}' desconectada. Alerta.")
+                    logger.info(f"[BED-ACTION] Desconectando {nome_mqtt}. Status -> ALERTA.")
                     change = {
-                        "asset_id": asset.id, "new_quarto_id": asset.quarto_id, 
-                        "location_status": "ALERTA", "details": "Desconectado do Cabo Hillrom."
+                        "asset_id": asset.id, 
+                        "new_quarto_id": asset.quarto_id, 
+                        "location_status": "ALERTA", 
+                        "details": "Cabo Desconectado."
                     }
                 
                 if change: 
                     await batch_update_asset_assignments(db, [change])
                     db.commit()
-            finally: db.close()
+            
+            finally: 
+                db.close()
+                
         except Exception as e:
-            logger.error(f"[BED] Erro: {e}"); await asyncio.sleep(1)
+            logger.error(f"[BED] Erro: {e}")
+        await asyncio.sleep(0.1)
 
 async def check_esp_liveness():
     while True:
@@ -737,18 +789,33 @@ async def check_esp_liveness():
         db.commit(); db.close()
 
 async def batch_update_esp_status():
+    logger.info("[TASK] Atualizador de Status dos ESPs iniciado (Intervalo: 5s).")
     while True:
+        # Pega dados do cache do mqtt_client
         updates = mqtt_client.get_and_clear_status_cache()
+        
         if updates:
             db = SessionLocal()
             try:
+                # Busca todos os ESPs que mandaram dados recentemente
                 embs = db.query(Embarcado).filter(Embarcado.id_esp.in_(updates.keys())).all()
                 for e in embs:
                     d = updates[e.id_esp]
-                    e.last_seen = d["last_seen"]; e.wifi_signal = d.get("wifi_signal"); e.status_rede = "online"
+                    e.last_seen = d["last_seen"]
+                    if "wifi_signal" in d:
+                        e.wifi_signal = d.get("wifi_signal")
+                    
+                    # Garante que fique online se mandou dados
+                    e.status_rede = "online"
+                
                 db.commit()
-            finally: db.close()
-        await asyncio.sleep(60)
+            except Exception as e:
+                logger.error(f"Erro ao atualizar status em lote: {e}")
+            finally: 
+                db.close()
+        
+        # --- MUDANÇA AQUI: De 60 para 5 segundos ---
+        await asyncio.sleep(5)
 
 def start_cleanup_scheduler():
     def loop():
