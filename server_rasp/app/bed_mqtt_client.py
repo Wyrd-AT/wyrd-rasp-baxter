@@ -6,9 +6,7 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-# --- CORREÇÃO: A fila deve ser definida aqui no topo ---
 bed_state_queue = asyncio.Queue()
-# -----------------------------------------------------
 
 bed_client = mqtt.Client()
 
@@ -17,21 +15,36 @@ def on_bed_message(client, userdata, msg):
         payload_str = msg.payload.decode('utf-8')
         payload_json = json.loads(payload_str)
         
-        # Coloca na fila para o main.py processar
-        bed_state_queue.put_nowait(payload_json)
-        
-        # Log Informativo para debug
-        logger.info(f"[MQTT-CAMA] Recebido: ID='{payload_json.get('id')}' Modelo='{payload_json.get('model')}'")
+        # Verifica qual tópico mandou a mensagem
+        if "location_update" in msg.topic:
+            # É uma atualização de Mapa (IDs do Connecta)
+            # Colocamos na fila com um tipo especial
+            bed_state_queue.put_nowait({
+                "type": "LOCATION_UPDATE",
+                "data": payload_json
+            })
+            logger.info(f"[MQTT-CONNECTA] Recebida atualização de mapa/IDs (Versão: {payload_json.get('location_list_version')})")
+        else:
+            # É mensagem de estado de Cama normal
+            # Adiciona o tipo para o processador saber diferenciar
+            payload_json["type"] = "BED_STATE"
+            bed_state_queue.put_nowait(payload_json)
+            # logger.info(...) # Opcional: manter log de cama aqui se quiser
         
     except Exception as e:
         logger.error(f"[MQTT-CAMA] Erro ao processar mensagem: {e}")
 
 def on_bed_connect(client, userdata, flags, rc):
     if rc == 0:
-        logger.info("[MQTT-CAMA] Conectado ao Broker de Camas!")
-        # Subscreve ao tópico genérico para pegar todas as camas
-        topic = "2.0/HIAE/hillrom/bed/+/json/state"
-        client.subscribe(topic, qos=0)
+        logger.info("[MQTT-CAMA] Conectado ao Broker!")
+        
+        # 1. Tópico das Camas
+        client.subscribe("2.0/HIAE/hillrom/bed/+/json/state", qos=0)
+        
+        # 2. NOVO: Tópico de Atualização de Localização (Connecta)
+        client.subscribe("2.0/HIAE/hillrom/gateway/connecta/json/location_update", qos=0)
+        
+        logger.info("[MQTT-CAMA] Subscrito aos tópicos de Cama e Location.")
     else:
         logger.error(f"[MQTT-CAMA] Falha conexão código: {rc}")
 

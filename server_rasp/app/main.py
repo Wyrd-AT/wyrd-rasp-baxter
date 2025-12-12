@@ -843,17 +843,66 @@ def download_events_csv(
 # ===================================================================
 
 async def bed_state_processor_loop():
-    logger.info("[BED] Processador Iniciado: Lógica 'Modelo-Nome'.")
+    logger.info("[BED] Processador Iniciado (Camas + Connecta IDs).")
     while True:
         try:
-            payload = await bed_state_queue.get()
+            item = await bed_state_queue.get()
             
-            full_id_mqtt = payload.get("id")
-            is_connected = payload.get("connected")
+            # --- TIPO 1: ATUALIZAÇÃO DE MAPA (CONNECTA) ---
+            if item.get("type") == "LOCATION_UPDATE":
+                data = item.get("data", {})
+                locations = data.get("locations", [])
+                
+                logger.info(f"[CONNECTA] Processando lista de {len(locations)} locais...")
+                
+                db = SessionLocal()
+                updates_count = 0
+                try:
+                    for loc_str in locations:
+                        # Formato esperado: ID;PARENT;NOME;TIPO
+                        parts = loc_str.split(';')
+                        
+                        # Precisamos de pelo menos 4 partes para ser um Quarto (ID, Pai, Nome, Tipo)
+                        # Ex: "7;6;101;A"
+                        if len(parts) >= 4:
+                            c_id = parts[0].strip()
+                            # parent = parts[1]
+                            nome = parts[2].strip()
+                            tipo = parts[3].strip()
+                            
+                            # Lógica: Se for Tipo 'A' (Asset/Area) ou se o nome parecer um quarto
+                            # Vamos tentar achar esse nome no nosso banco e atualizar o ID
+                            if tipo == 'A': 
+                                quarto = db.query(Quarto).filter(Quarto.nome == nome).first()
+                                
+                                if quarto:
+                                    # Só atualiza se mudou, para evitar commit desnecessário
+                                    if quarto.connecta_id != c_id:
+                                        logger.info(f"[CONNECTA] Atualizando Quarto '{nome}': ID {quarto.connecta_id or 'N/A'} -> {c_id}")
+                                        quarto.connecta_id = c_id
+                                        updates_count += 1
+                    
+                    if updates_count > 0:
+                        db.commit()
+                        logger.info(f"[CONNECTA] Sincronização concluída. {updates_count} quartos atualizados.")
+                    else:
+                        logger.info("[CONNECTA] Nenhuma alteração necessária nos IDs.")
+                        
+                except Exception as e:
+                    logger.error(f"[CONNECTA] Erro ao processar lista: {e}")
+                finally:
+                    db.close()
+                
+                continue # Pula para o próximo item da fila
+
+            # --- TIPO 2: ESTADO DA CAMA (HILLROM) ---
+            # (Mantém a lógica que já fizemos e que está funcionando)
+            
+            full_id_mqtt = item.get("id")
+            is_connected = item.get("connected")
             
             if not full_id_mqtt: continue
 
-            # Separação MODELO-NOME
             if "-" in full_id_mqtt:
                 partes = full_id_mqtt.split("-", 1)
                 modelo_mqtt = partes[0]
@@ -861,13 +910,9 @@ async def bed_state_processor_loop():
             else:
                 modelo_mqtt = None
                 nome_mqtt = full_id_mqtt
-                logger.warning(f"[BED-WARN] Formato inesperado: {full_id_mqtt}")
-
-            logger.info(f"[BED-PROCESS] Full='{full_id_mqtt}' -> Buscando: Nome='{nome_mqtt}'")
 
             db = SessionLocal()
             try:
-                # Busca Ativo
                 query = db.query(Asset).filter(Asset.nome_ativo == nome_mqtt)
                 if modelo_mqtt:
                     query = query.filter(Asset.modelo.ilike(modelo_mqtt))
@@ -875,68 +920,46 @@ async def bed_state_processor_loop():
                 asset = query.first()
                 
                 if not asset:
-                    logger.warning(f"[BED-ERROR] Cama não encontrada: Nome='{nome_mqtt}' Modelo='{modelo_mqtt}'")
+                    # logger.warning(...) # Pode descomentar se quiser ver os avisos
                     continue
 
-                # --- NOVO: BUSCA DADOS DE SINAL NO AGGREGATOR ---
-                # A cama mandou dados via cabo, mas queremos gravar o sinal BLE/WiFi também.
+                # Busca RSSI do aggregator
                 rssi_atual = None
-                esp_id_atual = "server" # Valor padrão se não acharmos no BLE
+                esp_id_atual = "server"
                 
-                # Acessa a memória em tempo real do motor
                 if asset.mac_beacon and asset.mac_beacon in aggregator._asset_realtime_state:
                     state = aggregator._asset_realtime_state[asset.mac_beacon]
-                    
-                    # Encontra o ESP com o melhor sinal médio neste instante
-                    best_esp = None
-                    best_rssi = -1000
-                    
+                    best_esp, best_rssi = None, -1000
                     for eid in state.readings:
                         avg = state.get_average_rssi(eid)
-                        if avg > best_rssi:
-                            best_rssi = avg
-                            best_esp = eid
-                            
-                    if best_esp:
-                        rssi_atual = int(best_rssi)
-                        esp_id_atual = best_esp
-                # ------------------------------------------------
+                        if avg > best_rssi: best_rssi = avg; best_esp = eid
+                    if best_esp: rssi_atual = int(best_rssi); esp_id_atual = best_esp
 
                 change = None
                 
-                # Conectou -> Confirma
                 if is_connected and asset.location_status in ['PENDENTE', 'ALERTA']:
                     logger.info(f"[BED-ACTION] Conectando {nome_mqtt}. Status -> CONFIRMADO.")
                     change = {
-                        "asset_id": asset.id, 
-                        "new_quarto_id": asset.quarto_id, 
-                        "location_status": "CONFIRMADO", 
-                        "details": f"Cabo Conectado ({modelo_mqtt}).",
-                        "source_esp_id": esp_id_atual, # ADICIONADO: Garante WiFi
-                        "rssi": rssi_atual             # ADICIONADO: Garante RSSI
+                        "asset_id": asset.id, "new_quarto_id": asset.quarto_id, 
+                        "location_status": "CONFIRMADO", "details": f"Cabo Conectado ({modelo_mqtt}).",
+                        "source_esp_id": esp_id_atual, "rssi": rssi_atual
                     }
-                
-                # Desconectou -> Alerta
                 elif not is_connected and asset.location_status == 'CONFIRMADO':
                     logger.info(f"[BED-ACTION] Desconectando {nome_mqtt}. Status -> ALERTA.")
                     change = {
-                        "asset_id": asset.id, 
-                        "new_quarto_id": asset.quarto_id, 
-                        "location_status": "ALERTA", 
-                        "details": "Cabo Desconectado.",
-                        "source_esp_id": esp_id_atual, # ADICIONADO
-                        "rssi": rssi_atual             # ADICIONADO
+                        "asset_id": asset.id, "new_quarto_id": asset.quarto_id, 
+                        "location_status": "ALERTA", "details": "Cabo Desconectado.",
+                        "source_esp_id": esp_id_atual, "rssi": rssi_atual
                     }
                 
                 if change: 
                     await batch_update_asset_assignments(db, [change])
                     db.commit()
-            
             finally: 
                 db.close()
                 
         except Exception as e:
-            logger.error(f"[BED] Erro: {e}")
+            logger.error(f"[BED] Erro no loop: {e}")
         await asyncio.sleep(0.1)
 
 async def check_esp_liveness():
