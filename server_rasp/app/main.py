@@ -896,13 +896,15 @@ async def bed_state_processor_loop():
                 continue # Pula para o próximo item da fila
 
             # --- TIPO 2: ESTADO DA CAMA (HILLROM) ---
-            # (Mantém a lógica que já fizemos e que está funcionando)
             
             full_id_mqtt = item.get("id")
             is_connected = item.get("connected")
             
-            if not full_id_mqtt: continue
+            if not full_id_mqtt: 
+                logger.warning("[BED-DEBUG] Ignorando mensagem sem ID.")
+                continue
 
+            # Separação MODELO-NOME
             if "-" in full_id_mqtt:
                 partes = full_id_mqtt.split("-", 1)
                 modelo_mqtt = partes[0]
@@ -910,6 +912,8 @@ async def bed_state_processor_loop():
             else:
                 modelo_mqtt = None
                 nome_mqtt = full_id_mqtt
+
+            logger.info(f"[BED-DEBUG] Processando: Full='{full_id_mqtt}' -> Nome='{nome_mqtt}' | Modelo='{modelo_mqtt}' | Conectado={is_connected}")
 
             db = SessionLocal()
             try:
@@ -920,8 +924,10 @@ async def bed_state_processor_loop():
                 asset = query.first()
                 
                 if not asset:
-                    # logger.warning(...) # Pode descomentar se quiser ver os avisos
+                    logger.warning(f"[BED-ERROR] Cama não encontrada no DB! Buscado: Nome='{nome_mqtt}' Modelo='{modelo_mqtt}'")
                     continue
+                
+                logger.info(f"[BED-DEBUG] Ativo encontrado: ID={asset.id} | StatusAtual={asset.location_status} | QuartoID={asset.quarto_id}")
 
                 # Busca RSSI do aggregator
                 rssi_atual = None
@@ -933,28 +939,49 @@ async def bed_state_processor_loop():
                     for eid in state.readings:
                         avg = state.get_average_rssi(eid)
                         if avg > best_rssi: best_rssi = avg; best_esp = eid
-                    if best_esp: rssi_atual = int(best_rssi); esp_id_atual = best_esp
+                    
+                    if best_esp: 
+                        rssi_atual = int(best_rssi)
+                        esp_id_atual = best_esp
+                        logger.info(f"[BED-DEBUG] Sinal correlacionado encontrado: ESP={best_esp} RSSI={rssi_atual}")
+                    else:
+                        logger.info(f"[BED-DEBUG] Ativo está na memória, mas sem leituras válidas recentes.")
+                else:
+                    logger.info(f"[BED-DEBUG] Ativo '{asset.mac_beacon}' não está na memória do aggregator (LIVRE/Desconhecido).")
 
                 change = None
                 
-                if is_connected and asset.location_status in ['PENDENTE', 'ALERTA']:
-                    logger.info(f"[BED-ACTION] Conectando {nome_mqtt}. Status -> CONFIRMADO.")
-                    change = {
-                        "asset_id": asset.id, "new_quarto_id": asset.quarto_id, 
-                        "location_status": "CONFIRMADO", "details": f"Cabo Conectado ({modelo_mqtt}).",
-                        "source_esp_id": esp_id_atual, "rssi": rssi_atual
-                    }
-                elif not is_connected and asset.location_status == 'CONFIRMADO':
-                    logger.info(f"[BED-ACTION] Desconectando {nome_mqtt}. Status -> ALERTA.")
-                    change = {
-                        "asset_id": asset.id, "new_quarto_id": asset.quarto_id, 
-                        "location_status": "ALERTA", "details": "Cabo Desconectado.",
-                        "source_esp_id": esp_id_atual, "rssi": rssi_atual
-                    }
+                # LÓGICA DE DECISÃO COM LOGS
+                if is_connected:
+                    # Tenta CONECTAR
+                    if asset.location_status in ['PENDENTE', 'ALERTA']:
+                        logger.info(f"[BED-ACTION] Conectando {nome_mqtt}. (Motivo: Status era {asset.location_status})")
+                        change = {
+                            "asset_id": asset.id, "new_quarto_id": asset.quarto_id, 
+                            "location_status": "CONFIRMADO", "details": f"Cabo Conectado ({modelo_mqtt}).",
+                            "source_esp_id": esp_id_atual, "rssi": rssi_atual
+                        }
+                    elif asset.location_status == 'CONFIRMADO':
+                        logger.info(f"[BED-DEBUG] Ignorando conexão: Cama já está CONFIRMADA.")
+                    else: # Status LIVRE
+                        logger.warning(f"[BED-DEBUG] Ignorando conexão: Cama está LIVRE (precisa entrar no quarto via BLE primeiro).")
+
+                else:
+                    # Tenta DESCONECTAR
+                    if asset.location_status == 'CONFIRMADO':
+                        logger.info(f"[BED-ACTION] Desconectando {nome_mqtt}. (Motivo: Cabo soltou)")
+                        change = {
+                            "asset_id": asset.id, "new_quarto_id": asset.quarto_id, 
+                            "location_status": "ALERTA", "details": "Cabo Desconectado.",
+                            "source_esp_id": esp_id_atual, "rssi": rssi_atual
+                        }
+                    else:
+                        logger.info(f"[BED-DEBUG] Ignorando desconexão: Status atual é {asset.location_status} (não é CONFIRMADO).")
                 
                 if change: 
                     await batch_update_asset_assignments(db, [change])
                     db.commit()
+                    logger.info("[BED-SUCCESS] Banco de dados atualizado.")
             finally: 
                 db.close()
                 

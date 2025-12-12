@@ -1,115 +1,63 @@
 # ==============================================================================
-# ARQUIVO: dispatcher.py
+# ARQUIVO: app/dispatcher.py (VERSÃO HTTP)
 # ==============================================================================
-"""
-Propósito do Arquivo:
-Envia o resultado final de um evento para o sistema externo (Connecta).
-
-Funções Chave no Fluxo:
-- `dispatch_event(evt)`: Recebe os dados de um evento resolvido (ex: "Cama X
-  no Quarto Y"), formata em JSON e envia via socket TCP, com tentativas
-  automáticas em caso de falha.
-"""
-
-import socket
+import requests
 import json
 import time
+import logging
 from .config import settings
 
-import logging
 logger = logging.getLogger(__name__)
 
-# --- Seção: Estratégia de Nova Tentativa (Exponential Backoff) ---
-# Esta função auxiliar implementa uma estratégia de "backoff exponencial".
-# A cada nova tentativa de conexão falha, ela calcula um tempo de espera
-# que aumenta exponencialmente (2^1, 2^2, 2^3...), até um limite máximo.
-# Isso evita sobrecarregar o serviço de destino com tentativas muito rápidas.
 def exponential_backoff(attempt):
-    # O tempo de espera dobra a cada tentativa, mas não passa de 30 segundos.
+    """Calcula tempo de espera: 2s, 4s, 8s, 16s, 30s (max)."""
     return min(2 ** attempt, 30)
 
-# --- Seção: Função Principal de Despacho ---
-# A função 'dispatch_event' é o coração deste módulo.
-# Ela recebe um evento, monta o payload JSON no formato esperado pelo
-# sistema de destino, e tenta enviá-lo via socket TCP.
-def dispatch_event(evt: dict) -> bool: # O parâmetro 'evt' é o dicionário completo
+def dispatch_event(evt: dict) -> bool:
     """
-    Envia um evento pré-formatado para o sistema final.
+    Envia o evento via HTTP POST para o sistema externo usando
+    o IP e Porta definidos no arquivo de configuração.
     """
-    # --- INÍCIO DA CORREÇÃO ---
-    # Remove a recriação do payload. Agora, 'evt' já é o payload final.
-    payload = evt
-    # --- FIM DA CORREÇÃO ---
+    # 1. Carrega configurações
+    ip = settings.get("final_ip")
+    port = settings.get("final_port")
+    
+    if not ip or not port:
+        logger.error("[DISPATCH-HTTP] Erro: 'final_ip' ou 'final_port' não configurados no config.ini")
+        return False
 
-    msg = json.dumps(payload) + "\n"
-    logger.info(f"[dispatch_event] Payload montado: {payload}")
+    # 2. Monta a URL de destino
+    # Ajuste o caminho '/integration/event' se o seu servidor esperar outro endpoint
+    url = f"http://{ip}:{port}/rtls/" 
+
+    logger.info(f"[DISPATCH-HTTP] Preparando envio para {url}. Payload: {evt}")
 
     attempt = 0
-    while attempt < 5:
+    max_attempts = 5
+
+    while attempt < max_attempts:
         try:
             attempt += 1
-            logger.info(f"[dispatch_event] Tentativa {attempt} de conexão...")
-            with socket.create_connection((settings.get("final_ip"), int(settings.get("final_port"))), timeout=5) as sock:
-                sock.sendall(msg.encode())
-                logger.info(f"[dispatch_event] Payload enviado com sucesso.")
+            
+            # 3. Envia o POST
+            # O parâmetro json=evt faz a serialização automática e adiciona o header Content-Type: application/json
+            response = requests.post(url, json=evt, timeout=5)
+            
+            # 4. Verifica Sucesso (Códigos 200 a 299)
+            if 200 <= response.status_code < 300:
+                logger.info(f"[DISPATCH-HTTP] Sucesso! Servidor respondeu: {response.status_code}")
                 return True
-        except (socket.timeout, socket.error) as e:
+            else:
+                # Se o servidor responder erro (ex: 404, 500), loga e tenta de novo
+                logger.warning(f"[DISPATCH-HTTP] Falha na tentativa {attempt}. Status: {response.status_code} - Corpo: {response.text}")
+                # Força uma exceção para cair no bloco except e aguardar o backoff
+                raise requests.exceptions.RequestException(f"Status HTTP inválido: {response.status_code}")
+
+        except requests.exceptions.RequestException as e:
             wait = exponential_backoff(attempt)
-            logger.info(f"[dispatch_event] Erro ao enviar (tentativa {attempt}): {e!r}. Aguardando {wait}s.")
+            logger.info(f"[DISPATCH-HTTP] Erro de conexão na tentativa {attempt}: {e}. Aguardando {wait}s...")
             time.sleep(wait)
-    else:
-        logger.info(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
-        return False
-    
-
-# import requests
-# import json
-# import time
-# import logging
-# from .config import settings
-
-# logger = logging.getLogger(__name__)
-
-# def exponential_backoff(attempt):
-#     return min(2 ** attempt, 30)
-
-# def dispatch_event(evt: dict) -> bool:
-#     """
-#     Envia o evento via HTTP POST para o sistema externo.
-#     """
-#     # Monta a URL (Assumindo http, você pode ajustar para https se tiver certificado)
-#     # Você pode adicionar um path específico no config se precisar, ex: /api/v1/eventos
-#     ip = settings.get("final_ip")
-#     port = settings.get("final_port")
-    
-#     # URL de destino (Ex: http://192.168.0.50:9500/receber_evento)
-#     # Se não tiver endpoint específico, deixe apenas a raiz ou ajuste aqui:
-#     url = f"http://{ip}:{port}/integration/event" 
-
-#     logger.info(f"[DISPATCH-HTTP] Preparando envio para {url}. Payload: {evt}")
-
-#     attempt = 0
-#     while attempt < 5:
-#         try:
-#             attempt += 1
-#             # Envia o POST. O parâmetro 'json=' já faz o dumps e põe o header application/json
-#             response = requests.post(url, json=evt, timeout=5)
             
-#             # Verifica se o servidor respondeu com sucesso (200-299)
-#             if response.status_code >= 200 and response.status_code < 300:
-#                 logger.info(f"[DISPATCH-HTTP] Sucesso! Resposta: {response.status_code}")
-#                 return True
-#             else:
-#                 logger.warning(f"[DISPATCH-HTTP] Falha. Servidor respondeu: {response.status_code} - {response.text}")
-#                 # Dependendo da lógica, você pode querer tentar de novo ou desistir aqui
-#                 # Vamos contar como erro para tentar de novo no loop
-#                 raise requests.exceptions.RequestException(f"Status ruim: {response.status_code}")
-
-#         except requests.exceptions.RequestException as e:
-#             wait = exponential_backoff(attempt)
-#             logger.info(f"[DISPATCH-HTTP] Erro na tentativa {attempt}: {e}. Aguardando {wait}s.")
-#             time.sleep(wait)
-            
-#     else:
-#         logger.error(f"[DISPATCH-HTTP] FALHA FINAL após {attempt} tentativas. Evento descartado.")
-#         return False
+    # Se sair do loop, falhou todas as vezes
+    logger.error(f"[DISPATCH-HTTP] FALHA FINAL após {attempt} tentativas. Evento descartado.")
+    return False

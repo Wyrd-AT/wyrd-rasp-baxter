@@ -29,7 +29,8 @@ def on_bed_message(client, userdata, msg):
             # Adiciona o tipo para o processador saber diferenciar
             payload_json["type"] = "BED_STATE"
             bed_state_queue.put_nowait(payload_json)
-            # logger.info(...) # Opcional: manter log de cama aqui se quiser
+            
+            logger.info(f"[MQTT-CAMA] Mensagem recebida da cama '{payload_json.get('id')}'. Enfileirada.")
         
     except Exception as e:
         logger.error(f"[MQTT-CAMA] Erro ao processar mensagem: {e}")
