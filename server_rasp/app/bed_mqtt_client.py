@@ -39,10 +39,10 @@ def on_bed_connect(client, userdata, flags, rc):
         logger.info("[MQTT-CAMA] Conectado ao Broker!")
         
         # 1. Tópico das Camas
-        client.subscribe("2.0/HIAE/hillrom/bed/+/json/state", qos=0)
+        client.subscribe("2.0/HBAX/hillrom/bed/+/json/state", qos=0)
         
         # 2. NOVO: Tópico de Atualização de Localização (Connecta)
-        client.subscribe("2.0/HIAE/hillrom/gateway/connecta/json/location_update", qos=0)
+        client.subscribe("2.0/HBAX/hillrom/gateway/connecta/json/location_update", qos=0)
         
         logger.info("[MQTT-CAMA] Subscrito aos tópicos de Cama e Location.")
     else:

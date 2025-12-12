@@ -258,26 +258,25 @@ async def _processar_localizacoes():
             elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
                 quarto_id_atual = asset_info.get("quarto_id")
                 
-                # Está estável se o melhor sinal AINDA é do quarto atual E é forte o suficiente
-                # (Ou se o sinal caiu um pouco mas ainda é o melhor, mantemos pela inércia)
-                is_stable = (strongest.get("quarto_id") == quarto_id_atual)
+                # --- CORREÇÃO CRÍTICA AQUI ---
+                # Estável = (É o quarto certo) E (O sinal está ACIMA do threshold)
+                # Se o sinal cair abaixo do threshold, mesmo sendo o "vencedor", ele vira instável.
+                is_stable = (strongest.get("quarto_id") == quarto_id_atual) and (strongest["avg_rssi"] >= threshold_efetivo)
 
                 if is_stable:
                     state.weak_signal_since = None
                 else:
+                    # Inicia contagem de saída (seja por mudar de quarto ou por sinal fraco)
                     if state.weak_signal_since is None: state.weak_signal_since = time.time()
                     
                     if (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
-                        # CORREÇÃO 3: Passa RSSI e ESP ID na SAÍDA
-                        # Mesmo saindo, usamos o 'strongest' (que pode ser fraco ou de outro quarto) 
-                        # para registrar onde foi a última leitura.
                         changes_to_commit.append({
                             "asset_id": asset_id, 
                             "new_quarto_id": None, 
                             "location_status": "LIVRE", 
-                            "details": "Saída detectada.",
-                            "source_esp_id": strongest["esp_id"], # Pega Wi-Fi do ESP que viu (mesmo que fraco)
-                            "rssi": int(strongest["avg_rssi"])    # Grava a média fraca que causou a saída
+                            "details": "Saída confirmada (Sinal fraco ou ausente).",
+                            "source_esp_id": strongest["esp_id"], 
+                            "rssi": int(strongest["avg_rssi"])
                         })
                         state.state = 'LIVRE'
                         state.pending_start_time = None
@@ -337,7 +336,7 @@ def _load_maps_from_db():
         if "inercia_saida" in s_dict: _config["inertia_saida_ms"] = int(s_dict["inercia_saida"])
 
         # Configuração do Tempo Limite de Pendente (Padrão: 30 minutos = 1800 segundos)
-        _config["pending_timeout_sec"] = int(s_dict.get("pending_timeout", 30))
+        _config["pending_timeout_sec"] = int(s_dict.get("pending_timeout", 300))
 
         logger.info(f"[RTLS] Configuração -> Pendente Timeout: {_config['pending_timeout_sec']}s")
         
