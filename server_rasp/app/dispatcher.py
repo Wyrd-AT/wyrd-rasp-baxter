@@ -60,3 +60,56 @@ def dispatch_event(evt: dict) -> bool: # O parâmetro 'evt' é o dicionário com
     else:
         logger.info(f"[dispatch_event] FALHA FINAL após {attempt} tentativas. Payload descartado.")
         return False
+    
+
+# import requests
+# import json
+# import time
+# import logging
+# from .config import settings
+
+# logger = logging.getLogger(__name__)
+
+# def exponential_backoff(attempt):
+#     return min(2 ** attempt, 30)
+
+# def dispatch_event(evt: dict) -> bool:
+#     """
+#     Envia o evento via HTTP POST para o sistema externo.
+#     """
+#     # Monta a URL (Assumindo http, você pode ajustar para https se tiver certificado)
+#     # Você pode adicionar um path específico no config se precisar, ex: /api/v1/eventos
+#     ip = settings.get("final_ip")
+#     port = settings.get("final_port")
+    
+#     # URL de destino (Ex: http://192.168.0.50:9500/receber_evento)
+#     # Se não tiver endpoint específico, deixe apenas a raiz ou ajuste aqui:
+#     url = f"http://{ip}:{port}/integration/event" 
+
+#     logger.info(f"[DISPATCH-HTTP] Preparando envio para {url}. Payload: {evt}")
+
+#     attempt = 0
+#     while attempt < 5:
+#         try:
+#             attempt += 1
+#             # Envia o POST. O parâmetro 'json=' já faz o dumps e põe o header application/json
+#             response = requests.post(url, json=evt, timeout=5)
+            
+#             # Verifica se o servidor respondeu com sucesso (200-299)
+#             if response.status_code >= 200 and response.status_code < 300:
+#                 logger.info(f"[DISPATCH-HTTP] Sucesso! Resposta: {response.status_code}")
+#                 return True
+#             else:
+#                 logger.warning(f"[DISPATCH-HTTP] Falha. Servidor respondeu: {response.status_code} - {response.text}")
+#                 # Dependendo da lógica, você pode querer tentar de novo ou desistir aqui
+#                 # Vamos contar como erro para tentar de novo no loop
+#                 raise requests.exceptions.RequestException(f"Status ruim: {response.status_code}")
+
+#         except requests.exceptions.RequestException as e:
+#             wait = exponential_backoff(attempt)
+#             logger.info(f"[DISPATCH-HTTP] Erro na tentativa {attempt}: {e}. Aguardando {wait}s.")
+#             time.sleep(wait)
+            
+#     else:
+#         logger.error(f"[DISPATCH-HTTP] FALHA FINAL após {attempt} tentativas. Evento descartado.")
+#         return False

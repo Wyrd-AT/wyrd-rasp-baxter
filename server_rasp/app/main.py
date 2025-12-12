@@ -334,12 +334,14 @@ def reconfigure_esp(request: Request, embarcado_id: int, db: Session = Depends(g
 async def reboot_esp(request: Request, embarcado_id: int, db: Session = Depends(get_db)):
     embarcado = db.query(Embarcado).get(embarcado_id)
     if embarcado:
-        if embarcado.quarto_id:
-            asset_no_quarto = db.query(Asset).filter(Asset.quarto_id == embarcado.quarto_id).first()
-            if asset_no_quarto:
-                await force_asset_removal(db=db, asset_id=asset_no_quarto.id, details="Reboot ESP")
+        # --- CORREÇÃO: Removemos a limpeza forçada de ativos ---
+        # O ativo deve permanecer no quarto (CONFIRMADO) enquanto o ESP reinicia.
+        # Se o ESP demorar demais (timeout), a tarefa 'check_esp_liveness' cuidará disso.
+        
+        logger.info(f"[API] Enviando comando REBOOT para ESP {embarcado.id_esp}")
         command = {"type": "command", "data": {"name": "REBOOT"}}
         mqtt_client.publish_command_to_esp(esp_id=embarcado.id_esp, command=command)
+        
     return RedirectResponse(request.url_for("list_embarcados"), status_code=303)
 
 @app.post("/quartos/{quarto_id}/force_cleanup", name="force_quarto_cleanup")
@@ -662,38 +664,179 @@ def download_assets_csv(db: Session = Depends(get_db)):
 # ===================================================================
 # HISTÓRICO DE EVENTOS
 # ===================================================================
+from datetime import timedelta, timezone
+
+SP_TZ = timezone(timedelta(hours=-3))
+
 @app.get("/events", name="list_events")
-def list_events(request: Request, page: int = Query(1), filter_ativo: Optional[str] = None, filter_quarto: Optional[str] = None, db: Session = Depends(get_db)):
+def list_events(request: Request, 
+                page: int = Query(1), 
+                search: Optional[str] = None,
+                filter_ativo: Optional[str] = None, 
+                filter_quarto: Optional[str] = None, 
+                filter_andar: Optional[str] = None,
+                filter_status: Optional[str] = None, # Mudamos de action para status para ficar claro
+                sort_by: str = Query("data_on"), 
+                order: str = Query("desc"),
+                db: Session = Depends(get_db)):
+    
     query = db.query(ReceivedEvent)
+    
+    if search:
+        st = f"%{search}%"
+        query = query.filter(or_(
+            ReceivedEvent.ativo.ilike(st),
+            ReceivedEvent.quarto_nome.ilike(st),
+            ReceivedEvent.status_detail.ilike(st)
+        ))
+
     if filter_ativo: query = query.filter(ReceivedEvent.ativo == filter_ativo)
     if filter_quarto: query = query.filter(ReceivedEvent.quarto_nome == filter_quarto)
+    if filter_andar: query = query.filter(ReceivedEvent.andar_nome == filter_andar)
+    
+    # Filtro de Status (GET, OUT, ALERTA)
+    if filter_status: query = query.filter(ReceivedEvent.status == filter_status)
+    
+    # Ordenação
+    col_map = {
+        "data_on": ReceivedEvent.data_on, "ativo": ReceivedEvent.ativo,
+        "quarto_nome": ReceivedEvent.quarto_nome, "andar_nome": ReceivedEvent.andar_nome,
+        "rssi": ReceivedEvent.rssi, "wifi": ReceivedEvent.wifi,
+        "status": ReceivedEvent.status
+    }
+    col = col_map.get(sort_by, ReceivedEvent.data_on)
+    query = query.order_by(asc(col) if order == "asc" else desc(col))
+
+    # Paginação
     total = query.count()
     events = query.order_by(ReceivedEvent.data_on.desc()).offset((page-1)*EVENT_PAGE_SIZE).limit(EVENT_PAGE_SIZE).all()
     
     asset_map = {a.mac_beacon: a.nome_ativo for a in db.query(Asset).all()}
+    
+    # Formatação
     for e in events:
         e.nome_ativo = asset_map.get(e.ativo, e.ativo)
-        e.quarto = e.quarto_nome or "N/A"
-        if e.data_on: e.data_str = e.data_on.strftime("%d/%m/%Y %H:%M:%S")
-        e.tooltip_text = f"{e.status} - {e.status_detail}"
+        
+        # Fuso Horário
+        dt = e.data_on.replace(tzinfo=timezone.utc) if e.data_on.tzinfo is None else e.data_on
+        local = dt.astimezone(SP_TZ)
+        e.data_str = local.strftime("%d/%m/%Y")
+        e.hora_str = local.strftime("%H:%M:%S")
+        
+        if e.rssi is None: e.rssi = "---"
+        if e.wifi is None: e.wifi = "---"
+
+        # Lógica Visual Simplificada (Só existem 3 opções agora)
+        if e.status == 'GET':
+            e.pill_class = 'conectado'; e.pill_text = 'Conectado'
+        elif e.status == 'OUT':
+            e.pill_class = 'desconectado'; e.pill_text = 'Desconectado'
+        elif e.status == 'ALERTA':
+            e.pill_class = 'alerta'; e.pill_text = 'Alerta'
+        else:
+            # Caso legado (banco antigo)
+            e.pill_class = 'desconectado'; e.pill_text = e.status
+
+    # Dropdowns
+    assets = db.query(Asset.nome_ativo, Asset.mac_beacon).order_by(Asset.nome_ativo).all()
+    quartos = [r[0] for r in db.query(ReceivedEvent.quarto_nome).distinct().order_by(ReceivedEvent.quarto_nome).all() if r[0]]
+    andares = [r[0] for r in db.query(ReceivedEvent.andar_nome).distinct().order_by(ReceivedEvent.andar_nome).all() if r[0]]
+    
+    # Opções Rígidas
+    status_opts = [("GET", "Conectado"), ("ALERTA", "Alerta"), ("OUT", "Desconectado")]
 
     return templates.TemplateResponse("events_list.html", {
         "request": request, "events": events, "page": page, "has_next": total > page * EVENT_PAGE_SIZE,
-        "all_assets": db.query(Asset.nome_ativo, Asset.mac_beacon).all(), "all_quartos": [q.nome for q in db.query(Quarto).all()],
-        "current_filters": {"ativo": filter_ativo, "quarto": filter_quarto}
+        "all_assets": assets, "all_quartos": quartos, "all_andares": andares, 
+        "status_opts": status_opts, # Passamos as opções novas
+        "current_filters": {
+            "search": search, "ativo": filter_ativo, "quarto": filter_quarto, 
+            "andar": filter_andar, "status": filter_status, "sort_by": sort_by, "order": order
+        }
     })
 
 @app.get("/events/download", name="download_events_csv")
-def download_events_csv(db: Session = Depends(get_db)):
-    events = db.query(ReceivedEvent).order_by(ReceivedEvent.data_on.desc()).all()
+def download_events_csv(
+    # --- Recebe os mesmos filtros da tela ---
+    search: Optional[str] = None,
+    filter_ativo: Optional[str] = None, 
+    filter_quarto: Optional[str] = None, 
+    filter_andar: Optional[str] = None,
+    filter_status: Optional[str] = None, # Nome do input no HTML novo
+    # ----------------------------------------
+    db: Session = Depends(get_db)
+):
+    query = db.query(ReceivedEvent)
+    
+    # --- APLICA OS MESMOS FILTROS DA LISTA ---
+    if search:
+        st = f"%{search}%"
+        query = query.filter(or_(
+            ReceivedEvent.ativo.ilike(st),
+            ReceivedEvent.quarto_nome.ilike(st),
+            ReceivedEvent.status_detail.ilike(st)
+        ))
+
+    if filter_ativo: query = query.filter(ReceivedEvent.ativo == filter_ativo)
+    if filter_quarto: query = query.filter(ReceivedEvent.quarto_nome == filter_quarto)
+    if filter_andar: query = query.filter(ReceivedEvent.andar_nome == filter_andar)
+    if filter_status: query = query.filter(ReceivedEvent.status == filter_status)
+
+    # Ordenação padrão por data decrescente
+    events = query.order_by(ReceivedEvent.data_on.desc()).all()
+    
+    asset_map = {a.mac_beacon: a.nome_ativo for a in db.query(Asset).all()}
+
     def iter_csv():
-        buf = StringIO(); writer = csv.writer(buf)
-        writer.writerow(["Data", "Ativo", "Quarto", "Status", "Acao"])
+        buf = StringIO()
+        # Define o delimitador como ponto e vírgula (padrão Excel BR)
+        writer = csv.writer(buf, delimiter=';') 
+        
+        # Cabeçalho
+        writer.writerow(["Data", "Hora", "Ativo", "Quarto", "Andar", "Status", "Detalhe", "Sinal BLE", "Sinal WiFi"])
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+        
         for e in events:
-            writer.writerow([e.data_on, e.ativo, e.quarto_nome, e.status, e.action])
+            # 1. Ajuste de Fuso
+            if e.data_on.tzinfo is None: dt = e.data_on.replace(tzinfo=timezone.utc)
+            else: dt = e.data_on
+            local_dt = dt.astimezone(SP_TZ)
+            
+            data_s = local_dt.strftime("%d/%m/%Y")
+            hora_s = local_dt.strftime("%H:%M:%S")
+            
+            # 2. Nome Amigável do Ativo
+            nome = asset_map.get(e.ativo, e.ativo)
+            
+            # 3. TRADUÇÃO DE STATUS (Conectado / Desconectado / Alerta)
+            status_csv = "Alerta" # Padrão
+            
+            if e.status == 'GET' or e.status == 'CONFIRMADO':
+                status_csv = "Conectado"
+            elif e.status == 'OUT' or e.status == 'LIVRE':
+                status_csv = "Desconectado"
+            elif e.status == 'ALERTA':
+                status_csv = "Alerta"
+            
+            # Formata Sinais
+            rssi_s = f"{e.rssi} dBm" if e.rssi is not None else "---"
+            wifi_s = f"{e.wifi} dBm" if e.wifi is not None else "---"
+
+            writer.writerow([
+                data_s, 
+                hora_s, 
+                nome, 
+                e.quarto_nome or "---", 
+                e.andar_nome or "---", 
+                status_csv,       # Texto traduzido (ex: Conectado)
+                e.status_detail,  # Detalhe técnico (ex: Confirmado via cabo)
+                rssi_s, 
+                wifi_s
+            ])
             yield buf.getvalue(); buf.seek(0); buf.truncate(0)
-    return StreamingResponse(iter_csv(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=eventos.csv"})
+            
+    filename = f"historico_{datetime.now().strftime('%Y%m%d_%H%M')}.csv"
+    return StreamingResponse(iter_csv(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 # ===================================================================
 # TAREFAS DE BACKGROUND
@@ -705,45 +848,60 @@ async def bed_state_processor_loop():
         try:
             payload = await bed_state_queue.get()
             
-            # O ID vem completo do MQTT (ex: "Accella-HRP00000E9D2")
             full_id_mqtt = payload.get("id")
             is_connected = payload.get("connected")
             
             if not full_id_mqtt: continue
 
-            # --- LÓGICA DE SEPARAÇÃO (SPLIT) ---
-            # Esperamos algo como "MODELO-NOME"
+            # Separação MODELO-NOME
             if "-" in full_id_mqtt:
-                # Divide apenas no primeiro traço
                 partes = full_id_mqtt.split("-", 1)
-                modelo_mqtt = partes[0]  # "Accella"
-                nome_mqtt = partes[1]    # "HRP00000E9D2"
+                modelo_mqtt = partes[0]
+                nome_mqtt = partes[1]
             else:
-                # Se não tiver traço, assumimos que é tudo Nome e sem Modelo definido
                 modelo_mqtt = None
                 nome_mqtt = full_id_mqtt
-                logger.warning(f"[BED-WARN] Formato inesperado (sem hífen): {full_id_mqtt}")
+                logger.warning(f"[BED-WARN] Formato inesperado: {full_id_mqtt}")
 
-            logger.info(f"[BED-PROCESS] Full='{full_id_mqtt}' -> Buscando: Nome='{nome_mqtt}' + Modelo='{modelo_mqtt}'")
+            logger.info(f"[BED-PROCESS] Full='{full_id_mqtt}' -> Buscando: Nome='{nome_mqtt}'")
 
             db = SessionLocal()
             try:
-                # Busca Ativo:
-                # 1. Nome deve ser igual (HRP...)
-                # 2. Modelo deve ser igual (Accella...), ignorando maiúsculas/minúsculas
+                # Busca Ativo
                 query = db.query(Asset).filter(Asset.nome_ativo == nome_mqtt)
-                
                 if modelo_mqtt:
                     query = query.filter(Asset.modelo.ilike(modelo_mqtt))
                 
                 asset = query.first()
                 
                 if not asset:
-                    logger.warning(f"[BED-ERROR] Cama não encontrada no banco!")
-                    logger.warning(f"   -> Verifique se cadastrou o ativo com Nome: '{nome_mqtt}' e Modelo: '{modelo_mqtt}'")
+                    logger.warning(f"[BED-ERROR] Cama não encontrada: Nome='{nome_mqtt}' Modelo='{modelo_mqtt}'")
                     continue
 
-                # --- LÓGICA DE ATUALIZAÇÃO (Igual à anterior) ---
+                # --- NOVO: BUSCA DADOS DE SINAL NO AGGREGATOR ---
+                # A cama mandou dados via cabo, mas queremos gravar o sinal BLE/WiFi também.
+                rssi_atual = None
+                esp_id_atual = "server" # Valor padrão se não acharmos no BLE
+                
+                # Acessa a memória em tempo real do motor
+                if asset.mac_beacon and asset.mac_beacon in aggregator._asset_realtime_state:
+                    state = aggregator._asset_realtime_state[asset.mac_beacon]
+                    
+                    # Encontra o ESP com o melhor sinal médio neste instante
+                    best_esp = None
+                    best_rssi = -1000
+                    
+                    for eid in state.readings:
+                        avg = state.get_average_rssi(eid)
+                        if avg > best_rssi:
+                            best_rssi = avg
+                            best_esp = eid
+                            
+                    if best_esp:
+                        rssi_atual = int(best_rssi)
+                        esp_id_atual = best_esp
+                # ------------------------------------------------
+
                 change = None
                 
                 # Conectou -> Confirma
@@ -753,7 +911,9 @@ async def bed_state_processor_loop():
                         "asset_id": asset.id, 
                         "new_quarto_id": asset.quarto_id, 
                         "location_status": "CONFIRMADO", 
-                        "details": f"Cabo Conectado ({modelo_mqtt})."
+                        "details": f"Cabo Conectado ({modelo_mqtt}).",
+                        "source_esp_id": esp_id_atual, # ADICIONADO: Garante WiFi
+                        "rssi": rssi_atual             # ADICIONADO: Garante RSSI
                     }
                 
                 # Desconectou -> Alerta
@@ -763,7 +923,9 @@ async def bed_state_processor_loop():
                         "asset_id": asset.id, 
                         "new_quarto_id": asset.quarto_id, 
                         "location_status": "ALERTA", 
-                        "details": "Cabo Desconectado."
+                        "details": "Cabo Desconectado.",
+                        "source_esp_id": esp_id_atual, # ADICIONADO
+                        "rssi": rssi_atual             # ADICIONADO
                     }
                 
                 if change: 

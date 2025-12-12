@@ -158,6 +158,8 @@ async def _consume_scan_data_queue():
             
             _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
 
+# ARQUIVO: app/aggregator.py
+
 async def _processar_localizacoes():
     if not _esp_map or not _asset_map: return
 
@@ -174,17 +176,27 @@ async def _processar_localizacoes():
                 state.disappearance_count += 1
                 if state.disappearance_count >= DISAPPEARANCE_TOLERANCE_CYCLES:
                     if asset_info.get("quarto_id") is not None:
-                        changes_to_commit.append({"asset_id": asset_id, "new_quarto_id": None, "details": "Sinal perdido."})
+                        # CORREÇÃO 1: Tenta pegar o último ESP conhecido para registrar o log de perda
+                        last_esp = list(state.readings.keys())[0] if state.readings else "unknown"
+                        changes_to_commit.append({
+                            "asset_id": asset_id, 
+                            "new_quarto_id": None, 
+                            "location_status": "LIVRE",
+                            "details": "Sinal perdido (Timeout).",
+                            "source_esp_id": last_esp, # Ajuda a pegar o WiFi do local onde sumiu
+                            "rssi": -100
+                        })
                     if mac in _asset_realtime_state: del _asset_realtime_state[mac]
                 continue
 
             # 2. Cálculo do melhor sinal
             strongest = {"esp_id": None, "avg_rssi": -1000, "quarto_id": None}
+            
             for esp_id in state.readings:
                 if esp_id not in _esp_map: continue
                 qid, thresh_individual = _esp_map[esp_id]
                 
-                # Anti-roubo/Anti-conflito: Só considera se o quarto estiver vazio ou for o da própria cama
+                # Anti-roubo: Só considera se o quarto estiver vazio ou for o da própria cama
                 quarto_ocupado = False
                 for omac, oinfo in _asset_map.items():
                     if omac != mac and oinfo.get("quarto_id") == qid:
@@ -192,58 +204,63 @@ async def _processar_localizacoes():
                 if quarto_ocupado: continue
                 
                 avg = state.get_average_rssi(esp_id)
-                thr = thresh_individual if thresh_individual is not None else _config["default_rssi_threshold"]
-                if avg > thr and avg > strongest["avg_rssi"]:
+                # Seleciona o melhor, independente de threshold (para saber onde está, mesmo que fraco)
+                if avg > strongest["avg_rssi"]:
                     strongest = {"esp_id": esp_id, "avg_rssi": avg, "quarto_id": qid}
+
+            # Define Threshold efetivo para decisões
+            threshold_efetivo = _config["default_rssi_threshold"]
+            if strongest["esp_id"] and strongest["esp_id"] in _esp_map:
+                _, t_ind = _esp_map[strongest["esp_id"]]
+                if t_ind is not None: threshold_efetivo = t_ind
 
             # 3. MÁQUINA DE ESTADOS
 
-            # --- REGRA NOVA: TIMEOUT DE PENDENTE ---
+            # --- TIMEOUT DE PENDENTE ---
             if state.state == 'PENDENTE' and state.pending_start_time:
-                # Se passou de 30 minutos (1800s)
                 if (time.time() - state.pending_start_time) > _config.get("pending_timeout_sec", 1800):
                     changes_to_commit.append({
                         "asset_id": asset_id,
-                        # Mantém o mesmo quarto
                         "new_quarto_id": asset_info.get("quarto_id"),
-                        "location_status": "ALERTA", # Muda apenas o status
-                        "details": "Tempo limite de Pendência excedido (30min)."
+                        "location_status": "ALERTA", 
+                        "details": "Tempo limite de Pendência excedido.",
+                        # Mantém dados do ESP atual para o log
+                        "source_esp_id": strongest["esp_id"],
+                        "rssi": int(strongest["avg_rssi"])
                     })
                     state.state = 'ALERTA'
-                    state.pending_start_time = None # Limpa timer
+                    state.pending_start_time = None
 
-            # --- Estado LIVRE (Entrada) ---
+            # --- ENTRADA (LIVRE) ---
             if state.state == 'LIVRE':
-                cand_qid = strongest["quarto_id"]
+                # Só considera candidato se o sinal for BOM (acima do threshold)
+                cand_qid = strongest["quarto_id"] if strongest["avg_rssi"] > threshold_efetivo else None
+                
                 if cand_qid != state.candidate_quarto_id:
                     state.candidate_quarto_id = cand_qid
                     state.candidate_since = time.time() if cand_qid else None
 
                 if state.candidate_since and (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
-                    if state.candidate_quarto_id == cand_qid:
-                        # Entra como PENDENTE e inicia o timer
-                        change = {
+                    if state.candidate_quarto_id == cand_qid and cand_qid is not None:
+                        # CORREÇÃO 2: Passa RSSI e ESP ID na entrada
+                        changes_to_commit.append({
                             "asset_id": asset_id, "new_quarto_id": cand_qid, 
                             "location_status": "PENDENTE", 
-                            "details": "Entrada no quarto (Aguardando Cabo).",
-                            "source_esp_id": strongest["esp_id"]
-                        }
-                        changes_to_commit.append(change)
+                            "details": "Entrada no quarto (Aguardando Cama ligar).",
+                            "source_esp_id": strongest["esp_id"], # CRÍTICO: Pega Wi-Fi deste ESP
+                            "rssi": int(strongest["avg_rssi"])    # CRÍTICO: Grava média BLE
+                        })
                         state.state = 'PENDENTE'
-                        state.pending_start_time = time.time() # Inicia contagem dos 30 min
+                        state.pending_start_time = time.time()
                         state.candidate_quarto_id, state.candidate_since = None, None
 
-            # --- Estado DENTRO (Saída) ---
-            # Isso vale para PENDENTE, CONFIRMADO e ALERTA
+            # --- SAÍDA (DENTRO) ---
             elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
-                current_qid = asset_info.get("quarto_id")
+                quarto_id_atual = asset_info.get("quarto_id")
                 
-                # ANTI-TELETRANSPORTE:
-                # A única forma de sair é se o sinal do quarto ATUAL ficar ruim 
-                # ou se outro ficar melhor (o que implica que o atual não é mais o 'strongest')
-                # Em ambos os casos, a ação é ir para LIVRE primeiro.
-                
-                is_stable = (strongest.get("quarto_id") == current_qid)
+                # Está estável se o melhor sinal AINDA é do quarto atual E é forte o suficiente
+                # (Ou se o sinal caiu um pouco mas ainda é o melhor, mantemos pela inércia)
+                is_stable = (strongest.get("quarto_id") == quarto_id_atual)
 
                 if is_stable:
                     state.weak_signal_since = None
@@ -251,9 +268,16 @@ async def _processar_localizacoes():
                     if state.weak_signal_since is None: state.weak_signal_since = time.time()
                     
                     if (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
+                        # CORREÇÃO 3: Passa RSSI e ESP ID na SAÍDA
+                        # Mesmo saindo, usamos o 'strongest' (que pode ser fraco ou de outro quarto) 
+                        # para registrar onde foi a última leitura.
                         changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": None, 
-                            "location_status": "LIVRE", "details": "Saída detectada."
+                            "asset_id": asset_id, 
+                            "new_quarto_id": None, 
+                            "location_status": "LIVRE", 
+                            "details": "Saída detectada.",
+                            "source_esp_id": strongest["esp_id"], # Pega Wi-Fi do ESP que viu (mesmo que fraco)
+                            "rssi": int(strongest["avg_rssi"])    # Grava a média fraca que causou a saída
                         })
                         state.state = 'LIVRE'
                         state.pending_start_time = None
@@ -313,7 +337,7 @@ def _load_maps_from_db():
         if "inercia_saida" in s_dict: _config["inertia_saida_ms"] = int(s_dict["inercia_saida"])
 
         # Configuração do Tempo Limite de Pendente (Padrão: 30 minutos = 1800 segundos)
-        _config["pending_timeout_sec"] = int(s_dict.get("pending_timeout", 1800))
+        _config["pending_timeout_sec"] = int(s_dict.get("pending_timeout", 30))
 
         logger.info(f"[RTLS] Configuração -> Pendente Timeout: {_config['pending_timeout_sec']}s")
         
