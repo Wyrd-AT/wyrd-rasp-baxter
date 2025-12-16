@@ -1106,34 +1106,36 @@ async def periodic_location_sync_loop():
 async def periodic_bed_poll_loop():
     logger.info(f"[TASK] Polling de Camas agendado (Intervalo: {BED_POLL_INTERVAL}s).")
     
-    # Espera MQTT conectar
+    # Espera MQTT conectar na inicialização
     await asyncio.sleep(3) 
 
     while True:
-        logger.info("[TASK] Iniciando verificação ativa das camas conhecidas...")
+        logger.info("[TASK] Iniciando verificação ativa das camas cadastradas...")
         db = SessionLocal()
         try:
-            assets = db.query(Asset).filter(Asset.mac_address.isnot(None)).all()
+            assets = db.query(Asset).filter(Asset.modelo.isnot(None)).all()
             
             count = 0
             for asset in assets:
+                
                 full_id = asset.nome_ativo
-                if asset.modelo:
-                    pass
 
                 bed_mqtt_client.send_gateway_check_command(full_id)
                 count += 1
                 
                 await asyncio.sleep(0.1)
             
-            logger.info(f"[TASK] Polling enviado para {count} camas conhecidas.")
+            if count > 0:
+                logger.info(f"[TASK] Polling enviado para {count} camas.")
+            else:
+                logger.info("[TASK] Nenhuma cama elegível para polling (verifique se os ativos têm 'Modelo' preenchido).")
 
         except Exception as e:
             logger.error(f"[TASK] Erro no polling de camas: {e}")
         finally:
             db.close()
         
-        # Dorme pelo tempo configurado (5 minutos)
+        # Dorme pelo tempo configurado
         await asyncio.sleep(BED_POLL_INTERVAL)
 
 # --- TAREFA 3: MONITOR DE KEEP-ALIVE ---
