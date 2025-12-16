@@ -197,6 +197,28 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
     cursor: pointer; 
     text-decoration: none; 
 }
+.btn-secondary {
+    background-color: transparent;
+    color: var(--primary-dark);
+    border: 1px solid var(--primary-dark);
+    padding: 0.7rem 1.2rem;
+    border-radius: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+}
+.btn-secondary:hover { background-color: rgba(0, 41, 102, 0.08); }
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--primary-dark);
+    text-decoration: none;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn-link:hover { text-decoration: underline; }
+.btn-link.danger { color: var(--status-red); }
+.muted { color: var(--text-secondary); font-size: 0.9rem; }
 
 /* --- Layout da Página de Listas --- */
 .list-container-full-width {
@@ -220,7 +242,7 @@ h1, h2, h3 { font-family: 'Lexend Deca', 'Lexend', sans-serif; }
 /* NOVO: Estilo para a primeira coluna (Ações) para adicionar separação à direita */
 .data-table th:first-child,
 .data-table td:first-child {
-    padding-right: 10rem; /* Aumenta o espaçamento à direita */
+    padding-right: 1rem;
 }
 
 /* --- Estilos dos Formulários (Layout Horizontal Lado a Lado) --- */

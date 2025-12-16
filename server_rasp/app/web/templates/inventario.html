@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Inventário - Fábrica do Futuro{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <p class="muted">Espaço</p>
+        <h1 style="margin: 0;">{{ espaco.nome }}</h1>
+    </div>
+    <div style="display: flex; gap: 10px;">
+        <button class="btn-secondary" id="btn-start-multi">Iniciar leitura múltipla</button>
+        <button class="btn-secondary" id="btn-stop-multi">Finalizar e salvar snapshot</button>
+        <a class="btn-secondary" href="{{ url_for('catalogo_page') }}">Voltar ao catálogo</a>
+    </div>
+</div>
+
+<div class="form-card">
+    <h2 style="margin-top:0;">Último snapshot</h2>
+    {% if snapshot %}
+        <p class="muted">Salvo em {{ snapshot.created_on.astimezone().strftime('%d/%m/%Y %H:%M') }}</p>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>RFID</th>
+                    <th>Item associado</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="snapshot-body">
+                {% for snap_item, item in snapshot_items %}
+                <tr>
+                    <td><code>{{ snap_item.codigo_rfid }}</code></td>
+                    <td>{{ item.nome if item else 'Não associado' }}</td>
+                    <td>{{ 'Associado' if item else 'Novo/Não mapeado' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p class="muted">Nenhum snapshot salvo ainda.</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const startBtn = document.getElementById('btn-start-multi');
+    const stopBtn = document.getElementById('btn-stop-multi');
+    const tableBody = document.getElementById('snapshot-body');
+    let ws = null;
+
+    function ensureSocket() {
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${window.location.host}/ws/rfid`);
+
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'scan_status') {
+                    console.log(data.message);
+                }
+                if (data.type === 'scan_complete' && data.mode === 'multiple') {
+                    const tags = data.tags || [];
+                    if (tableBody) {
+                        tableBody.innerHTML = '';
+                        tags.forEach(tag => {
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `<td><code>${tag}</code></td><td>—</td><td>Nova leitura</td>`;
+                            tableBody.appendChild(tr);
+                        });
+                    }
+                }
+            } catch (err) {
+                /* ignore non-JSON messages */
+            }
+        };
+    }
+
+    startBtn?.addEventListener('click', () => {
+        ensureSocket();
+        ws.send(JSON.stringify({ action: 'start_scan' }));
+    });
+
+    stopBtn?.addEventListener('click', () => {
+        ensureSocket();
+        ws.send(JSON.stringify({ action: 'stop_scan', espaco_id: {{ espaco.id }} }));
+    });
+});
+</script>
+{% endblock %}

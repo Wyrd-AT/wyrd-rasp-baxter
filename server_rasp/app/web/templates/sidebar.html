@@ -1,69 +1,26 @@
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-        {# O botão foi substituído por este container clicável com os logos #}
         <div id="sidebar-logo-toggle" title="Menu">
             <img src="{{ url_for('static', path='icons/novo_logo_icone.png') }}" alt="Ícone do Logo" class="logo-sidebar" id="logo-icone">
             <img src="{{ url_for('static', path='icons/novo_logo.png') }}" alt="Logo Completo" class="logo-sidebar" id="logo-completo">
         </div>
     </div>
+
     <nav class="sidebar-nav">
+        <a href="{{ url_for('cadastro_page') }}" class="nav-item {% if 'cadastro' in request.url.path %}active{% endif %}">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/catalogo.svg') }});"></span>
+            <span class="nav-text">Cadastro</span>
+        </a>
+        <a href="{{ url_for('catalogo_page') }}" class="nav-item {% if 'catalogo' in request.url.path %}active{% endif %}">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/list.svg') }});"></span>
+            <span class="nav-text">Catálogo</span>
+        </a>
+        <a href="{{ url_for('inventario_page') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}">
+            <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }});"></span>
+            <span class="nav-text">Inventário</span>
+        </a>
+    </nav>
 
-    {% if ui_features.show_rtls_historico %}
-    <a href="{{ url_for('list_events') }}" class="nav-item {% if 'events' in request.url.path %}active{% endif %}" title="Histórico">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/hist.svg') }})"></span>
-        <span class="nav-text">Histórico</span>
-    </a>
-    {% endif %}
-
-    {% if ui_features.show_rtls_embarcados %}
-    <a href="{{ url_for('list_embarcados') }}" class="nav-item {% if 'embarcados' in request.url.path %}active{% endif %}" title="Embarcados">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/emb.svg') }})"></span>
-        <span class="nav-text">Embarcados</span>
-    </a>
-    {% endif %}
-
-    {% if ui_features.show_rtls_assets %}
-    <a href="{{ url_for('list_assets') }}" class="nav-item {% if 'assets' in request.url.path %}active{% endif %}" title="Ativos">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/ativo.svg') }})"></span>
-        <span class="nav-text">Ativos</span>
-    </a>
-    {% endif %}
-
-    {% if ui_features.show_rtls_quartos %}
-    <a href="{{ url_for('list_quartos') }}" class="nav-item {% if 'quartos' in request.url.path %}active{% endif %}" title="Quartos">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/quarto.svg') }})"></span>
-        <span class="nav-text">Quartos</span>
-    </a>
-    {% endif %}
-    
-    {% if ui_features.show_rtls_planta %}
-    <a href="{{ url_for('view_planta') }}" class="nav-item {% if 'planta' in request.url.path %}active{% endif %}" title="Planta">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/mapa.svg') }})"></span>
-        <span class="nav-text">Planta</span>
-    </a>
-    {% endif %}
-
-    {% if ui_features.show_rfid_cadastro %}
-    <a href="{{ url_for('cadastro_page') }}" class="nav-item {% if 'cadastro' in request.url.path %}active{% endif %}" title="Cadastro e Gestão">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/catalogo.svg') }});"></span>
-        <span class="nav-text">Cadastro RFID</span>
-    </a>
-    {% endif %}
-
-    {% if ui_features.show_rfid_catalogo %}
-    <a href="{{ url_for('list_equipamentos') }}" class="nav-item {% if 'equipamentos' in request.url.path %}active{% endif %}" title="Catálogo de Equipamentos">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/list.svg') }});"></span>
-        <span class="nav-text">Catálogo RFID</span>
-    </a>
-    {% endif %}
-
-    {% if ui_features.show_rfid_inventario %}
-    <a href="{{ url_for('list_inventario') }}" class="nav-item {% if 'inventario' in request.url.path %}active{% endif %}" title="Inventário e Auditoria">
-        <span class="svg-icon" style="--icon-url: url({{ url_for('static', path='icons/caixa.svg') }});"></span>
-        <span class="nav-text">Inventário RFID</span>
-    </a>
-    {% endif %}
-</nav>
     <button id="sidebar-toggle-btn" title="Alternar menu">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 18 9 12 15 6"></polyline>
@@ -76,8 +33,8 @@
     </a>
 
     <div class="sidebar-footer">
-    {# --- INÍCIO DA MUDANÇA --- #}
-    <div class="footer-brand">
-        <span class="brand-icon">V.0.4.0</span> <span class="brand-full">WH RTLS v0.4.0</span> </div>    
-</div>
+        <div class="footer-brand">
+            <span class="brand-icon">FF</span> <span class="brand-full">Inventário RFID</span>
+        </div>
+    </div>
 </aside>

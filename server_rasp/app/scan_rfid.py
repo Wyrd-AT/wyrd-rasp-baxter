@@ -11,11 +11,11 @@ import serial # Adicionado para tratar a exceção corretamente
 
 # --- MUDANÇA 1: Importações Atualizadas ---
 # Removemos 'ProductType'
-from .models import InventorySnapshot, InventoryItem, Product
+from .models import InventorySnapshot, InventorySnapshotItem, Item
 
 logger = logging.getLogger(__name__)
 
-async def rfid_scan_task(websocket: WebSocket, mode: str, datacenter_id: Optional[int] = None ) -> List[str]:
+async def rfid_scan_task(websocket: WebSocket, mode: str, espaco_id: Optional[int] = None) -> List[str]:
     """
     Tarefa de fundo que ouve as tags lidas.
     Suporta dois modos:
@@ -145,37 +145,42 @@ async def check_reader_health(websocket: WebSocket):
         if writer and not writer.is_closing():
             writer.close()
 
-def save_tags_as_inventory(db: Session, datacenter_id: int, tags: List[str]):
-    """Pega uma lista de tags e salva como um novo snapshot de inventário."""
+def save_tags_as_inventory(db: Session, espaco_id: int, tags: List[str]):
+    """Pega uma lista de tags e salva como um novo snapshot de inventário no espaço informado."""
     if not tags:
         logger.info("Nenhuma tag para salvar no inventário.")
         return False
     
     try:
-        produtos_processados = []
-        
-        # --- MUDANÇA 2: Lógica de 'default_tipo' Removida ---
-        # Não precisamos mais nos preocupar com o tipo do produto aqui.
-
-        for codigo_rfid in tags:
-            produto = db.query(Product).filter(Product.codigo_rfid == codigo_rfid).first()
-            if not produto:
-                # --- MUDANÇA 3: Criação do Produto Simplificada ---
-                # Apenas criamos o produto com o código. A associação com um equipamento
-                # será feita posteriormente na página de cadastro.
-                produto = Product(codigo_rfid=codigo_rfid)
-                db.add(produto)
-            produtos_processados.append(produto)
+        snapshot = InventorySnapshot(espaco_id=espaco_id)
+        db.add(snapshot)
         db.flush()
 
-        novo_snapshot = InventorySnapshot(datacenter_id=datacenter_id)
-        db.add(novo_snapshot)
-        db.flush()
+        tag_list = []
+        for codigo in tags:
+            code = codigo.strip().upper()
+            if not code:
+                continue
+            tag_list.append(code)
 
-        itens_para_salvar = [InventoryItem(snapshot_id=novo_snapshot.id, product_id=p.id) for p in set(produtos_processados)]
-        db.add_all(itens_para_salvar)
+        items_map = {
+            it.codigo_rfid: it
+            for it in db.query(Item).filter(Item.codigo_rfid.in_(tag_list)).all()
+        }
+
+        entradas = []
+        for code in tag_list:
+            entradas.append(
+                InventorySnapshotItem(
+                    snapshot_id=snapshot.id,
+                    codigo_rfid=code,
+                    item_id=items_map.get(code).id if code in items_map else None,
+                )
+            )
+
+        db.add_all(entradas)
         db.commit()
-        logger.info(f"{len(tags)} tags salvas no novo snapshot de inventário {novo_snapshot.id}")
+        logger.info(f"{len(entradas)} tags salvas no snapshot {snapshot.id}")
         return True
         
     except Exception as e:

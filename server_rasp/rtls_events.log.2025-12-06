@@ -1,0 +1,344 @@
+05/12/2025 13:26:50 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+05/12/2025 13:26:52 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+05/12/2025 13:27:07 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+05/12/2025 13:27:07 - INFO - [app.main] - Criado TipoDeAtivo padrão: 'Cama Hospitalar'
+05/12/2025 13:27:07 - INFO - [app.main] - Criado TipoDeQuarto padrão: 'Leito'
+05/12/2025 13:27:08 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+05/12/2025 13:27:08 - INFO - [app.bed_mqtt_client] - [MQTT-CAMA] Iniciando cliente das Camas...
+05/12/2025 13:27:08 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+05/12/2025 13:27:08 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+05/12/2025 13:27:13 - ERROR - [app.bed_mqtt_client] - [MQTT-CAMA] Não foi possível conectar ao broker de camas: timed out
+05/12/2025 13:27:13 - INFO - [app.aggregator] - [RTLS] Motor de localização iniciado.
+05/12/2025 13:27:13 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos.
+05/12/2025 13:27:13 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+05/12/2025 13:27:13 - INFO - [app.main] - [PENDING-MGR] Serviço de gerenciamento de pendências iniciado.
+05/12/2025 13:27:13 - INFO - [app.main] - [STATE_LOGGER] Serviço de log de estado do agregador iniciado. Intervalo: 30s.
+05/12/2025 13:27:13 - INFO - [app.main] - [BED_PROCESSOR] Processador de Status de Cama iniciado.
+05/12/2025 13:27:13 - INFO - [app.main] - [BED_PROCESSOR] Modo de Alerta de Desconexão: ATIVADO.
+05/12/2025 13:27:18 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+05/12/2025 13:27:18 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+05/12/2025 13:27:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56656), ID: 35795715-f369-46be-9658-2ea9b4833413
+05/12/2025 13:27:43 - INFO - [app.main] - [WebSocket] ID '35795715-f369-46be-9658-2ea9b4833413' enviado para o cliente.
+05/12/2025 13:27:46 - INFO - [app.main] - [WebSocket] Conexão com o cliente 35795715-f369-46be-9658-2ea9b4833413 limpa e encerrada.
+05/12/2025 13:27:46 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56666), ID: 36ff4e97-0754-4c12-9483-beec9ded68fe
+05/12/2025 13:27:46 - INFO - [app.main] - [WebSocket] ID '36ff4e97-0754-4c12-9483-beec9ded68fe' enviado para o cliente.
+05/12/2025 13:27:48 - INFO - [app.main] - [WebSocket] Conexão com o cliente 36ff4e97-0754-4c12-9483-beec9ded68fe limpa e encerrada.
+05/12/2025 13:27:48 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56680), ID: 263c771e-de13-45c6-ab87-bc47288e4d23
+05/12/2025 13:27:48 - INFO - [app.main] - [WebSocket] ID '263c771e-de13-45c6-ab87-bc47288e4d23' enviado para o cliente.
+05/12/2025 13:27:49 - INFO - [app.main] - [WebSocket] Conexão com o cliente 263c771e-de13-45c6-ab87-bc47288e4d23 limpa e encerrada.
+05/12/2025 13:27:49 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=56686), ID: 36715758-1711-4c4c-a21e-f17ecdf868a3
+05/12/2025 13:27:49 - INFO - [app.main] - [WebSocket] ID '36715758-1711-4c4c-a21e-f17ecdf868a3' enviado para o cliente.
+05/12/2025 13:27:53 - INFO - [app.main] - [WebSocket] Conexão com o cliente 36715758-1711-4c4c-a21e-f17ecdf868a3 limpa e encerrada.
+05/12/2025 13:27:53 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39788), ID: 148f7475-1cc5-450e-bc99-9f2859a545f2
+05/12/2025 13:27:53 - INFO - [app.main] - [WebSocket] ID '148f7475-1cc5-450e-bc99-9f2859a545f2' enviado para o cliente.
+05/12/2025 13:27:55 - INFO - [app.main] - [WebSocket] Conexão com o cliente 148f7475-1cc5-450e-bc99-9f2859a545f2 limpa e encerrada.
+05/12/2025 13:27:55 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39790), ID: 9a57e191-3dc5-4ff3-b855-6e9b338eb762
+05/12/2025 13:27:55 - INFO - [app.main] - [WebSocket] ID '9a57e191-3dc5-4ff3-b855-6e9b338eb762' enviado para o cliente.
+05/12/2025 13:27:56 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9a57e191-3dc5-4ff3-b855-6e9b338eb762 limpa e encerrada.
+05/12/2025 13:27:56 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39802), ID: b3d481bd-deec-4cc1-9f8c-c71b7378f336
+05/12/2025 13:27:56 - INFO - [app.main] - [WebSocket] ID 'b3d481bd-deec-4cc1-9f8c-c71b7378f336' enviado para o cliente.
+05/12/2025 13:27:57 - INFO - [app.main] - [WebSocket] Conexão com o cliente b3d481bd-deec-4cc1-9f8c-c71b7378f336 limpa e encerrada.
+05/12/2025 13:27:57 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39810), ID: bc83e188-6eec-4df1-b81f-d494904bdb77
+05/12/2025 13:27:57 - INFO - [app.main] - [WebSocket] ID 'bc83e188-6eec-4df1-b81f-d494904bdb77' enviado para o cliente.
+05/12/2025 13:27:58 - INFO - [app.main] - [WebSocket] Conexão com o cliente bc83e188-6eec-4df1-b81f-d494904bdb77 limpa e encerrada.
+05/12/2025 13:27:58 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39818), ID: 66ab1720-6f31-45b0-9572-49d4bbb693b0
+05/12/2025 13:27:58 - INFO - [app.main] - [WebSocket] ID '66ab1720-6f31-45b0-9572-49d4bbb693b0' enviado para o cliente.
+05/12/2025 13:28:01 - INFO - [app.main] - [WebSocket] Conexão com o cliente 66ab1720-6f31-45b0-9572-49d4bbb693b0 limpa e encerrada.
+05/12/2025 13:28:01 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39826), ID: 32101f15-f1c5-4882-9721-70e12fbb023d
+05/12/2025 13:28:01 - INFO - [app.main] - [WebSocket] ID '32101f15-f1c5-4882-9721-70e12fbb023d' enviado para o cliente.
+05/12/2025 13:28:43 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:30:13 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:31:43 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:33:13 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:34:43 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:36:13 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:37:43 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:39:13 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:40:43 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:42:13 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:43:43 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:45:13 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:46:43 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 13:46:57 - INFO - [app.main] - [WebSocket] Conexão com o cliente 32101f15-f1c5-4882-9721-70e12fbb023d limpa e encerrada.
+05/12/2025 14:50:23 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+05/12/2025 14:50:23 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+05/12/2025 14:50:23 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+05/12/2025 14:50:23 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+05/12/2025 14:50:23 - INFO - [app.bed_mqtt_client] - [MQTT-CAMA] Iniciando cliente das Camas...
+05/12/2025 14:50:23 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+05/12/2025 14:50:23 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+05/12/2025 14:50:28 - ERROR - [app.bed_mqtt_client] - [MQTT-CAMA] Não foi possível conectar ao broker de camas: timed out
+05/12/2025 14:50:28 - INFO - [app.aggregator] - [RTLS] Motor de localização iniciado.
+05/12/2025 14:50:28 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos.
+05/12/2025 14:50:28 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+05/12/2025 14:50:28 - INFO - [app.main] - [PENDING-MGR] Serviço de gerenciamento de pendências iniciado.
+05/12/2025 14:50:28 - INFO - [app.main] - [STATE_LOGGER] Serviço de log de estado do agregador iniciado. Intervalo: 30s.
+05/12/2025 14:50:28 - INFO - [app.main] - [BED_PROCESSOR] Processador de Status de Cama iniciado.
+05/12/2025 14:50:28 - INFO - [app.main] - [BED_PROCESSOR] Modo de Alerta de Desconexão: ATIVADO.
+05/12/2025 14:50:33 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+05/12/2025 14:50:33 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+05/12/2025 14:51:02 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53446), ID: f65e6936-2144-4445-8074-6b167a1b6669
+05/12/2025 14:51:02 - INFO - [app.main] - [WebSocket] ID 'f65e6936-2144-4445-8074-6b167a1b6669' enviado para o cliente.
+05/12/2025 14:51:04 - INFO - [app.main] - [WebSocket] Conexão com o cliente f65e6936-2144-4445-8074-6b167a1b6669 limpa e encerrada.
+05/12/2025 14:51:05 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53450), ID: 722f0b96-dab5-49d6-b24e-64fb3d076042
+05/12/2025 14:51:05 - INFO - [app.main] - [WebSocket] ID '722f0b96-dab5-49d6-b24e-64fb3d076042' enviado para o cliente.
+05/12/2025 14:51:06 - INFO - [app.main] - [WebSocket] Conexão com o cliente 722f0b96-dab5-49d6-b24e-64fb3d076042 limpa e encerrada.
+05/12/2025 14:51:06 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53466), ID: c9ad130c-fced-4d55-b958-9920d7453d01
+05/12/2025 14:51:06 - INFO - [app.main] - [WebSocket] ID 'c9ad130c-fced-4d55-b958-9920d7453d01' enviado para o cliente.
+05/12/2025 14:51:08 - INFO - [app.main] - [WebSocket] Conexão com o cliente c9ad130c-fced-4d55-b958-9920d7453d01 limpa e encerrada.
+05/12/2025 14:51:08 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=53474), ID: 9de71a1f-e683-4231-8a35-d326d10f1899
+05/12/2025 14:51:08 - INFO - [app.main] - [WebSocket] ID '9de71a1f-e683-4231-8a35-d326d10f1899' enviado para o cliente.
+05/12/2025 14:51:13 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9de71a1f-e683-4231-8a35-d326d10f1899 limpa e encerrada.
+05/12/2025 14:51:14 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=46616), ID: 608b1ef8-3ab9-4b8e-80b4-de0ab33f6598
+05/12/2025 14:51:14 - INFO - [app.main] - [WebSocket] ID '608b1ef8-3ab9-4b8e-80b4-de0ab33f6598' enviado para o cliente.
+05/12/2025 14:51:40 - INFO - [app.main] - [WebSocket] Conexão com o cliente 608b1ef8-3ab9-4b8e-80b4-de0ab33f6598 limpa e encerrada.
+05/12/2025 14:51:40 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35554), ID: 7300ad4c-7ade-4efd-ad58-bfa9f9f875e7
+05/12/2025 14:51:40 - INFO - [app.main] - [WebSocket] ID '7300ad4c-7ade-4efd-ad58-bfa9f9f875e7' enviado para o cliente.
+05/12/2025 14:51:41 - INFO - [app.main] - [WebSocket] Conexão com o cliente 7300ad4c-7ade-4efd-ad58-bfa9f9f875e7 limpa e encerrada.
+05/12/2025 14:51:41 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35558), ID: 62188ec5-0424-4a62-84c6-e24cebf2595b
+05/12/2025 14:51:41 - INFO - [app.main] - [WebSocket] ID '62188ec5-0424-4a62-84c6-e24cebf2595b' enviado para o cliente.
+05/12/2025 14:51:42 - INFO - [app.main] - [WebSocket] Conexão com o cliente 62188ec5-0424-4a62-84c6-e24cebf2595b limpa e encerrada.
+05/12/2025 14:51:42 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39842), ID: 691557a6-e23d-46ee-bf05-177057be5670
+05/12/2025 14:51:42 - INFO - [app.main] - [WebSocket] ID '691557a6-e23d-46ee-bf05-177057be5670' enviado para o cliente.
+05/12/2025 14:51:43 - INFO - [app.main] - [WebSocket] Conexão com o cliente 691557a6-e23d-46ee-bf05-177057be5670 limpa e encerrada.
+05/12/2025 14:51:43 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=39858), ID: e61128ac-7b4e-459e-b623-dd15d65d20d8
+05/12/2025 14:51:43 - INFO - [app.main] - [WebSocket] ID 'e61128ac-7b4e-459e-b623-dd15d65d20d8' enviado para o cliente.
+05/12/2025 14:51:58 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 14:53:28 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:42:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:43:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:45:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:46:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:48:24 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:49:54 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:51:24 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:52:54 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:54:24 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+05/12/2025 15:54:57 - INFO - [app.main] - [WebSocket] Conexão com o cliente e61128ac-7b4e-459e-b623-dd15d65d20d8 limpa e encerrada.
+05/12/2025 15:55:01 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+05/12/2025 15:55:01 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+05/12/2025 15:55:01 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+05/12/2025 15:55:02 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+05/12/2025 15:55:02 - INFO - [app.bed_mqtt_client] - [MQTT-CAMA] Iniciando cliente das Camas...
+05/12/2025 15:55:02 - INFO - [app.mqtt_client] - [MQTT] Conectado com sucesso ao Broker MQTT!
+05/12/2025 15:55:02 - INFO - [app.mqtt_client] - [MQTT] Subscrito ao tópico de dados 'wyrd/rtls/esp/+/scan_data'
+05/12/2025 15:55:02 - ERROR - [app.bed_mqtt_client] - [MQTT-CAMA] Não foi possível conectar ao broker de camas: [Errno 113] No route to host
+05/12/2025 15:55:02 - INFO - [app.aggregator] - [RTLS] Motor de localização iniciado.
+05/12/2025 15:55:02 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos.
+05/12/2025 15:55:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+05/12/2025 15:55:02 - INFO - [app.main] - [PENDING-MGR] Serviço de gerenciamento de pendências iniciado.
+05/12/2025 15:55:02 - INFO - [app.main] - [STATE_LOGGER] Serviço de log de estado do agregador iniciado. Intervalo: 30s.
+05/12/2025 15:55:02 - INFO - [app.main] - [BED_PROCESSOR] Processador de Status de Cama iniciado.
+05/12/2025 15:55:02 - INFO - [app.main] - [BED_PROCESSOR] Modo de Alerta de Desconexão: ATIVADO.
+05/12/2025 15:55:07 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+05/12/2025 15:55:07 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+05/12/2025 15:55:07 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=58010), ID: 03e6c0a4-281d-43ef-9f19-53bca5cff250
+05/12/2025 15:55:07 - INFO - [app.main] - [WebSocket] ID '03e6c0a4-281d-43ef-9f19-53bca5cff250' enviado para o cliente.
+05/12/2025 15:55:53 - INFO - [app.main] - [WebSocket] Conexão com o cliente 03e6c0a4-281d-43ef-9f19-53bca5cff250 limpa e encerrada.
+05/12/2025 15:55:53 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60312), ID: 8e725b7e-b9e4-4228-989d-2b19f5d9be50
+05/12/2025 15:55:53 - INFO - [app.main] - [WebSocket] ID '8e725b7e-b9e4-4228-989d-2b19f5d9be50' enviado para o cliente.
+05/12/2025 15:55:53 - INFO - [app.main] - [WebSocket] Conexão com o cliente 8e725b7e-b9e4-4228-989d-2b19f5d9be50 limpa e encerrada.
+05/12/2025 15:55:54 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60322), ID: 25364863-fed2-474e-a726-c1544ade11c5
+05/12/2025 15:55:54 - INFO - [app.main] - [WebSocket] ID '25364863-fed2-474e-a726-c1544ade11c5' enviado para o cliente.
+05/12/2025 15:55:54 - INFO - [app.main] - [WebSocket] Conexão com o cliente 25364863-fed2-474e-a726-c1544ade11c5 limpa e encerrada.
+05/12/2025 15:55:54 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=60328), ID: b0c4aa11-e008-4402-a251-1801ee7497be
+05/12/2025 15:55:54 - INFO - [app.main] - [WebSocket] ID 'b0c4aa11-e008-4402-a251-1801ee7497be' enviado para o cliente.
+05/12/2025 15:56:06 - INFO - [app.main] - [WebSocket] Conexão com o cliente b0c4aa11-e008-4402-a251-1801ee7497be limpa e encerrada.
+05/12/2025 15:56:06 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=40444), ID: ed34ba9f-a37d-4670-88ae-f5ff2efe24a0
+05/12/2025 15:56:06 - INFO - [app.main] - [WebSocket] ID 'ed34ba9f-a37d-4670-88ae-f5ff2efe24a0' enviado para o cliente.
+05/12/2025 15:56:08 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000001 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+05/12/2025 15:56:08 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000001
+05/12/2025 15:56:08 - INFO - [app.main] - Enviando configuração para WRD00000001: 0 ativos na whitelist.
+05/12/2025 15:56:08 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000001 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+05/12/2025 15:56:08 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000001
+05/12/2025 15:56:08 - INFO - [app.main] - Enviando configuração para WRD00000001: 0 ativos na whitelist.
+05/12/2025 15:56:09 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000002 (MAC: F0:24:F9:44:29:9C, IP: 10.0.0.152, FW: 0.4.0)
+05/12/2025 15:56:09 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000002
+05/12/2025 15:56:09 - INFO - [app.main] - Enviando configuração para WRD00000002: 0 ativos na whitelist.
+05/12/2025 15:56:09 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000002 (MAC: F0:24:F9:44:29:9C, IP: 10.0.0.152, FW: 0.4.0)
+05/12/2025 15:56:09 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000002
+05/12/2025 15:56:09 - INFO - [app.main] - Enviando configuração para WRD00000002: 0 ativos na whitelist.
+05/12/2025 15:56:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 15:58:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 15:59:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:01:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:02:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:04:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:05:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:07:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:08:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:10:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:11:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:13:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:14:32 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:16:02 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:17:33 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:19:03 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:20:33 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:20:59 - INFO - [app.main] - [WebSocket] Conexão com o cliente ed34ba9f-a37d-4670-88ae-f5ff2efe24a0 limpa e encerrada.
+05/12/2025 16:21:00 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49510), ID: c5686c40-784d-4188-be88-6561d7d4203a
+05/12/2025 16:21:00 - INFO - [app.main] - [WebSocket] ID 'c5686c40-784d-4188-be88-6561d7d4203a' enviado para o cliente.
+05/12/2025 16:21:01 - INFO - [app.main] - [WebSocket] Conexão com o cliente c5686c40-784d-4188-be88-6561d7d4203a limpa e encerrada.
+05/12/2025 16:21:02 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49512), ID: dc740abe-f506-4ad5-80c9-bd95541f7b9a
+05/12/2025 16:21:02 - INFO - [app.main] - [WebSocket] ID 'dc740abe-f506-4ad5-80c9-bd95541f7b9a' enviado para o cliente.
+05/12/2025 16:21:02 - INFO - [app.main] - [WebSocket] Conexão com o cliente dc740abe-f506-4ad5-80c9-bd95541f7b9a limpa e encerrada.
+05/12/2025 16:21:02 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=49526), ID: 9665ff9c-dce6-436b-8193-9e5d9bca9d2c
+05/12/2025 16:21:02 - INFO - [app.main] - [WebSocket] ID '9665ff9c-dce6-436b-8193-9e5d9bca9d2c' enviado para o cliente.
+05/12/2025 16:22:03 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:23:33 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:25:03 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:26:09 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000001 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+05/12/2025 16:26:09 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000001
+05/12/2025 16:26:09 - INFO - [app.main] - Enviando configuração para WRD00000001: 0 ativos na whitelist.
+05/12/2025 16:26:10 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000002 (MAC: F0:24:F9:44:29:9C, IP: 10.0.0.152, FW: 0.4.0)
+05/12/2025 16:26:10 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000002
+05/12/2025 16:26:10 - INFO - [app.main] - Enviando configuração para WRD00000002: 0 ativos na whitelist.
+05/12/2025 16:26:33 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:27:24 - INFO - [app.main] - [WebSocket] Conexão com o cliente 9665ff9c-dce6-436b-8193-9e5d9bca9d2c limpa e encerrada.
+05/12/2025 16:27:25 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38334), ID: cd48aaef-bdf0-4d0a-8e61-71d92f7d4b8b
+05/12/2025 16:27:25 - INFO - [app.main] - [WebSocket] ID 'cd48aaef-bdf0-4d0a-8e61-71d92f7d4b8b' enviado para o cliente.
+05/12/2025 16:27:26 - INFO - [app.main] - [WebSocket] Conexão com o cliente cd48aaef-bdf0-4d0a-8e61-71d92f7d4b8b limpa e encerrada.
+05/12/2025 16:27:26 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=38344), ID: 0b192c44-a7d9-4252-8dc9-1dddc99d7dfe
+05/12/2025 16:27:26 - INFO - [app.main] - [WebSocket] ID '0b192c44-a7d9-4252-8dc9-1dddc99d7dfe' enviado para o cliente.
+05/12/2025 16:27:28 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0b192c44-a7d9-4252-8dc9-1dddc99d7dfe limpa e encerrada.
+05/12/2025 16:27:29 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51272), ID: a5bb53a9-d874-4fc6-8252-2617e6baa2de
+05/12/2025 16:27:29 - INFO - [app.main] - [WebSocket] ID 'a5bb53a9-d874-4fc6-8252-2617e6baa2de' enviado para o cliente.
+05/12/2025 16:27:33 - INFO - [app.main] - [WebSocket] Conexão com o cliente a5bb53a9-d874-4fc6-8252-2617e6baa2de limpa e encerrada.
+05/12/2025 16:27:33 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=51274), ID: 0e0f921e-01ac-45df-a5b7-e37925d516b2
+05/12/2025 16:27:33 - INFO - [app.main] - [WebSocket] ID '0e0f921e-01ac-45df-a5b7-e37925d516b2' enviado para o cliente.
+05/12/2025 16:28:03 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:29:33 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:31:03 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:32:33 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:34:03 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:35:33 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:37:03 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:38:33 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:40:04 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:41:34 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:43:04 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:44:34 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:46:05 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:47:35 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:49:05 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:50:35 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:52:05 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:53:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:55:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:56:10 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000001 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+05/12/2025 16:56:10 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000001
+05/12/2025 16:56:10 - INFO - [app.main] - Enviando configuração para WRD00000001: 0 ativos na whitelist.
+05/12/2025 16:56:11 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000002 (MAC: F0:24:F9:44:29:9C, IP: 10.0.0.152, FW: 0.4.0)
+05/12/2025 16:56:11 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000002
+05/12/2025 16:56:11 - INFO - [app.main] - Enviando configuração para WRD00000002: 0 ativos na whitelist.
+05/12/2025 16:56:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:58:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 16:59:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:01:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:02:36 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:04:06 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:05:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:07:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:08:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:10:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:11:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:13:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:14:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:16:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:17:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:19:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:20:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:22:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:23:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:25:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:26:10 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000001 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+05/12/2025 17:26:10 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000001
+05/12/2025 17:26:10 - INFO - [app.main] - Enviando configuração para WRD00000001: 0 ativos na whitelist.
+05/12/2025 17:26:11 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000002 (MAC: F0:24:F9:44:29:9C, IP: 10.0.0.152, FW: 0.4.0)
+05/12/2025 17:26:11 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000002
+05/12/2025 17:26:11 - INFO - [app.main] - Enviando configuração para WRD00000002: 0 ativos na whitelist.
+05/12/2025 17:26:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:28:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:29:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:31:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:32:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:34:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:35:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:37:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:38:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:40:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:41:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:43:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:44:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:46:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:47:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:49:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:50:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:52:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:53:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:55:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:56:11 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000002 (MAC: F0:24:F9:44:29:9C, IP: 10.0.0.152, FW: 0.4.0)
+05/12/2025 17:56:11 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000002
+05/12/2025 17:56:11 - INFO - [app.main] - Enviando configuração para WRD00000002: 0 ativos na whitelist.
+05/12/2025 17:56:12 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000001 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+05/12/2025 17:56:12 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000001
+05/12/2025 17:56:12 - INFO - [app.main] - Enviando configuração para WRD00000001: 0 ativos na whitelist.
+05/12/2025 17:56:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:58:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 17:59:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:01:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:02:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:04:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:05:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:07:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:08:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:10:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:11:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:13:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:14:37 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:16:07 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:17:38 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:19:08 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:20:38 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:22:08 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:23:38 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:25:08 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:26:12 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000002 (MAC: F0:24:F9:44:29:9C, IP: 10.0.0.152, FW: 0.4.0)
+05/12/2025 18:26:12 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000002
+05/12/2025 18:26:12 - INFO - [app.main] - Enviando configuração para WRD00000002: 0 ativos na whitelist.
+05/12/2025 18:26:12 - INFO - [app.main] - HANDSHAKE recebido da ESP: WRD00000001 (MAC: 8C:4F:00:3A:38:BC, IP: 10.0.0.166, FW: 0.4.0)
+05/12/2025 18:26:12 - WARNING - [app.main] - Handshake recebido de um embarcado não cadastrado: WRD00000001
+05/12/2025 18:26:13 - INFO - [app.main] - Enviando configuração para WRD00000001: 0 ativos na whitelist.
+05/12/2025 18:26:38 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:28:08 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+05/12/2025 18:29:38 - INFO - [app.main] - [BATCH-UPDATE-ESP] Atualizando status de 2 embarcados no banco de dados.
+06/12/2025 10:29:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:31:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:32:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:34:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:35:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:37:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:38:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:40:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:41:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:43:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:44:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:46:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:47:53 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 10:49:23 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:41:26 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:42:56 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:44:26 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:45:56 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:47:26 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:48:56 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:50:26 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:51:56 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:53:27 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:54:57 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:56:27 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:57:57 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 11:59:27 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 12:00:57 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 12:02:27 - INFO - [app.main] - [BATCH-UPDATE-ESP] Verificação executada. Nenhum status novo no cache.
+06/12/2025 12:03:05 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0e0f921e-01ac-45df-a5b7-e37925d516b2 limpa e encerrada.
