@@ -1119,6 +1119,12 @@ async def periodic_bed_poll_loop():
             for asset in assets:
                 
                 full_id = asset.nome_ativo
+                
+                if asset.modelo:
+                    # Remove espaços extras do modelo por segurança
+                    mod_clean = asset.modelo.strip()
+                    if not asset.nome_ativo.startswith(mod_clean):
+                        full_id = f"{mod_clean}-{asset.nome_ativo}"
 
                 bed_mqtt_client.send_gateway_check_command(full_id)
                 count += 1
