@@ -70,7 +70,7 @@ ARQUIVO: app/web/templates/assets_list.html
     {% include 'asset_form.html' %}
 </div>
 
-<div class="list-container-full-width">
+<div class="list-container-full-width table-scroll-container">
     <table class="data-table">
     <thead>
         <tr>
@@ -87,7 +87,6 @@ ARQUIVO: app/web/templates/assets_list.html
                 </a>
             </th>
             
-            {# NOVAS COLUNAS #}
             <th>TIPO</th>
             
             <th>
@@ -107,6 +106,9 @@ ARQUIVO: app/web/templates/assets_list.html
                     {% endif %}
                 </a>
             </th>
+
+            <th>IP CAMA</th>
+            <th>MAC CAMA</th>
             
             {# MAC BEACON #}
             <th>
@@ -148,12 +150,19 @@ ARQUIVO: app/web/templates/assets_list.html
             
             <td>{{ asset.nome_ativo }}</td>
             
-            {# NOVAS CÉLULAS #}
             <td>{{ asset.tipo_de_ativo.nome if asset.tipo_de_ativo else 'Cama Inteligente' }}</td>
             <td>{{ asset.modelo or '---' }}</td>
             <td>{{ asset.fabricante or '---' }}</td>
+
+            {# DADOS TÉCNICOS #}
+            <td style="font-family: monospace; color: #555;">
+                {{ asset.ip_address if (asset.status == 'Online' and asset.ip_address) else '---' }}
+            </td>
+            <td style="font-family: monospace; color: #555;">
+                {{ asset.mac_address if (asset.status == 'Online' and asset.mac_address) else '---' }}
+            </td>
             
-            <td><code>{{ asset.mac_beacon }}</code></td>
+            <td style="font-family: monospace;">{{ asset.mac_beacon }}</td>
             
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
             
@@ -171,7 +180,7 @@ ARQUIVO: app/web/templates/assets_list.html
         </tr>
         {% else %}
         <tr>
-            <td colspan="8" style="text-align:center; padding: 2rem; color: #666;">Nenhum ativo encontrado.</td>
+            <td colspan="10" style="text-align:center; padding: 2rem; color: #666;">Nenhum ativo encontrado.</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -182,9 +191,7 @@ ARQUIVO: app/web/templates/assets_list.html
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // --- LÓGICA CORRIGIDA DO MENU ---
     const triggers = document.querySelectorAll('.actions-menu-trigger');
-    
     triggers.forEach(trigger => {
         trigger.addEventListener('click', function (e) {
             e.stopPropagation();
@@ -205,6 +212,28 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 </script>
+
+<style>
+    /* LÓGICA DE SCROLL (SEM MUDAR O ESTILO VISUAL) */
+    
+    .table-scroll-container {
+        width: 100%;
+        overflow-x: auto; /* Habilita barra de rolagem horizontal */
+        padding-bottom: 60px; /* Espaço para o dropdown não ser cortado */
+    }
+
+    /* Força a tabela a ter uma largura mínima para evitar esmagamento */
+    .data-table {
+        min-width: 1400px; /* Ajuste este valor se precisar mais espaço */
+        border-collapse: collapse; /* Mantém o estilo original clean */
+    }
+
+    /* Impede que o texto quebre linha dentro das células */
+    .data-table th, .data-table td {
+        white-space: nowrap;
+        padding: 10px; /* Espaçamento padrão */
+    }
+</style>
 {% endblock %}
 
 
@@ -464,6 +493,7 @@ ARQUIVO: app/web/templates/embarcados_list.html
             <th>STATUS</th>
             <th>SINAL WI-FI</th>
             <th>IP</th>
+            <th>MAC</th> {# --- NOVA COLUNA --- #}
             <th>RSSI MÍN.</th>
         </tr>
     </thead>
@@ -504,6 +534,10 @@ ARQUIVO: app/web/templates/embarcados_list.html
             </td>
             <td>{{ emb.wifi_signal or '--' }} dBm</td>
             <td>{{ emb.ip_address or '---' }}</td>
+            
+            {# --- EXIBIÇÃO DO MAC --- #}
+            <td style="font-family: monospace; color: #555;">{{ emb.mac_address or '---' }}</td>
+            
             <td>{{ emb.rssi_threshold if emb.rssi_threshold else 'Global' }}</td>
         </tr>
         {% endfor %}
@@ -511,7 +545,7 @@ ARQUIVO: app/web/templates/embarcados_list.html
 </table>
 </div>
 
-{# MODAL DE RSSI (Com CSS restaurado) #}
+{# MODAL DE RSSI (Mantido igual) #}
 <div id="rssi-modal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
@@ -523,7 +557,7 @@ ARQUIVO: app/web/templates/embarcados_list.html
 </div>
 
 <style>
-/* CSS do Modal (Obrigatório para ele aparecer) */
+/* CSS do Modal */
 .modal {
     display: none; position: fixed; z-index: 9999; 
     left: 0; top: 0; width: 100%; height: 100%; 
@@ -549,7 +583,7 @@ ARQUIVO: app/web/templates/embarcados_list.html
 let myClientId = null;
 document.addEventListener('DOMContentLoaded', function () {
     
-    // --- LÓGICA DE MENU (Específica desta página) ---
+    // --- LÓGICA DE MENU ---
     const triggers = document.querySelectorAll('.actions-menu-trigger');
     triggers.forEach(trigger => {
         trigger.addEventListener('click', function (e) {
@@ -569,7 +603,6 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
     });
-    // ----------------------------------------
 
     const modal = document.getElementById('rssi-modal');
     const closeBtn = document.getElementById('modal-close-btn');
@@ -578,7 +611,6 @@ document.addEventListener('DOMContentLoaded', function () {
         window.onclick = (event) => { if (event.target == modal) modal.style.display = "none"; };
     }
 
-    // Thresholds (Parsing seguro)
     const rssiThresholds = JSON.parse('{{ rssi_thresholds | safe }}');
     let assetNameMap = {};
     fetch("{{ url_for('get_assets_map') }}").then(r=>r.json()).then(d=>{assetNameMap=d;});

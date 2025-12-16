@@ -59,15 +59,23 @@ class Asset(Base):
     __tablename__ = "assets"
     id = Column(Integer, primary_key=True, index=True)
     nome_ativo = Column(String, nullable=False, unique=True)
+    
+    # RTLS (O Beacon BLE) - MANTIDO
     mac_beacon = Column(String, unique=True, nullable=False, index=True)
     
+    # DADOS TÉCNICOS DA CAMA (Wi-Fi/Hillrom)
+    mac_address = Column(String, unique=True, nullable=True) # MAC da Placa Wi-Fi
+    ip_address = Column(String, nullable=True)               # IP na rede (NOVO)
+    firmware_version = Column(String, nullable=True)         # Versão FW (NOVO)
+    
     # Metadados
-    mac_address = Column(String, unique=True, nullable=True)
     modelo = Column(String, nullable=True)
     fabricante = Column(String, nullable=True)
     
-    # Status
+    # Status de Conexão (Keep-Alive)
     status = Column(String, default='Online', nullable=False)
+    
+    # Status de Localização
     location_status = Column(String, default='LIVRE', nullable=False)
     location_status_updated_on = Column(DateTime(timezone=True), nullable=True)
 

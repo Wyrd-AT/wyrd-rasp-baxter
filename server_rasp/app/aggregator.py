@@ -1,8 +1,5 @@
 # ==============================================================================
-# ARQUIVO: aggregator.py (VERSÃO DEFINITIVA E ROBUSTA)
-# FUNÇÃO:  Cérebro do sistema RTLS. Processa dados brutos de sinal, aplica
-#          regras de negócio e determina a localização final dos ativos.
-# LÓGICA DE PENDENTES, SAÍDAS E CANCELAMENTOS CORRIGIDA.
+# ARQUIVO: app/aggregator.py (LÓGICA ANTI-ROUBO + SAÍDA POR FRAQUEZA)
 # ==============================================================================
 
 import asyncio
@@ -22,22 +19,16 @@ from .dispatcher import dispatch_event
 from .config import settings
 
 logger = logging.getLogger(__name__)
-signal_logger = logging.getLogger('signals')
 
 # --- CACHES GLOBAIS ---
 _esp_map = {}
 _asset_map = {}
 _asset_realtime_state = {}
 _config_needs_reload = asyncio.Event()
-_wifi_presence_cache = {}
 
 _handshake_confirmed_assets = set()
 _handshake_invalidated_assets = set()
 _last_handshake_success = {}
-HANDSHAKE_FAILURE_TIMEOUT_SEC = 180 # Ex: 3 minutos
-
-SIGNAL_LOG_INTERVAL_SEC = 15.0
-_last_signal_log_times_per_esp = {}
 
 # --- CONFIGURAÇÕES ---
 _config = {
@@ -49,42 +40,29 @@ _config = {
     "ema_alpha": float(settings.get('ema_alpha', 0.4)),
     "max_assets_per_room": 1
 }
-PENDING_WARNING_TIMEOUT_SEC = int(settings.get('pending_warning_timeout_sec', 300))
-PENDING_EXPIRATION_TIMEOUT_SEC = int(settings.get('pending_expiration_timeout_sec', 900))
 DISAPPEARANCE_TOLERANCE_CYCLES = int(settings.get('disappearance_tolerance_cycles', 10))
-WIFI_FAILURE_INERTIA_SEC = int(settings.get('wifi_failure_inertia_sec', 180))
 
-# --- CLASSE DE ESTADO DO ATIVO ---
 class AssetState:
     def __init__(self, mac, quarto_id_atual, location_status_atual, status_updated_ts=None):
         self.mac = mac
-        
-        # Estado inicial
         if quarto_id_atual is None:
             self.state = 'LIVRE'
             self.pending_start_time = None
         else:
             self.state = location_status_atual if location_status_atual in ['PENDENTE', 'CONFIRMADO', 'ALERTA'] else 'CONFIRMADO'
-            
-            # Se já nasceu PENDENTE, define o início baseado no banco (ou agora, se for nulo)
             if self.state == 'PENDENTE':
                 self.pending_start_time = status_updated_ts if status_updated_ts else time.time()
             else:
                 self.pending_start_time = None
         
         self.readings = {} 
-        self.last_processed_avg = {} 
         self.samples_per_esp = {}
-        
-        self.algoritmo_media = 'SMA'
         self.parametro_media = 10 
-            
         self.candidate_quarto_id = None 
         self.candidate_since = None     
         self.weak_signal_since = None   
         self.disappearance_count = 0 
 
-    # ... (Mantenha os métodos update_reading, get_average_rssi e cleanup_old_readings iguais ao anterior) ...
     def update_reading(self, esp_id, rssi, timestamp):
         if esp_id not in self.readings: self.readings[esp_id] = {}
         self.readings[esp_id]["timestamp"] = timestamp
@@ -96,9 +74,7 @@ class AssetState:
     def get_average_rssi(self, esp_id):
         samples = self.samples_per_esp.get(esp_id)
         if not samples: return -1000.0
-        avg = sum(samples) / len(samples)
-        self.last_processed_avg[esp_id] = avg
-        return avg
+        return sum(samples) / len(samples)
 
     def cleanup_old_readings(self):
         now = time.time()
@@ -108,33 +84,19 @@ class AssetState:
         self.samples_per_esp = {esp_id: samples for esp_id, samples in self.samples_per_esp.items() if esp_id in active_esps}
         return bool(self.readings)
 
-# --- FUNÇÕES DE INTERFACE E CONTROLE ---
-def update_wifi_presence_cache(latest_cache: dict):
-    global _wifi_presence_cache
-    _wifi_presence_cache = latest_cache
-
+# --- FUNÇÕES DE INTERFACE ---
 def clear_asset_state(mac_beacon_to_clear: str):
     if mac_beacon_to_clear in _asset_realtime_state:
         state = _asset_realtime_state[mac_beacon_to_clear]
         state.candidate_quarto_id = None
         state.candidate_since = None
-        state.weak_signal_since = None # Se tiver essa propriedade no objeto state
-
-        _handshake_confirmed_assets.discard(mac_beacon_to_clear)
-        _handshake_invalidated_assets.discard(mac_beacon_to_clear)
-        _last_handshake_success.pop(mac_beacon_to_clear, None)
-        
-        logger.info(f"Estado de memória para o ativo {mac_beacon_to_clear} foi limpo.")
+        state.weak_signal_since = None 
         return True
     return False
-
-def update_asset_cache(mac_beacon: str, new_quarto_id: int | None):
-    if mac_beacon in _asset_map: _asset_map[mac_beacon]["quarto_id"] = new_quarto_id
 
 def flag_for_reload():
     _config_needs_reload.set()
 
-# --- FUNÇÕES INTERNAS DO MOTOR RTLS ---
 async def _consume_scan_data_queue():
     while not scan_data_queue.empty():
         item = await scan_data_queue.get()
@@ -147,18 +109,13 @@ async def _consume_scan_data_queue():
 
             if mac not in _asset_realtime_state:
                 asset_info = _asset_map.get(mac, {})
-                
-                # Cria passando o timestamp da última atualização
                 _asset_realtime_state[mac] = AssetState(
                     mac=mac, 
                     quarto_id_atual=asset_info.get("quarto_id"),
                     location_status_atual=asset_info.get("location_status", "LIVRE"),
                     status_updated_ts=asset_info.get("updated_on_ts")
                 )
-            
             _asset_realtime_state[mac].update_reading(esp_id, rssi, time.time())
-
-# ARQUIVO: app/aggregator.py
 
 async def _processar_localizacoes():
     if not _esp_map or not _asset_map: return
@@ -169,72 +126,120 @@ async def _processar_localizacoes():
         for mac, state in list(_asset_realtime_state.items()):
             asset_info = _asset_map.get(mac, {})
             asset_id = asset_info.get("id")
+            nome = asset_info.get("nome_ativo", mac)
             if not asset_id: continue
 
-            # 1. Limpeza / Timeout de Sinal
+            # --- REGRA 1: SE ESTÁ CONFIRMADO (CABO), O BLE NÃO MEXE ---
+            if asset_info.get("location_status") == 'CONFIRMADO':
+                continue
+
+            # 1. Limpeza / Timeout de Sinal (Desaparecimento completo)
             if not state.cleanup_old_readings():
                 state.disappearance_count += 1
                 if state.disappearance_count >= DISAPPEARANCE_TOLERANCE_CYCLES:
                     if asset_info.get("quarto_id") is not None:
-                        # CORREÇÃO 1: Tenta pegar o último ESP conhecido para registrar o log de perda
                         last_esp = list(state.readings.keys())[0] if state.readings else "unknown"
+                        logger.info(f"[DESAPARECEU] {nome} sumiu dos sensores. Saindo do quarto...")
                         changes_to_commit.append({
-                            "asset_id": asset_id, 
-                            "new_quarto_id": None, 
-                            "location_status": "LIVRE",
-                            "details": "Sinal perdido (Timeout).",
-                            "source_esp_id": last_esp, # Ajuda a pegar o WiFi do local onde sumiu
-                            "rssi": -100
+                            "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE",
+                            "details": "Sinal perdido (Timeout).", "source_esp_id": last_esp, "rssi": -100
                         })
                     if mac in _asset_realtime_state: del _asset_realtime_state[mac]
                 continue
 
-            # 2. Cálculo do melhor sinal
-            strongest = {"esp_id": None, "avg_rssi": -1000, "quarto_id": None}
-            
+            # =================================================================
+            # 2. ANÁLISE DE SINAIS (LOCAL vs GLOBAL)
+            # =================================================================
+            quarto_id_atual = asset_info.get("quarto_id")
+            threshold_global = _config["default_rssi_threshold"]
+
+            # A. Calcular RSSI no Quarto Atual (Se houver)
+            rssi_local = -1000
+            esp_local_id = None
+            threshold_local = threshold_global
+
+            if quarto_id_atual:
+                for esp_id in state.readings:
+                     # Se este ESP pertence ao quarto atual
+                     if esp_id in _esp_map and _esp_map[esp_id][0] == quarto_id_atual:
+                         avg = state.get_average_rssi(esp_id)
+                         if avg > rssi_local:
+                             rssi_local = avg
+                             esp_local_id = esp_id
+                
+                # Pega threshold específico do ESP local, se houver
+                if esp_local_id:
+                    _, t_ind = _esp_map[esp_local_id]
+                    if t_ind is not None: threshold_local = t_ind
+
+            # B. Calcular RSSI Global (Melhor de Todos)
+            rssi_global = -1000
+            esp_global_id = None
+            quarto_global_id = None
+            threshold_global_winner = threshold_global
+
             for esp_id in state.readings:
                 if esp_id not in _esp_map: continue
-                qid, thresh_individual = _esp_map[esp_id]
-                
-                # Anti-roubo: Só considera se o quarto estiver vazio ou for o da própria cama
+                qid, t_ind = _esp_map[esp_id]
+
+                # Ignora quartos ocupados (exceto o meu próprio)
                 quarto_ocupado = False
                 for omac, oinfo in _asset_map.items():
-                    if omac != mac and oinfo.get("quarto_id") == qid:
-                        quarto_ocupado = True; break
+                    if omac != mac and oinfo.get("quarto_id") == qid and qid is not None:
+                         if qid != quarto_id_atual: 
+                             quarto_ocupado = True; break
                 if quarto_ocupado: continue
-                
+
                 avg = state.get_average_rssi(esp_id)
-                # Seleciona o melhor, independente de threshold (para saber onde está, mesmo que fraco)
-                if avg > strongest["avg_rssi"]:
-                    strongest = {"esp_id": esp_id, "avg_rssi": avg, "quarto_id": qid}
+                if avg > rssi_global:
+                    rssi_global = avg
+                    esp_global_id = esp_id
+                    quarto_global_id = qid
+                    if t_ind is not None: threshold_global_winner = t_ind
 
-            # Define Threshold efetivo para decisões
-            threshold_efetivo = _config["default_rssi_threshold"]
-            if strongest["esp_id"] and strongest["esp_id"] in _esp_map:
-                _, t_ind = _esp_map[strongest["esp_id"]]
-                if t_ind is not None: threshold_efetivo = t_ind
+            # =================================================================
+            # 3. LÓGICA DE DECISÃO (ANTI-ROUBO + PERMISSÃO DE SAÍDA)
+            # =================================================================
+            
+            # Vencedor Final
+            winner_esp = esp_global_id
+            winner_rssi = rssi_global
+            winner_quarto = quarto_global_id
+            threshold_to_compare = threshold_global_winner
 
-            # 3. MÁQUINA DE ESTADOS
+            # REGRA ANTI-ROUBO:
+            # Se tenho quarto E meu sinal nele é BOM (>= threshold), eu ignoro o global.
+            # "Ninguém me tira daqui se estou forte."
+            protected = False
+            if quarto_id_atual and rssi_local >= threshold_local:
+                protected = True
+                winner_esp = esp_local_id
+                winner_rssi = rssi_local
+                winner_quarto = quarto_id_atual
+                threshold_to_compare = threshold_local
 
+            # REGRA DE SAÍDA:
+            # Se não estou protegido (sinal local fraco ou ausente), o vencedor é o Global.
+            # Se o vencedor Global for EU MESMO (local) mas fraco, a máquina de estados abaixo vai tratar como instável.
+
+            # =================================================================
+            # 4. MÁQUINA DE ESTADOS
+            # =================================================================
+            
             # --- TIMEOUT DE PENDENTE ---
             if state.state == 'PENDENTE' and state.pending_start_time:
                 if (time.time() - state.pending_start_time) > _config.get("pending_timeout_sec", 1800):
                     changes_to_commit.append({
-                        "asset_id": asset_id,
-                        "new_quarto_id": asset_info.get("quarto_id"),
-                        "location_status": "ALERTA", 
-                        "details": "Tempo limite de Pendência excedido.",
-                        # Mantém dados do ESP atual para o log
-                        "source_esp_id": strongest["esp_id"],
-                        "rssi": int(strongest["avg_rssi"])
+                        "asset_id": asset_id, "new_quarto_id": asset_info.get("quarto_id"),
+                        "location_status": "ALERTA", "details": "Tempo limite excedido.",
+                        "source_esp_id": winner_esp, "rssi": int(winner_rssi)
                     })
-                    state.state = 'ALERTA'
-                    state.pending_start_time = None
+                    state.state = 'ALERTA'; state.pending_start_time = None
 
-            # --- ENTRADA (LIVRE) ---
+            # --- ENTRADA (LIVRE -> PENDENTE) ---
             if state.state == 'LIVRE':
-                # Só considera candidato se o sinal for BOM (acima do threshold)
-                cand_qid = strongest["quarto_id"] if strongest["avg_rssi"] > threshold_efetivo else None
+                # Só entra se o sinal for BOM (acima do threshold do vencedor)
+                cand_qid = winner_quarto if winner_rssi > threshold_to_compare else None
                 
                 if cand_qid != state.candidate_quarto_id:
                     state.candidate_quarto_id = cand_qid
@@ -242,45 +247,41 @@ async def _processar_localizacoes():
 
                 if state.candidate_since and (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
                     if state.candidate_quarto_id == cand_qid and cand_qid is not None:
-                        # CORREÇÃO 2: Passa RSSI e ESP ID na entrada
+                        logger.info(f"[ENTRADA] {nome} -> Quarto {cand_qid} (Sinal: {winner_rssi:.1f})")
                         changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": cand_qid, 
-                            "location_status": "PENDENTE", 
-                            "details": "Entrada no quarto (Aguardando Cama ligar).",
-                            "source_esp_id": strongest["esp_id"], # CRÍTICO: Pega Wi-Fi deste ESP
-                            "rssi": int(strongest["avg_rssi"])    # CRÍTICO: Grava média BLE
+                            "asset_id": asset_id, "new_quarto_id": cand_qid, "location_status": "PENDENTE", 
+                            "details": "Entrada.", "source_esp_id": winner_esp, "rssi": int(winner_rssi)
                         })
-                        state.state = 'PENDENTE'
-                        state.pending_start_time = time.time()
+                        state.state = 'PENDENTE'; state.pending_start_time = time.time()
                         state.candidate_quarto_id, state.candidate_since = None, None
 
-            # --- SAÍDA (DENTRO) ---
+            # --- SAÍDA/MANUTENÇÃO (DENTRO -> LIVRE ou PERMANECE) ---
             elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
-                quarto_id_atual = asset_info.get("quarto_id")
-                
-                # --- CORREÇÃO CRÍTICA AQUI ---
-                # Estável = (É o quarto certo) E (O sinal está ACIMA do threshold)
-                # Se o sinal cair abaixo do threshold, mesmo sendo o "vencedor", ele vira instável.
-                is_stable = (strongest.get("quarto_id") == quarto_id_atual) and (strongest["avg_rssi"] >= threshold_efetivo)
+                # Estabilidade:
+                # 1. O vencedor deve ser o meu quarto atual.
+                # 2. O sinal deve estar ACIMA do limite.
+                is_stable = (winner_quarto == quarto_id_atual) and (winner_rssi >= threshold_to_compare)
 
                 if is_stable:
-                    state.weak_signal_since = None
-                else:
-                    # Inicia contagem de saída (seja por mudar de quarto ou por sinal fraco)
-                    if state.weak_signal_since is None: state.weak_signal_since = time.time()
-                    
-                    if (time.time() - state.weak_signal_since) * 1000 > _config["inertia_saida_ms"]:
-                        changes_to_commit.append({
-                            "asset_id": asset_id, 
-                            "new_quarto_id": None, 
-                            "location_status": "LIVRE", 
-                            "details": "Saída confirmada (Sinal fraco ou ausente).",
-                            "source_esp_id": strongest["esp_id"], 
-                            "rssi": int(strongest["avg_rssi"])
-                        })
-                        state.state = 'LIVRE'
-                        state.pending_start_time = None
+                    if state.weak_signal_since is not None:
+                        logger.info(f"[SINAL] {nome} estabilizou em {quarto_id_atual} ({winner_rssi:.1f} >= {threshold_to_compare}).")
                         state.weak_signal_since = None
+                else:
+                    # Instável: Sinal fraco ou o vencedor é outro quarto (mas só muda se sair primeiro)
+                    if state.weak_signal_since is None: 
+                        state.weak_signal_since = time.time()
+                        # Log detalhado para entender a decisão
+                        motivo = "Sinal Fraco" if (winner_quarto == quarto_id_atual) else "Melhor em Outro"
+                        logger.info(f"[INSTAVEL] {nome}. Local: {rssi_local:.1f} (Lim: {threshold_local}). Global: {winner_rssi:.1f} em {winner_quarto}. Motivo: {motivo}")
+                    
+                    elapsed = (time.time() - state.weak_signal_since) * 1000
+                    if elapsed > _config["inertia_saida_ms"]:
+                        logger.info(f"[SAIDA] {nome} saindo de {quarto_id_atual} após {elapsed/1000:.1f}s instável.")
+                        changes_to_commit.append({
+                            "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE", 
+                            "details": "Sinal fraco ou ausente.", "source_esp_id": winner_esp, "rssi": int(winner_rssi)
+                        })
+                        state.state = 'LIVRE'; state.pending_start_time = None; state.weak_signal_since = None
 
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)
@@ -288,73 +289,40 @@ async def _processar_localizacoes():
     finally:
         db.close()
 
-def confirm_asset_by_handshake(mac_beacon: str):
-    """
-    Função chamada pelo endpoint da API em main.py para registrar
-    uma confirmação de presença bem-sucedida.
-    """
-    if mac_beacon:
-        logger.info(f"[HANDSHAKE-STATE] Ativo {mac_beacon} confirmado via handshake.")
-        _handshake_confirmed_assets.add(mac_beacon)
-        _last_handshake_success[mac_beacon] = time.time()
-
-def invalidate_asset_by_handshake(mac_beacon: str):
-    """Função chamada pelo endpoint da API para registrar uma invalidação explícita."""
-    if mac_beacon:
-        logger.warning(f"[HANDSHAKE-STATE] Ativo {mac_beacon} invalidado via callback 'FALSE'.")
-        _handshake_invalidated_assets.add(mac_beacon)
+def confirm_asset_by_handshake(mac_beacon: str): pass 
+def invalidate_asset_by_handshake(mac_beacon: str): pass
 
 def _load_maps_from_db():
     global _esp_map, _asset_map, _config
     db = SessionLocal()
     try:
-        # 1. Carrega ESPs
         esps = db.query(Embarcado).all()
         _esp_map = {e.id_esp: (e.quarto_id, e.rssi_threshold) for e in esps}
-        
-        # 2. Carrega Ativos 
-        # IMPORTANTE: Carregamos 'location_status_updated_on' para calcular o tempo de pendência
         assets = db.query(Asset).all()
         _asset_map = {
             a.mac_beacon: {
-                "id": a.id, 
-                "nome_ativo": a.nome_ativo, 
-                "quarto_id": a.quarto_id, 
+                "id": a.id, "nome_ativo": a.nome_ativo, "quarto_id": a.quarto_id, 
                 "location_status": a.location_status,
-                # Convertemos para timestamp UNIX se existir, senão None
                 "updated_on_ts": a.location_status_updated_on.timestamp() if a.location_status_updated_on else None,
-                "requer_confirmacao_externa": True
             } for a in assets
         }
-        
-        # 3. Carrega Settings
         settings_list = db.query(GlobalSetting).all()
         s_dict = {s.key: s.value for s in settings_list}
-        
         if "rssi_threshold" in s_dict: _config["default_rssi_threshold"] = int(s_dict["rssi_threshold"])
         if "inercia_entrada" in s_dict: _config["inertia_entrada_ms"] = int(s_dict["inercia_entrada"])
         if "inercia_saida" in s_dict: _config["inertia_saida_ms"] = int(s_dict["inercia_saida"])
-
-        # Configuração do Tempo Limite de Pendente (Padrão: 30 minutos = 1800 segundos)
-        _config["pending_timeout_sec"] = int(s_dict.get("pending_timeout", 300))
-
-        logger.info(f"[RTLS] Configuração -> Pendente Timeout: {_config['pending_timeout_sec']}s")
-        
+        _config["pending_timeout_sec"] = int(settings.get('pending_timeout_sec', 1800))
     except Exception as e:
-        logger.error(f"[RTLS] Erro ao carregar mapas: {e}", exc_info=True)
+        logger.error(f"[RTLS] Erro maps: {e}")
     finally:
         db.close()
 
 async def main_aggregator_loop():
-    logger.info("[RTLS] Motor de localização iniciado.")
     _load_maps_from_db()
     while True:
         try:
-            if _config_needs_reload.is_set():
-                _load_maps_from_db()
-                _config_needs_reload.clear()
+            if _config_needs_reload.is_set(): _load_maps_from_db(); _config_needs_reload.clear()
             await _consume_scan_data_queue()
             await _processar_localizacoes()
-        except Exception as e:
-            logger.error(f"[RTLS] Erro crítico no loop principal: {e}", exc_info=True)
+        except Exception as e: logger.error(f"[RTLS] Erro loop: {e}")
         await asyncio.sleep(_config["process_interval_sec"])

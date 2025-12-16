@@ -24,7 +24,7 @@
     {% include 'asset_form.html' %}
 </div>
 
-<div class="list-container-full-width">
+<div class="list-container-full-width table-scroll-container">
     <table class="data-table">
     <thead>
         <tr>
@@ -41,7 +41,6 @@
                 </a>
             </th>
             
-            {# NOVAS COLUNAS #}
             <th>TIPO</th>
             
             <th>
@@ -61,6 +60,9 @@
                     {% endif %}
                 </a>
             </th>
+
+            <th>IP CAMA</th>
+            <th>MAC CAMA</th>
             
             {# MAC BEACON #}
             <th>
@@ -102,12 +104,19 @@
             
             <td>{{ asset.nome_ativo }}</td>
             
-            {# NOVAS CÉLULAS #}
             <td>{{ asset.tipo_de_ativo.nome if asset.tipo_de_ativo else 'Cama Inteligente' }}</td>
             <td>{{ asset.modelo or '---' }}</td>
             <td>{{ asset.fabricante or '---' }}</td>
+
+            {# DADOS TÉCNICOS #}
+            <td style="font-family: monospace; color: #555;">
+                {{ asset.ip_address if (asset.status == 'Online' and asset.ip_address) else '---' }}
+            </td>
+            <td style="font-family: monospace; color: #555;">
+                {{ asset.mac_address if (asset.status == 'Online' and asset.mac_address) else '---' }}
+            </td>
             
-            <td><code>{{ asset.mac_beacon }}</code></td>
+            <td style="font-family: monospace;">{{ asset.mac_beacon }}</td>
             
             <td>{{ asset.quarto.nome if asset.quarto else '---' }}</td>
             
@@ -125,7 +134,7 @@
         </tr>
         {% else %}
         <tr>
-            <td colspan="8" style="text-align:center; padding: 2rem; color: #666;">Nenhum ativo encontrado.</td>
+            <td colspan="10" style="text-align:center; padding: 2rem; color: #666;">Nenhum ativo encontrado.</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -136,9 +145,7 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    // --- LÓGICA CORRIGIDA DO MENU ---
     const triggers = document.querySelectorAll('.actions-menu-trigger');
-    
     triggers.forEach(trigger => {
         trigger.addEventListener('click', function (e) {
             e.stopPropagation();
@@ -159,4 +166,26 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 </script>
+
+<style>
+    /* LÓGICA DE SCROLL (SEM MUDAR O ESTILO VISUAL) */
+    
+    .table-scroll-container {
+        width: 100%;
+        overflow-x: auto; /* Habilita barra de rolagem horizontal */
+        padding-bottom: 60px; /* Espaço para o dropdown não ser cortado */
+    }
+
+    /* Força a tabela a ter uma largura mínima para evitar esmagamento */
+    .data-table {
+        min-width: 1400px; /* Ajuste este valor se precisar mais espaço */
+        border-collapse: collapse; /* Mantém o estilo original clean */
+    }
+
+    /* Impede que o texto quebre linha dentro das células */
+    .data-table th, .data-table td {
+        white-space: nowrap;
+        padding: 10px; /* Espaçamento padrão */
+    }
+</style>
 {% endblock %}

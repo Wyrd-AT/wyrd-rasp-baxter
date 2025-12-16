@@ -20,7 +20,7 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map_s
 
     asset_ids = [c["asset_id"] for c in changes if "asset_id" in c]
     
-    # Carrega os ativos do banco com todas as informações (incluindo Modelo)
+    # Carrega ativos com JOIN para ter acesso aos nomes de quarto/andar
     assets_to_update = {
         a.id: a for a in db.query(Asset)
         .filter(Asset.id.in_(asset_ids))
@@ -28,10 +28,7 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map_s
         .all()
     }
     
-    # --- NOVO: Cria um mapa de MAC -> Modelo para usar no despacho final ---
     mac_to_model = {a.mac_beacon: (a.modelo or "") for a in assets_to_update.values()}
-    # ---------------------------------------------------------------------
-    
     events_to_dispatch = []
     
     try:
@@ -40,70 +37,96 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map_s
             asset = assets_to_update.get(asset_id)
             if not asset: continue
 
-            # Dados anteriores
+            # Estado Anterior (Para comparação)
+            prev_status = asset.location_status
+            prev_quarto_id = asset.quarto_id
+            
+            # Dados para o Evento
             old_quarto_obj = asset.quarto
             old_quarto_nome = old_quarto_obj.nome if old_quarto_obj else "Indeterminado"
             old_andar_nome = old_quarto_obj.andar.nome if (old_quarto_obj and old_quarto_obj.andar) else "---"
 
-            # 1. ATUALIZAÇÃO REAL-TIME
-            if "new_quarto_id" in change:
-                asset.quarto_id = change["new_quarto_id"]
-                if asset.mac_beacon in aggregator._asset_map:
-                    aggregator._asset_map[asset.mac_beacon]['quarto_id'] = change["new_quarto_id"]
+            # 1. ATUALIZAÇÃO NO BANCO
+            new_quarto_id = change.get("new_quarto_id", prev_quarto_id) 
+            new_raw_status = change.get("location_status", prev_status)
 
-            new_raw_status = change.get("location_status")
-            if new_raw_status:
-                asset.location_status = new_raw_status
-                asset.location_status_updated_on = datetime.now(timezone.utc)
-                if asset.mac_beacon in aggregator._asset_map:
-                    aggregator._asset_map[asset.mac_beacon]['location_status'] = new_raw_status
+            asset.quarto_id = new_quarto_id
+            asset.location_status = new_raw_status
+            asset.location_status_updated_on = datetime.now(timezone.utc)
+            
+            # Atualiza Cache do Aggregator
+            if asset.mac_beacon in aggregator._asset_map:
+                aggregator._asset_map[asset.mac_beacon]['quarto_id'] = new_quarto_id
+                aggregator._asset_map[asset.mac_beacon]['location_status'] = new_raw_status
 
-            # 2. FILTRO (Ignora Pendente no Histórico)
-            if new_raw_status == "PENDENTE":
+            # Atualiza Máquina de Estados (Timers)
+            if asset.mac_beacon in aggregator._asset_realtime_state:
+                rt_state = aggregator._asset_realtime_state[asset.mac_beacon]
+                rt_state.state = new_raw_status
+                # Se virou PENDENTE agora, inicia o timer. Se saiu, zera.
+                if new_raw_status == 'PENDENTE' and prev_status != 'PENDENTE':
+                    rt_state.pending_start_time = datetime.now(timezone.utc).timestamp()
+                elif new_raw_status != 'PENDENTE':
+                    rt_state.pending_start_time = None
+
+            # --- FILTRO DE DUPLICIDADE (ANTISPAM) ---
+            # Se nada mudou (Status igual e Quarto igual), não gera evento.
+            if new_raw_status == prev_status and new_quarto_id == prev_quarto_id:
+                # Exceção: Se for reconexão de cabo (CONFIRMADO), as vezes queremos logar.
+                # Mas para OUT/LIVRE/PENDENTE repetido, ignoramos.
+                continue
+            
+            # --- FILTRO DE PENDENTE ---
+            # Se for PENDENTE, geralmente não geramos histórico para não poluir,
+            # A MENOS QUE venha de um CONFIRMADO (Cabo Desconectado), aí é importante saber.
+            if new_raw_status == "PENDENTE" and prev_status != "CONFIRMADO":
                 continue 
 
-            # 3. CRIAÇÃO DO EVENTO
+            # 3. CONSTRUÇÃO DO EVENTO
             status_desc = change.get("details", "")
-            final_status = "ALERTA"
+            final_status = "ALERTA" # Default seguro
             quarto_evt = "---"
             andar_evt = "---"
 
             # Cenário SAÍDA
-            if change.get("new_quarto_id") is None and new_raw_status == "LIVRE":
+            if new_quarto_id is None and new_raw_status == "LIVRE":
                 final_status = "OUT"
-                if not status_desc: status_desc = "Desconectado (Saída)"
+                if not status_desc: status_desc = "Desconectado"
                 quarto_evt = old_quarto_nome
                 andar_evt = old_andar_nome
 
-            # Cenário ENTRADA/PERMANÊNCIA
-            elif change.get("new_quarto_id") is not None:
-                q = db.query(Quarto).get(change["new_quarto_id"])
+            # Cenário ENTRADA / PERMANÊNCIA
+            elif new_quarto_id is not None:
+                q = db.query(Quarto).get(new_quarto_id)
                 quarto_evt = q.nome if q else "---"
                 andar_evt = q.andar.nome if (q and q.andar) else "---"
                 
                 if new_raw_status == "CONFIRMADO":
                     final_status = "GET"
                     status_desc = "Conectado"
+                elif new_raw_status == "PENDENTE": 
+                    # Se caiu aqui, é pq veio de CONFIRMADO (Cabo soltou)
+                    final_status = "ALERTA" 
+                    if not status_desc: status_desc = "Cabo Desconectado"
                 elif new_raw_status == "ALERTA":
                     final_status = "ALERTA"
-                    if not status_desc: status_desc = "Alerta (Desconectado)"
-            
-            # Cenário MUDANÇA NO MESMO LUGAR
-            else:
-                quarto_evt = old_quarto_nome
-                andar_evt = old_andar_nome
-                if new_raw_status == "CONFIRMADO": final_status = "GET"; status_desc = "Conectado"
-                elif new_raw_status == "LIVRE": final_status = "OUT"
-                elif new_raw_status == "ALERTA": final_status = "ALERTA"; 
-                if not status_desc and final_status == "ALERTA": status_desc = "Alerta (Desconectado)"
 
-            # Prepara dados técnicos
-            esp_id_src = change.get("source_esp_id", "server")
+            # --- CORREÇÃO DO RSSI -1 ---
             rssi_val = change.get("rssi")
-            wifi_val = mqtt_client.get_last_wifi_signal_for_esp(esp_id_src)
+            if rssi_val is None or rssi_val == -1:
+                # Tenta resgatar o último valor real do BLE no cache
+                if asset.mac_beacon in aggregator._asset_realtime_state:
+                    readings = aggregator._asset_realtime_state[asset.mac_beacon].readings
+                    if readings:
+                        # Pega o primeiro RSSI disponível
+                        rssi_val = list(readings.values())[0].get("last_rssi", -100)
+                    else:
+                        rssi_val = -100
+
+            wifi_val = mqtt_client.get_last_wifi_signal_for_esp(change.get("source_esp_id", "server"))
 
             event = ReceivedEvent(
-                esp_id=esp_id_src,
+                esp_id=change.get("source_esp_id", "server"),
                 ativo=asset.mac_beacon,
                 quarto_nome=quarto_evt,
                 andar_nome=andar_evt,
@@ -120,25 +143,22 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map_s
 
         db.commit()
 
-        # --- DESPACHO PARA SISTEMA EXTERNO (JSON CORRIGIDO) ---
+        # Despacho HTTP
         loop = asyncio.get_running_loop()
         for event in events_to_dispatch:
             q_obj = db.query(Quarto).filter(Quarto.nome == event.quarto_nome).first()
             c_id = q_obj.connecta_id if q_obj else None
             nome_ativo = asset_map_snapshot.get(event.ativo, {}).get("nome_ativo", event.ativo)
-            
-            # Busca o modelo no mapa que criamos lá em cima
             modelo_ativo = mac_to_model.get(event.ativo, "")
 
             dispatch_payload = {
                 "quarto": event.quarto_nome,
                 "id_connecta": c_id,
                 "cama": nome_ativo,
-                "modelo": modelo_ativo,         # NOVO: Modelo Obrigatório
+                "modelo": modelo_ativo,
                 "status": event.status,
-                "wifi": event.wifi,             # NOVO: Sinal Wi-Fi
+                "wifi": event.wifi,
                 "dataOn": event.data_on.isoformat()
-                # "etapa": removido conforme solicitado
             }
             await loop.run_in_executor(None, dispatch_event, dispatch_payload)
 

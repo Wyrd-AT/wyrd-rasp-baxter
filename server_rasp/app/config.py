@@ -34,7 +34,8 @@ def load_configuration():
             'bed_mqtt_host': '172.28.74.51',
             'bed_mqtt_port': '1883',
             'bed_mqtt_user': 'usuario_hillrom',
-            'bed_mqtt_pass': 'senha_hillrom'
+            'bed_mqtt_pass': 'senha_hillrom',
+            'facility_id': 'HBAX'
         }
         
         config['Dispatcher'] = {
@@ -51,6 +52,7 @@ def load_configuration():
             'process_interval_sec': '2.0',     
             'reading_timeout_sec': '10',        
             'ema_alpha': '0.4',
+            'pending_timeout_sec': '1800',
             'dispatch_delay_after_wifi_sec': '5',
             'state_log_interval_sec': '30',
             'enable_pending_alert': 'true',        
@@ -62,6 +64,8 @@ def load_configuration():
             'wifi_failure_tolerance': '3',
             'esp_status_interval_sec': '90',
             'monitor_wifi_interval_sec': '60',  
+            'location_sync_interval_sec': '1200',
+            'bed_poll_interval_sec': '300'
         }
 
         config['Application'] = {
