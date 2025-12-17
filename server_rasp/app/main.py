@@ -1183,9 +1183,9 @@ async def bed_availability_monitor():
                 current_status_db = data.get("status_db")
                 
                 # --- CONFIGURAÇÃO DE TEMPOS (KEEP-ALIVE) ---
-                # Progressa: Envia a cada 20s. Timeout = 50s (Aguarda perder 2)
-                # Accella/Outras: Envia a cada 60s. Timeout = 130s (Aguarda perder 2)
-                timeout = 50 if "progressa" in model else 130
+                # Progressa: Envia a cada 20s. Timeout = 100s (Aguarda perder 2)
+                # Accella/Outras: Envia a cada 60s. Timeout = 200s (Aguarda perder 2)
+                timeout = 100 if "progressa" in model else 200
                 # -------------------------------------------
                 
                 is_expired = (now - last_ts) > timeout
