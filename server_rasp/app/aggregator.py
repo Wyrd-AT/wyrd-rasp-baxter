@@ -130,8 +130,8 @@ async def _processar_localizacoes():
             if not asset_id: continue
 
             # --- REGRA 1: SE ESTÁ CONFIRMADO (CABO), O BLE NÃO MEXE ---
-            if asset_info.get("location_status") == 'CONFIRMADO':
-                continue
+            # if asset_info.get("location_status") == 'CONFIRMADO':
+            #     continue
 
             # 1. Limpeza / Timeout de Sinal (Desaparecimento completo)
             if not state.cleanup_old_readings():
@@ -227,14 +227,14 @@ async def _processar_localizacoes():
             # =================================================================
             
             # --- TIMEOUT DE PENDENTE ---
-            if state.state == 'PENDENTE' and state.pending_start_time:
-                if (time.time() - state.pending_start_time) > _config.get("pending_timeout_sec", 1800):
-                    changes_to_commit.append({
-                        "asset_id": asset_id, "new_quarto_id": asset_info.get("quarto_id"),
-                        "location_status": "ALERTA", "details": "Tempo limite excedido.",
-                        "source_esp_id": winner_esp, "rssi": int(winner_rssi)
-                    })
-                    state.state = 'ALERTA'; state.pending_start_time = None
+            # if state.state == 'PENDENTE' and state.pending_start_time:
+            #     if (time.time() - state.pending_start_time) > _config.get("pending_timeout_sec", 1800):
+            #         changes_to_commit.append({
+            #             "asset_id": asset_id, "new_quarto_id": asset_info.get("quarto_id"),
+            #             "location_status": "ALERTA", "details": "Tempo limite excedido.",
+            #             "source_esp_id": winner_esp, "rssi": int(winner_rssi)
+            #         })
+            #         state.state = 'ALERTA'; state.pending_start_time = None
 
             # --- ENTRADA (LIVRE -> PENDENTE) ---
             if state.state == 'LIVRE':

@@ -139,8 +139,8 @@ async def _processar_localizacoes():
             if not asset_id: continue
 
             # --- REGRA 1: SE ESTÁ CONFIRMADO (CABO), O BLE NÃO MEXE ---
-            if asset_info.get("location_status") == 'CONFIRMADO':
-                continue
+            # if asset_info.get("location_status") == 'CONFIRMADO':
+            #     continue
 
             # 1. Limpeza / Timeout de Sinal (Desaparecimento completo)
             if not state.cleanup_old_readings():
@@ -236,14 +236,14 @@ async def _processar_localizacoes():
             # =================================================================
             
             # --- TIMEOUT DE PENDENTE ---
-            if state.state == 'PENDENTE' and state.pending_start_time:
-                if (time.time() - state.pending_start_time) > _config.get("pending_timeout_sec", 1800):
-                    changes_to_commit.append({
-                        "asset_id": asset_id, "new_quarto_id": asset_info.get("quarto_id"),
-                        "location_status": "ALERTA", "details": "Tempo limite excedido.",
-                        "source_esp_id": winner_esp, "rssi": int(winner_rssi)
-                    })
-                    state.state = 'ALERTA'; state.pending_start_time = None
+            # if state.state == 'PENDENTE' and state.pending_start_time:
+            #     if (time.time() - state.pending_start_time) > _config.get("pending_timeout_sec", 1800):
+            #         changes_to_commit.append({
+            #             "asset_id": asset_id, "new_quarto_id": asset_info.get("quarto_id"),
+            #             "location_status": "ALERTA", "details": "Tempo limite excedido.",
+            #             "source_esp_id": winner_esp, "rssi": int(winner_rssi)
+            #         })
+            #         state.state = 'ALERTA'; state.pending_start_time = None
 
             # --- ENTRADA (LIVRE -> PENDENTE) ---
             if state.state == 'LIVRE':
@@ -1941,34 +1941,42 @@ async def periodic_location_sync_loop():
 async def periodic_bed_poll_loop():
     logger.info(f"[TASK] Polling de Camas agendado (Intervalo: {BED_POLL_INTERVAL}s).")
     
-    # Espera MQTT conectar
+    # Espera MQTT conectar na inicialização
     await asyncio.sleep(3) 
 
     while True:
-        logger.info("[TASK] Iniciando verificação ativa das camas conhecidas...")
+        logger.info("[TASK] Iniciando verificação ativa das camas cadastradas...")
         db = SessionLocal()
         try:
-            assets = db.query(Asset).filter(Asset.mac_address.isnot(None)).all()
+            assets = db.query(Asset).filter(Asset.modelo.isnot(None)).all()
             
             count = 0
             for asset in assets:
+                
                 full_id = asset.nome_ativo
+                
                 if asset.modelo:
-                    pass
+                    # Remove espaços extras do modelo por segurança
+                    mod_clean = asset.modelo.strip()
+                    if not asset.nome_ativo.startswith(mod_clean):
+                        full_id = f"{mod_clean}-{asset.nome_ativo}"
 
                 bed_mqtt_client.send_gateway_check_command(full_id)
                 count += 1
                 
                 await asyncio.sleep(0.1)
             
-            logger.info(f"[TASK] Polling enviado para {count} camas conhecidas.")
+            if count > 0:
+                logger.info(f"[TASK] Polling enviado para {count} camas.")
+            else:
+                logger.info("[TASK] Nenhuma cama elegível para polling (verifique se os ativos têm 'Modelo' preenchido).")
 
         except Exception as e:
             logger.error(f"[TASK] Erro no polling de camas: {e}")
         finally:
             db.close()
         
-        # Dorme pelo tempo configurado (5 minutos)
+        # Dorme pelo tempo configurado
         await asyncio.sleep(BED_POLL_INTERVAL)
 
 # --- TAREFA 3: MONITOR DE KEEP-ALIVE ---
@@ -2036,20 +2044,20 @@ async def bed_availability_monitor():
                         # LÓGICA DE ALERTA (Se morrer confirmado)
                         if new_status == "Offline":
                             if asset.location_status == 'CONFIRMADO':
-                                logger.warning(f"[KEEP-ALIVE] {asset.nome_ativo} caiu (CONFIRMADO) -> Gerando ALERTA.")
+                                logger.warning(f"[KEEP-ALIVE] {asset.nome_ativo} caiu (CONFIRMADO) -> Gerando PENDENTE (Alerta de Cabo).")
                                 changes_to_process.append({
                                     "asset_id": asset.id,
                                     "new_quarto_id": asset.quarto_id,
-                                    "location_status": "ALERTA",
+                                    "location_status": "PENDENTE", # <--- MUDADO DE "ALERTA" PARA "PENDENTE"
                                     "details": f"Offline após {int(now - last_ts)}s sem sinal.",
                                     "source_esp_id": "server", "rssi": -1
                                 })
                             
-                            elif asset.location_status == 'PENDENTE':
-                                changes_to_process.append({
-                                    "asset_id": asset.id, "new_quarto_id": None, "location_status": "LIVRE",
-                                    "details": "Sinal perdido (Timeout WiFi).", "source_esp_id": "server", "rssi": -1
-                                })
+                            # elif asset.location_status == 'PENDENTE':
+                            #     changes_to_process.append({
+                            #         "asset_id": asset.id, "new_quarto_id": None, "location_status": "LIVRE",
+                            #         "details": "Sinal perdido (Timeout WiFi).", "source_esp_id": "server", "rssi": -1
+                            #     })
 
                         # Se voltar, força check
                         elif new_status == "Online":

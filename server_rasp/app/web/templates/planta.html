@@ -86,32 +86,33 @@
     /* --- ESTADOS (CORES NOVAS) --- */
     
     /* Desligado: Borda Branca, Centro Cinza */
+    /* Desligado: Borda Branca, Centro Cinza (Mantido) */
     .st-offline {
-        background-color: #6c757d; /* Cinza */
+        background-color: #6c757d;
         border-color: #ffffff;
     }
 
-    /* Livre: Borda Verde, Centro Branco */
+    /* Livre: Borda Branca, Fundo VERMELHO */
     .st-livre {
-        background-color: #ffffff; /* Branco */
-        border-color: #28a745;     /* Verde */
+        background-color: #dc3545; /* Vermelho */
+        border-color: #ffffff;
     }
 
-    /* Pendente: Borda Branca, Centro Amarelo */
+    /* Pendente: Borda Branca, Fundo LARANJA */
     .st-pendente {
-        background-color: #ffc107; /* Amarelo */
+        background-color: #fd7e14; /* Laranja */
         border-color: #ffffff;
     }
 
-    /* Confirmado: Borda Branca, Centro Azul */
+    /* Confirmado: Borda Branca, Fundo VERDE */
     .st-confirmado {
-        background-color: #007bff; /* Azul */
+        background-color: #28a745; /* Verde */
         border-color: #ffffff;
     }
 
-    /* Alerta: Borda Branca, Centro Vermelho (Piscando) */
+    /* Alerta: Mantemos caso ocorra algum erro crítico, mas visualmente será Vermelho Piscando */
     .st-alerta {
-        background-color: #ff0000; /* Vermelho */
+        background-color: #ff0000;
         border-color: #ffffff;
         animation: blink 1s infinite;
     }

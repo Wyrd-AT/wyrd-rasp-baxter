@@ -1209,20 +1209,20 @@ async def bed_availability_monitor():
                         # LÓGICA DE ALERTA (Se morrer confirmado)
                         if new_status == "Offline":
                             if asset.location_status == 'CONFIRMADO':
-                                logger.warning(f"[KEEP-ALIVE] {asset.nome_ativo} caiu (CONFIRMADO) -> Gerando ALERTA.")
+                                logger.warning(f"[KEEP-ALIVE] {asset.nome_ativo} caiu (CONFIRMADO) -> Gerando PENDENTE (Alerta de Cabo).")
                                 changes_to_process.append({
                                     "asset_id": asset.id,
                                     "new_quarto_id": asset.quarto_id,
-                                    "location_status": "ALERTA",
+                                    "location_status": "PENDENTE", # <--- MUDADO DE "ALERTA" PARA "PENDENTE"
                                     "details": f"Offline após {int(now - last_ts)}s sem sinal.",
                                     "source_esp_id": "server", "rssi": -1
                                 })
                             
-                            elif asset.location_status == 'PENDENTE':
-                                changes_to_process.append({
-                                    "asset_id": asset.id, "new_quarto_id": None, "location_status": "LIVRE",
-                                    "details": "Sinal perdido (Timeout WiFi).", "source_esp_id": "server", "rssi": -1
-                                })
+                            # elif asset.location_status == 'PENDENTE':
+                            #     changes_to_process.append({
+                            #         "asset_id": asset.id, "new_quarto_id": None, "location_status": "LIVRE",
+                            #         "details": "Sinal perdido (Timeout WiFi).", "source_esp_id": "server", "rssi": -1
+                            #     })
 
                         # Se voltar, força check
                         elif new_status == "Online":
