@@ -7,6 +7,7 @@ import logging
 import time
 import uuid
 from .config import settings
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -93,15 +94,8 @@ def on_bed_connect(client, userdata, flags, rc):
 # --- COMANDOS ---
 
 def send_get_locations_command():
-    """Pede a árvore de locais periodicamente."""
-    if not bed_client.is_connected(): return
-    payload = {
-        "command_id": "get_locations",
-        "data": None,
-        "reply_to": TOPIC_CMD_RESP,
-        "transaction_id": str(uuid.uuid4())
-    }
-    bed_client.publish(TOPIC_CMD_REQ, json.dumps(payload), qos=1)
+    # [DESATIVADO] Agora usamos o loop HTTP quinzenal no main.py
+    return
 
 def send_gateway_check_command(bed_full_id):
     """Verifica se a cama achou o servidor (Keep-Alive)."""
@@ -114,7 +108,7 @@ def send_gateway_check_command(bed_full_id):
         "command_id": "get_gateway_state",
         "data": None,
         "reply_to": reply_topic,
-        "transaction_id": str(uuid.uuid4())
+        "transaction_id":random.randint(1, 100)
     }
     bed_client.publish(TOPIC_GATEWAY_REQ, json.dumps(payload), qos=1)
     logger.info(f"[GATEWAY-CHECK] Enviado para {bed_full_id}")

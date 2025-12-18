@@ -223,65 +223,99 @@ async def _processar_localizacoes():
             # Se o vencedor Global for EU MESMO (local) mas fraco, a máquina de estados abaixo vai tratar como instável.
 
             # =================================================================
-            # 4. MÁQUINA DE ESTADOS
+            # 4. MÁQUINA DE ESTADOS (COM SHADOW TWIN)
             # =================================================================
             
-            # --- TIMEOUT DE PENDENTE ---
-            # if state.state == 'PENDENTE' and state.pending_start_time:
-            #     if (time.time() - state.pending_start_time) > _config.get("pending_timeout_sec", 1800):
-            #         changes_to_commit.append({
-            #             "asset_id": asset_id, "new_quarto_id": asset_info.get("quarto_id"),
-            #             "location_status": "ALERTA", "details": "Tempo limite excedido.",
-            #             "source_esp_id": winner_esp, "rssi": int(winner_rssi)
-            #         })
-            #         state.state = 'ALERTA'; state.pending_start_time = None
+            # Recupera a "Verdade do Cabo" (Carregada do banco no _load_maps)
+            cabo_conectado = asset_info.get("is_connected", False)
 
-            # --- ENTRADA (LIVRE -> PENDENTE) ---
+            # --- ENTRADA (LIVRE -> QUARTO) ---
             if state.state == 'LIVRE':
-                # Só entra se o sinal for BOM (acima do threshold do vencedor)
+                # Só considera entrar se o sinal for BOM
                 cand_qid = winner_quarto if winner_rssi > threshold_to_compare else None
                 
                 if cand_qid != state.candidate_quarto_id:
                     state.candidate_quarto_id = cand_qid
                     state.candidate_since = time.time() if cand_qid else None
 
+                # Se venceu a inércia de entrada
                 if state.candidate_since and (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
                     if state.candidate_quarto_id == cand_qid and cand_qid is not None:
-                        logger.info(f"[ENTRADA] {nome} -> Quarto {cand_qid} (Sinal: {winner_rssi:.1f})")
+                        
+                        # SHADOW TWIN: Decide o status baseado no cabo
+                        novo_status = 'CONFIRMADO' if cabo_conectado else 'PENDENTE'
+                        
+                        logger.info(f"[ENTRADA] {nome} -> Quarto {cand_qid}. Cabo: {cabo_conectado} -> {novo_status}")
+                        
                         changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": cand_qid, "location_status": "PENDENTE", 
-                            "details": "Entrada.", "source_esp_id": winner_esp, "rssi": int(winner_rssi)
+                            "asset_id": asset_id, 
+                            "new_quarto_id": cand_qid, 
+                            "location_status": novo_status, 
+                            "details": "Entrada.", 
+                            "source_esp_id": winner_esp, 
+                            "rssi": int(winner_rssi)
                         })
-                        state.state = 'PENDENTE'; state.pending_start_time = time.time()
+                        state.state = novo_status
                         state.candidate_quarto_id, state.candidate_since = None, None
 
-            # --- SAÍDA/MANUTENÇÃO (DENTRO -> LIVRE ou PERMANECE) ---
+            # --- MANUTENÇÃO / SAÍDA / TROCA (ESTÁ DENTRO) ---
             elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
-                # Estabilidade:
-                # 1. O vencedor deve ser o meu quarto atual.
-                # 2. O sinal deve estar ACIMA do limite.
-                is_stable = (winner_quarto == quarto_id_atual) and (winner_rssi >= threshold_to_compare)
-
-                if is_stable:
-                    if state.weak_signal_since is not None:
-                        logger.info(f"[SINAL] {nome} estabilizou em {quarto_id_atual} ({winner_rssi:.1f} >= {threshold_to_compare}).")
-                        state.weak_signal_since = None
-                else:
-                    # Instável: Sinal fraco ou o vencedor é outro quarto (mas só muda se sair primeiro)
-                    if state.weak_signal_since is None: 
-                        state.weak_signal_since = time.time()
-                        # Log detalhado para entender a decisão
-                        motivo = "Sinal Fraco" if (winner_quarto == quarto_id_atual) else "Melhor em Outro"
-                        logger.info(f"[INSTAVEL] {nome}. Local: {rssi_local:.1f} (Lim: {threshold_local}). Global: {winner_rssi:.1f} em {winner_quarto}. Motivo: {motivo}")
+                
+                # Cenario 1: TROCA RÁPIDA DE QUARTO (Flash)
+                # Se o vencedor é OUTRO quarto e o sinal é FORTE -> Muda imediatamente (ignora inércia de saída)
+                if winner_quarto and winner_quarto != quarto_id_atual and winner_rssi > threshold_to_compare:
                     
-                    elapsed = (time.time() - state.weak_signal_since) * 1000
-                    if elapsed > _config["inertia_saida_ms"]:
-                        logger.info(f"[SAIDA] {nome} saindo de {quarto_id_atual} após {elapsed/1000:.1f}s instável.")
-                        changes_to_commit.append({
-                            "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE", 
-                            "details": "Sinal fraco ou ausente.", "source_esp_id": winner_esp, "rssi": int(winner_rssi)
-                        })
-                        state.state = 'LIVRE'; state.pending_start_time = None; state.weak_signal_since = None
+                    novo_status = 'CONFIRMADO' if cabo_conectado else 'PENDENTE'
+                    logger.info(f"[TROCA] {nome} mudou de {quarto_id_atual} para {winner_quarto}. Status: {novo_status}")
+                    
+                    changes_to_commit.append({
+                        "asset_id": asset_id, 
+                        "new_quarto_id": winner_quarto, 
+                        "location_status": novo_status, 
+                        "details": "Troca de Quarto.", 
+                        "source_esp_id": winner_esp, 
+                        "rssi": int(winner_rssi)
+                    })
+                    state.state = novo_status
+                    state.weak_signal_since = None # Reseta contadores
+                
+                else:
+                    # Verifica Estabilidade no Quarto Atual
+                    is_stable = (winner_quarto == quarto_id_atual) and (winner_rssi >= threshold_to_compare)
+
+                    if is_stable:
+                        state.weak_signal_since = None
+                        
+                        # Cenario 2: ATUALIZAÇÃO DE STATUS NO MESMO LUGAR
+                        # O BLE está quieto, mas o cabo mudou (ex: Alguém plugou a tomada)
+                        status_correto = 'CONFIRMADO' if cabo_conectado else 'PENDENTE'
+                        
+                        # Se o status atual discorda do cabo (ex: está Pendente mas cabo=True)
+                        if state.state != status_correto:
+                            logger.info(f"[UPDATE] {nome} no mesmo quarto. Cabo mudou para {cabo_conectado}. Atualizando status.")
+                            changes_to_commit.append({
+                                "asset_id": asset_id, 
+                                "new_quarto_id": quarto_id_atual, 
+                                "location_status": status_correto, 
+                                "details": "Cabo Alterado.", 
+                                "source_esp_id": winner_esp, 
+                                "rssi": int(winner_rssi)
+                            })
+                            state.state = status_correto
+
+                    else:
+                        # Cenario 3: INSTABILIDADE / SAÍDA
+                        if state.weak_signal_since is None: 
+                            state.weak_signal_since = time.time()
+                        
+                        elapsed = (time.time() - state.weak_signal_since) * 1000
+                        if elapsed > _config["inertia_saida_ms"]:
+                            logger.info(f"[SAIDA] {nome} saindo de {quarto_id_atual} (Sinal fraco/ausente).")
+                            changes_to_commit.append({
+                                "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE", 
+                                "details": "Sinal perdido.", "source_esp_id": winner_esp, "rssi": int(winner_rssi)
+                            })
+                            state.state = 'LIVRE'; state.weak_signal_since = None
 
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)
@@ -303,6 +337,7 @@ def _load_maps_from_db():
             a.mac_beacon: {
                 "id": a.id, "nome_ativo": a.nome_ativo, "quarto_id": a.quarto_id, 
                 "location_status": a.location_status,
+                "is_connected": a.is_connected,
                 "updated_on_ts": a.location_status_updated_on.timestamp() if a.location_status_updated_on else None,
             } for a in assets
         }

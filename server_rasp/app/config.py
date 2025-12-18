@@ -63,9 +63,8 @@ def load_configuration():
             'esp_timeout_sec': '150',         
             'wifi_failure_tolerance': '3',
             'esp_status_interval_sec': '90',
-            'monitor_wifi_interval_sec': '60',  
-            'location_sync_interval_sec': '1200',
-            'bed_poll_interval_sec': '300'
+            'location_sync_interval_sec': '432000',
+            'availability_timeout_sec': '300'
         }
 
         config['Application'] = {

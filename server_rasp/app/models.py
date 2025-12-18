@@ -74,6 +74,8 @@ class Asset(Base):
     
     # Status de Conexão (Keep-Alive)
     status = Column(String, default='Online', nullable=False)
+
+    is_connected = Column(Boolean, default=False, nullable=False)
     
     # Status de Localização
     location_status = Column(String, default='LIVRE', nullable=False)

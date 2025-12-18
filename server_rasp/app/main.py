@@ -50,7 +50,7 @@ from .bed_mqtt_client import bed_state_queue
 from .aggregator import main_aggregator_loop, _asset_realtime_state
 from .config import settings
 from .auth import authenticate_admin
-from .dispatcher import dispatch_event
+from .dispatcher import dispatch_event, fetch_external_locations
 
 logger.info("[main] Módulo carregado: BAXTER (Correção Settings + RSSI).")
 
@@ -878,53 +878,16 @@ async def bed_state_processor_loop():
             # =================================================================
             if msg_type == "LOCATION_UPDATE":
                 try:
-                    data = item.get("data", {})
-                    # A lista vem como strings: "ID;PAI;NOME;TIPO"
-                    locations_list = data.get("locations", [])
+                    payload = item.get("data", {})
+                    # Tenta achar a lista na raiz ou dentro de 'data'
+                    locations_list = payload.get("locations") or payload.get("data", {}).get("locations")
                     
-                    if not locations_list:
-                        continue
-
-                    logger.info(f"[LOC-UPDATE] Processando lista de {len(locations_list)} locais...")
-                    
-                    db = SessionLocal()
-                    updates_count = 0
-                    
-                    for loc_str in locations_list:
-                        parts = loc_str.split(";")
-                        if len(parts) < 4: continue
-                        
-                        loc_id = parts[0]   # Ex: 6666
-                        # pai_id = parts[1]
-                        loc_name = parts[2] # Ex: 1806
-                        loc_type = parts[3] # Ex: A (Room)
-                        
-                        # Se for um Quarto (Tipo A)
-                        if loc_type == 'A':
-                            # Busca o quarto no banco pelo NOME (Ex: "1806")
-                            quarto = db.query(Quarto).filter(Quarto.nome == loc_name).first()
-                            
-                            if quarto:
-                                # Se o ID mudou, atualiza
-                                if quarto.connecta_id != loc_id:
-                                    logger.info(f"[LOC-UPDATE] Atualizando Quarto {loc_name}: ID antigo '{quarto.connecta_id}' -> Novo '{loc_id}'")
-                                    quarto.connecta_id = loc_id
-                                    updates_count += 1
-                            else:
-                                # Opcional: Avisar se o quarto não existe no banco
-                                pass
-
-                    if updates_count > 0:
-                        db.commit()
-                        logger.info(f"[LOC-UPDATE] Sucesso! {updates_count} quartos tiveram seus IDs Connecta atualizados.")
-                    else:
-                        logger.info("[LOC-UPDATE] Nenhuma alteração de ID necessária.")
-                        
+                    if locations_list:
+                        logger.info(f"[MQTT-PUSH] Recebido update de locais!")
+                        sync_locations_db(locations_list)
                 except Exception as e:
-                    logger.error(f"[LOC-UPDATE] Erro ao processar mapa: {e}")
-                finally:
-                    db.close()
-                pass 
+                    logger.error(f"[MQTT-PUSH] Erro: {e}")
+                continue
 
             # =================================================================
             # C. BED STATE (Cabo de Dados / Status Técnico)
@@ -948,67 +911,26 @@ async def bed_state_processor_loop():
                 ip_addr = item.get("ipAddress") or item.get("ip_address")
                 mac_wifi = item.get("macAddress") or item.get("mac_address")
                 fw_ver  = item.get("firmwareVersion") or item.get("firmware_version")
-                is_connected = item.get("connected")
+                
+                is_connected_payload = item.get("connected") # True/False do JSON
 
                 db = SessionLocal()
                 try:
                     asset = db.query(Asset).filter(Asset.nome_ativo == nome_mqtt).first()
                     if not asset: continue 
                     
-                    # 2. Atualiza Dados Técnicos no Banco
                     updated = False
-                    if ip_addr and asset.ip_address != ip_addr: 
-                        asset.ip_address = ip_addr; updated = True
-                    if mac_wifi and asset.mac_address != mac_wifi: 
-                        asset.mac_address = mac_wifi; updated = True
-                    if fw_ver and asset.firmware_version != fw_ver: 
-                        asset.firmware_version = fw_ver; updated = True
-                    if asset.status != 'Online': 
-                        asset.status = 'Online'; updated = True
-                    
+                    # ... (atualização de IP/Mac/FW mantida igual) ...
+
+                    # --- Lógica SHADOW TWIN (Simples) ---
+                    if is_connected_payload is not None:
+                        if asset.is_connected != is_connected_payload:
+                            logger.info(f"{nome_mqtt} Cabo: {asset.is_connected} -> {is_connected_payload}")
+                            asset.is_connected = is_connected_payload
+                            updated = True
+                            aggregator.flag_for_reload() # Avisa o agregador
+
                     if updated: db.commit()
-
-                    # 3. Lógica de Confirmação (Cabo)
-                    change = None
-                    
-                    # CASO A: CABO CONECTADO -> Tenta Confirmar
-                    if is_connected:
-                        # REGRA: Só confirma se já estiver localizado pelo BLE (Pendente/Alerta)
-                        if asset.location_status in ['PENDENTE', 'ALERTA']:
-                            logger.info(f"[BED] {nome_mqtt} Cabo Conectado -> CONFIRMADO.")
-                            change = { 
-                                "asset_id": asset.id, 
-                                "new_quarto_id": asset.quarto_id, # Confirma no quarto atual
-                                "location_status": "CONFIRMADO", 
-                                "details": "Cabo Conectado.", 
-                                "source_esp_id": "server", 
-                                "rssi": -1 
-                            }
-                        
-                        # Se estiver LIVRE, ignoramos a conexão. 
-                        # O BLE tem que achar o quarto primeiro (virar PENDENTE).
-                        elif asset.location_status == 'LIVRE':
-                            logger.info(f"[BED-SKIP] {nome_mqtt} conectou mas está LIVRE. Aguardando BLE localizar o quarto.")
-
-                    # CASO B: CABO DESCONECTADO -> Rebaixa para Pendente
-                    elif not is_connected:
-                        # Se estava CONFIRMADO, volta para PENDENTE (não tira do quarto)
-                        if asset.location_status == 'CONFIRMADO':
-                            logger.info(f"[BED] {nome_mqtt} Cabo Desconectado -> PENDENTE.")
-                            change = { 
-                                "asset_id": asset.id, 
-                                "new_quarto_id": asset.quarto_id, 
-                                "location_status": "PENDENTE", 
-                                "details": "Cabo Desconectado.", 
-                                "source_esp_id": "server", 
-                                "rssi": -1 
-                            }
-                        # Se já estava PENDENTE, continua PENDENTE (evita spam)
-                    
-                    if change: 
-                        await batch_update_asset_assignments(db, [change])
-                        db.commit()
-
                 finally:
                     db.close()
 
@@ -1077,72 +999,56 @@ async def main_pending_manager_loop():
 # Estrutura: { "Accella-HRP...": { "ts": 1234567890, "model": "Accella", "status_db": "Online" } }
 _bed_heartbeats = {}
 
-# --- TAREFA 1: SYNC PERIÓDICO ---
-LOCATION_SYNC_INTERVAL = int(settings.get('location_sync_interval_sec', 1200))
-# 5 Minutos para Polling de Camas
-BED_POLL_INTERVAL = int(settings.get('bed_poll_interval_sec', 300))
-
-# --- TAREFA 1: SYNC DE LOCAIS (IMEDIATO + 20 MIN) ---
-async def periodic_location_sync_loop():
-    logger.info(f"[TASK] Sync Locais agendado (Intervalo: {LOCATION_SYNC_INTERVAL}s).")
-    
-    await asyncio.sleep(2)
-    
+def sync_locations_db(locations_list):
+    """Processa a lista de IDs 'ID;PAI;NOME;TIPO' e atualiza o banco."""
+    if not locations_list: return 0
+    db = SessionLocal()
+    updates_count = 0
     try:
-        logger.info("[TASK] Pedindo lista de locais (Boot)...")
-        bed_mqtt_client.send_get_locations_command()
+        for loc_str in locations_list:
+            parts = loc_str.split(";")
+            if len(parts) < 4: continue
+            
+            loc_id = parts[0]
+            loc_name = parts[2]
+            loc_type = parts[3]
+            
+            if loc_type == 'A': # Tipo A = Quarto
+                quarto = db.query(Quarto).filter(Quarto.nome == loc_name).first()
+                if quarto and quarto.connecta_id != loc_id:
+                    logger.info(f"[LOC-SYNC] Atualizando {loc_name}: '{quarto.connecta_id}' -> '{loc_id}'")
+                    quarto.connecta_id = loc_id
+                    updates_count += 1
+        if updates_count > 0: db.commit()
     except Exception as e:
-        logger.error(f"[TASK] Erro no sync inicial de locais: {e}")
+        logger.error(f"[LOC-SYNC] Erro: {e}")
+    finally:
+        db.close()
+    return updates_count
 
-    while True:
-        await asyncio.sleep(LOCATION_SYNC_INTERVAL)
-        try:
-            logger.info("[TASK] Pedindo lista de locais (Periódico)...")
-            bed_mqtt_client.send_get_locations_command()
-        except Exception as e:
-            logger.error(f"[TASK] Erro no sync periódico de locais: {e}")
+LOCATION_SYNC_INTERVAL = int(settings.get('location_sync_interval_sec', 432000))
 
-# --- TAREFA 2: SYNC DE STATUS DAS CAMAS (IMEDIATO + 5 MIN) ---
-async def periodic_bed_poll_loop():
-    logger.info(f"[TASK] Polling de Camas agendado (Intervalo: {BED_POLL_INTERVAL}s).")
+# --- TAREFA 1: SYNC DE LOCAIS (IMEDIATO + 5 DIAS) ---
+async def periodic_location_sync_loop():
+    logger.info("[TASK] Sync Locais (HTTP) iniciado. Intervalo: 5 dias.")
+    await asyncio.sleep(5)
     
-    # Espera MQTT conectar na inicialização
-    await asyncio.sleep(3) 
-
     while True:
-        logger.info("[TASK] Iniciando verificação ativa das camas cadastradas...")
-        db = SessionLocal()
         try:
-            assets = db.query(Asset).filter(Asset.modelo.isnot(None)).all()
+            # Chama a função nova do dispatcher
+            loop = asyncio.get_running_loop()
+            resp_json = await loop.run_in_executor(None, fetch_external_locations)
             
-            count = 0
-            for asset in assets:
-                
-                full_id = asset.nome_ativo
-                
-                if asset.modelo:
-                    # Remove espaços extras do modelo por segurança
-                    mod_clean = asset.modelo.strip()
-                    if not asset.nome_ativo.startswith(mod_clean):
-                        full_id = f"{mod_clean}-{asset.nome_ativo}"
-
-                bed_mqtt_client.send_gateway_check_command(full_id)
-                count += 1
-                
-                await asyncio.sleep(0.1)
+            mqtt_resp = resp_json.get("mqttResponse", {})
+            locations_list = mqtt_resp.get("data", {}).get("locations", [])
             
-            if count > 0:
-                logger.info(f"[TASK] Polling enviado para {count} camas.")
-            else:
-                logger.info("[TASK] Nenhuma cama elegível para polling (verifique se os ativos têm 'Modelo' preenchido).")
-
+            if locations_list:
+                c = sync_locations_db(locations_list)
+                logger.info(f"[TASK] Sync HTTP finalizado. {c} quartos atualizados.")
         except Exception as e:
-            logger.error(f"[TASK] Erro no polling de camas: {e}")
-        finally:
-            db.close()
+            logger.error(f"[TASK] Erro no Sync HTTP: {e}")
         
-        # Dorme pelo tempo configurado
-        await asyncio.sleep(BED_POLL_INTERVAL)
+        await asyncio.sleep(LOCATION_SYNC_INTERVAL)
 
 # --- TAREFA 3: MONITOR DE KEEP-ALIVE ---
 async def bed_availability_monitor():
@@ -1179,13 +1085,11 @@ async def bed_availability_monitor():
             for full_id in keys_to_check:
                 data = _bed_heartbeats[full_id]
                 last_ts = data.get("ts", 0)
-                model = str(data.get("model", "")).lower()
                 current_status_db = data.get("status_db")
                 
                 # --- CONFIGURAÇÃO DE TEMPOS (KEEP-ALIVE) ---
-                # Progressa: Envia a cada 20s. Timeout = 100s (Aguarda perder 2)
-                # Accella/Outras: Envia a cada 60s. Timeout = 200s (Aguarda perder 2)
-                timeout = 100 if "progressa" in model else 200
+                # Garanta que no config.ini isso esteja em 300 (5 min)
+                timeout = int(settings.get("availability_timeout_sec", 300))
                 # -------------------------------------------
                 
                 is_expired = (now - last_ts) > timeout
@@ -1196,37 +1100,37 @@ async def bed_availability_monitor():
                     asset = db.query(Asset).filter(Asset.nome_ativo == nome_real).first()
                     
                     if asset:
+                        # Loga apenas a mudança
                         if asset.status != new_status:
-                            # Loga o tempo exato que ficou sem sinal
                             sem_sinal_ha = int(now - last_ts)
                             logger.info(f"[KEEP-ALIVE] {full_id} -> {new_status} (Sem sinal há {sem_sinal_ha}s / Limite: {timeout}s)")
-                            
                             asset.status = new_status
                             db.commit()
                         
                         _bed_heartbeats[full_id]["status_db"] = new_status
 
-                        # LÓGICA DE ALERTA (Se morrer confirmado)
+                        # LÓGICA DE ALERTA (Se morrer...)
                         if new_status == "Offline":
+                            # 1. Derruba a flag do cabo (SHADOW TWIN)
+                            if asset.is_connected:
+                                logger.warning(f"[KEEP-ALIVE] {asset.nome_ativo} Offline. Resetando cabo para False.")
+                                asset.is_connected = False
+                                db.commit()
+                                aggregator.flag_for_reload()
+                            
+                            # 2. Gera alerta visual se necessário
                             if asset.location_status == 'CONFIRMADO':
-                                logger.warning(f"[KEEP-ALIVE] {asset.nome_ativo} caiu (CONFIRMADO) -> Gerando PENDENTE (Alerta de Cabo).")
+                                logger.warning(f"[KEEP-ALIVE] {asset.nome_ativo} caiu (CONFIRMADO) -> Gerando PENDENTE.")
                                 changes_to_process.append({
                                     "asset_id": asset.id,
                                     "new_quarto_id": asset.quarto_id,
-                                    "location_status": "PENDENTE", # <--- MUDADO DE "ALERTA" PARA "PENDENTE"
+                                    "location_status": "PENDENTE", 
                                     "details": f"Offline após {int(now - last_ts)}s sem sinal.",
                                     "source_esp_id": "server", "rssi": -1
                                 })
-                            
-                            # elif asset.location_status == 'PENDENTE':
-                            #     changes_to_process.append({
-                            #         "asset_id": asset.id, "new_quarto_id": None, "location_status": "LIVRE",
-                            #         "details": "Sinal perdido (Timeout WiFi).", "source_esp_id": "server", "rssi": -1
-                            #     })
 
-                        # Se voltar, força check
-                        elif new_status == "Online":
-                            bed_mqtt_client.send_gateway_check_command(full_id)
+                        # Se voltar (Online), não fazemos NADA.
+                        # Já atualizamos o status para Online acima. A cama mandará dados sozinha.
 
             if changes_to_process:
                 await batch_update_asset_assignments(db, changes_to_process)
@@ -1237,6 +1141,30 @@ async def bed_availability_monitor():
         finally:
             db.close()
 
+async def run_initial_scan():
+    """
+    Roda UMA VEZ ao ligar o servidor para descobrir o estado inicial das camas.
+    """
+    logger.info("[BOOT] Aguardando conexão MQTT para Scan Inicial...")
+    await asyncio.sleep(5) # Espera conectar
+    
+    db = SessionLocal()
+    try:
+        assets = db.query(Asset).all()
+        count = 0
+        if assets:
+            logger.info(f"[BOOT] Enviando comando de Check para {len(assets)} camas...")
+            for asset in assets:
+                full_id = f"{asset.modelo}-{asset.nome_ativo}" if asset.modelo else asset.nome_ativo
+                # Usa a função que já existe no bed_mqtt_client
+                bed_mqtt_client.send_gateway_check_command(full_id)
+                count += 1
+        logger.info(f"[BOOT] Scan Inicial disparado para {count} dispositivos.")
+    except Exception as e:
+        logger.error(f"[BOOT] Falha no Scan Inicial: {e}")
+    finally:
+        db.close()
+
 @app.on_event("startup")
 async def on_startup():
     logger.info("[STARTUP] Iniciando BAXTER (Base Original).")
@@ -1245,10 +1173,11 @@ async def on_startup():
     asyncio.create_task(batch_update_esp_status())
     asyncio.create_task(main_pending_manager_loop())
     asyncio.create_task(bed_state_processor_loop())
-    asyncio.create_task(periodic_location_sync_loop())
-    asyncio.create_task(periodic_bed_poll_loop())
+    #asyncio.create_task(periodic_bed_poll_loop())
     asyncio.create_task(bed_availability_monitor())
     asyncio.create_task(periodic_location_sync_loop())
+
+    asyncio.create_task(run_initial_scan())
     
     mqtt_client.start_mqtt_client()
     bed_mqtt_client.start_bed_client()

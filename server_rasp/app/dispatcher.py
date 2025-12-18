@@ -4,6 +4,7 @@
 import requests
 import json
 import time
+from datetime import datetime
 import logging
 from .config import settings
 
@@ -61,3 +62,41 @@ def dispatch_event(evt: dict) -> bool:
     # Se sair do loop, falhou todas as vezes
     logger.error(f"[DISPATCH-HTTP] FALHA FINAL após {attempt} tentativas. Evento descartado.")
     return False
+
+def fetch_external_locations() -> dict:
+    """
+    Envia um payload especial com status='LOCATIONS' via HTTP
+    para recuperar a árvore de locais do Connecta.
+    """
+    ip = settings.get("final_ip")
+    port = settings.get("final_port")
+    
+    if not ip or not port:
+        return {}
+
+    url = f"http://{ip}:{port}/rtls/"
+    
+    # Payload 'Gatilho' solicitado
+    payload = {
+      "cama" : "SERVER_SYNC",
+      "modelo" : "System",
+      "quarto" : "0",
+      "id_connecta" : "0",
+      "dataOn" : datetime.now().isoformat(),
+      "wifi" : "0",
+      "status" : "LOCATIONS"
+    }
+
+    try:
+        logger.info(f"[SYNC-HTTP] Solicitando LOCATIONS via HTTP para {url}...")
+        response = requests.post(url, json=payload, timeout=10)
+        
+        if 200 <= response.status_code < 300:
+            return response.json()
+        else:
+            logger.warning(f"[SYNC-HTTP] Falha. Status: {response.status_code}")
+            return {}
+
+    except Exception as e:
+        logger.error(f"[SYNC-HTTP] Erro de conexão: {e}")
+        return {}
