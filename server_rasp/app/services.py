@@ -90,6 +90,9 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map_s
 
             # Cenário SAÍDA
             if new_quarto_id is None and new_raw_status == "LIVRE":
+                if prev_status == "PENDENTE":
+                    logger.info(f"[SERVICES] Ignorando saída de {asset.nome_ativo} (Estava PENDENTE e não confirmou).")
+                    continue
                 final_status = "OUT"
                 if not status_desc: status_desc = "Desconectado"
                 quarto_evt = old_quarto_nome
