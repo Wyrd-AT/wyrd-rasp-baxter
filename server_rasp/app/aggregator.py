@@ -63,6 +63,10 @@ class AssetState:
         self.weak_signal_since = None   
         self.disappearance_count = 0 
 
+        self.validation_start_ts = None  # Quando começou a contar os 20s
+        self.validation_quarto_id = None # Qual quarto estamos validando
+        self.last_http_success = False
+
     def update_reading(self, esp_id, rssi, timestamp):
         if esp_id not in self.readings: self.readings[esp_id] = {}
         self.readings[esp_id]["timestamp"] = timestamp
@@ -223,7 +227,7 @@ async def _processar_localizacoes():
             # Se o vencedor Global for EU MESMO (local) mas fraco, a máquina de estados abaixo vai tratar como instável.
 
             # =================================================================
-            # 4. MÁQUINA DE ESTADOS (COM SHADOW TWIN)
+            # 4. MÁQUINA DE ESTADOS (COM VALIDAÇÃO DE 20s + CHECK HTTP)
             # =================================================================
             
             # Recupera a "Verdade do Cabo" (Carregada do banco no _load_maps)
@@ -242,31 +246,36 @@ async def _processar_localizacoes():
                 if state.candidate_since and (time.time() - state.candidate_since) * 1000 > _config["inertia_entrada_ms"]:
                     if state.candidate_quarto_id == cand_qid and cand_qid is not None:
                         
-                        # SHADOW TWIN: Decide o status baseado no cabo
-                        novo_status = 'CONFIRMADO' if cabo_conectado else 'PENDENTE'
+                        # --- MUDANÇA: SEMPRE ENTRA COMO PENDENTE ---
+                        # Mesmo com cabo, forçamos PENDENTE para iniciar o ciclo de validação de 20s
+                        novo_status = 'PENDENTE'
                         
-                        logger.info(f"[ENTRADA] {nome} -> Quarto {cand_qid}. Cabo: {cabo_conectado} -> {novo_status}")
+                        logger.info(f"[ENTRADA] {nome} -> Quarto {cand_qid}. Iniciando validação (Status: {novo_status}).")
                         
                         changes_to_commit.append({
                             "asset_id": asset_id, 
                             "new_quarto_id": cand_qid, 
                             "location_status": novo_status, 
-                            "details": "Entrada.", 
+                            "details": "Entrada (Aguardando Validação).", 
                             "source_esp_id": winner_esp, 
                             "rssi": int(winner_rssi)
                         })
                         state.state = novo_status
+                        
+                        # Reseta variáveis de controle
                         state.candidate_quarto_id, state.candidate_since = None, None
+                        state.validation_start_ts = None 
+                        state.validation_quarto_id = None
 
             # --- MANUTENÇÃO / SAÍDA / TROCA (ESTÁ DENTRO) ---
             elif state.state in ['PENDENTE', 'CONFIRMADO', 'ALERTA']:
                 
                 # Cenario 1: TROCA RÁPIDA DE QUARTO (Flash)
-                # Se o vencedor é OUTRO quarto e o sinal é FORTE -> Muda imediatamente (ignora inércia de saída)
                 if winner_quarto and winner_quarto != quarto_id_atual and winner_rssi > threshold_to_compare:
                     
-                    novo_status = 'CONFIRMADO' if cabo_conectado else 'PENDENTE'
-                    logger.info(f"[TROCA] {nome} mudou de {quarto_id_atual} para {winner_quarto}. Status: {novo_status}")
+                    # Na troca, também cai para PENDENTE para revalidar no novo local
+                    novo_status = 'PENDENTE'
+                    logger.info(f"[TROCA] {nome} mudou de {quarto_id_atual} para {winner_quarto}. Reiniciando validação.")
                     
                     changes_to_commit.append({
                         "asset_id": asset_id, 
@@ -277,7 +286,8 @@ async def _processar_localizacoes():
                         "rssi": int(winner_rssi)
                     })
                     state.state = novo_status
-                    state.weak_signal_since = None # Reseta contadores
+                    state.weak_signal_since = None
+                    state.validation_start_ts = None # Zera timer antigo
                 
                 else:
                     # Verifica Estabilidade no Quarto Atual
@@ -286,25 +296,80 @@ async def _processar_localizacoes():
                     if is_stable:
                         state.weak_signal_since = None
                         
-                        # Cenario 2: ATUALIZAÇÃO DE STATUS NO MESMO LUGAR
-                        # O BLE está quieto, mas o cabo mudou (ex: Alguém plugou a tomada)
-                        status_correto = 'CONFIRMADO' if cabo_conectado else 'PENDENTE'
-                        
-                        # Se o status atual discorda do cabo (ex: está Pendente mas cabo=True)
-                        if state.state != status_correto:
-                            logger.info(f"[UPDATE] {nome} no mesmo quarto. Cabo mudou para {cabo_conectado}. Atualizando status.")
-                            changes_to_commit.append({
-                                "asset_id": asset_id, 
-                                "new_quarto_id": quarto_id_atual, 
-                                "location_status": status_correto, 
-                                "details": "Cabo Alterado.", 
-                                "source_esp_id": winner_esp, 
-                                "rssi": int(winner_rssi)
-                            })
-                            state.state = status_correto
+                        # =========================================================
+                        # LÓGICA DE PROMOÇÃO (DELAY 20s + HTTP)
+                        # =========================================================
+                        if state.state == 'PENDENTE':
+                            if cabo_conectado:
+                                # Se mudou de quarto ou começou agora, inicia/reseta o timer
+                                if state.validation_quarto_id != quarto_id_atual:
+                                    state.validation_quarto_id = quarto_id_atual
+                                    state.validation_start_ts = time.time()
+                                    logger.info(f"[VALIDACAO] {nome} cabo OK. Timer 20s iniciado em {quarto_id_atual}.")
+
+                                # Verifica se venceu os 20s
+                                elif state.validation_start_ts and (time.time() - state.validation_start_ts) >= int(settings.get('delay_mirth_http', 20)):
+                                    # Tenta validar via HTTP
+                                    logger.info(f"[VALIDACAO] {nome} timer concluído. Disparando HTTP Check...")
+                                    
+                                    # Busca dados para o payload
+                                    q_obj = db.query(Quarto).get(quarto_id_atual)
+                                    payload_evento = {
+                                        "quarto": q_obj.nome if q_obj else "Unknown",
+                                        "id_connecta": q_obj.connecta_id if q_obj else "0",
+                                        "cama": nome,
+                                        "modelo": asset_info.get("modelo", ""),
+                                        "status": "GET",
+                                        "wifi": -50, # Pode melhorar pegando do cache se quiser
+                                        "dataOn": datetime.now().isoformat()
+                                    }
+
+                                    # Executa HTTP de forma não bloqueante
+                                    loop = asyncio.get_running_loop()
+                                    http_success = await loop.run_in_executor(None, dispatch_event, payload_evento)
+
+                                    if http_success:
+                                        logger.info(f"[VALIDACAO] HTTP SUCESSO. {nome} -> CONFIRMADO.")
+                                        changes_to_commit.append({
+                                            "asset_id": asset_id, 
+                                            "new_quarto_id": quarto_id_atual, 
+                                            "location_status": "CONFIRMADO", 
+                                            "details": "Cabo Confirmado + HTTP OK.", 
+                                            "source_esp_id": winner_esp, 
+                                            "rssi": int(winner_rssi)
+                                        })
+                                        state.state = 'CONFIRMADO'
+                                        state.validation_start_ts = None # Fim do ciclo
+                                    else:
+                                        # Falha no HTTP: Mantém PENDENTE e tenta de novo no próximo ciclo
+                                        logger.warning(f"[VALIDACAO] HTTP FALHOU para {nome}. Mantendo PENDENTE.")
+                            
+                            else:
+                                # Se estava contando e o cabo soltou -> Cancela timer
+                                if state.validation_start_ts is not None:
+                                    logger.info(f"[VALIDACAO] Cabo soltou de {nome}. Cancelando timer.")
+                                    state.validation_start_ts = None
+                                    state.validation_quarto_id = None
+
+                        # =========================================================
+                        # LÓGICA DE REBAIXAMENTO (CONFIRMADO -> PENDENTE)
+                        # =========================================================
+                        elif state.state == 'CONFIRMADO':
+                            if not cabo_conectado:
+                                logger.info(f"[UPDATE] {nome} cabo desconectado. Rebaixando para PENDENTE.")
+                                changes_to_commit.append({
+                                    "asset_id": asset_id, 
+                                    "new_quarto_id": quarto_id_atual, 
+                                    "location_status": "PENDENTE", 
+                                    "details": "Cabo Desconectado.", 
+                                    "source_esp_id": winner_esp, 
+                                    "rssi": int(winner_rssi)
+                                })
+                                state.state = 'PENDENTE'
+                                state.validation_start_ts = None
 
                     else:
-                        # Cenario 3: INSTABILIDADE / SAÍDA
+                        # Cenario 3: INSTABILIDADE / SAÍDA (Lógica original)
                         if state.weak_signal_since is None: 
                             state.weak_signal_since = time.time()
                         
@@ -315,7 +380,9 @@ async def _processar_localizacoes():
                                 "asset_id": asset_id, "new_quarto_id": None, "location_status": "LIVRE", 
                                 "details": "Sinal perdido.", "source_esp_id": winner_esp, "rssi": int(winner_rssi)
                             })
-                            state.state = 'LIVRE'; state.weak_signal_since = None
+                            state.state = 'LIVRE'
+                            state.weak_signal_since = None
+                            state.validation_start_ts = None
 
         if changes_to_commit:
             await batch_update_asset_assignments(db, changes_to_commit)

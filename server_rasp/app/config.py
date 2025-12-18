@@ -19,28 +19,28 @@ def load_configuration():
         
         config['Network'] = {
             'ip': '0.0.0.0',
-            'port': '8080',
+            'port': '8000',
             'network_range_scan': '192.168.1.0/24' 
         }
 
         config['MQTT'] = {
             'mqtt_broker_host': '127.0.0.1',
-            'mqtt_broker_port': '1883',
+            'mqtt_broker_port': '51883',
             'mqtt_asset_list_topic': 'wyrd/rtls/assets/available',
             'mqtt_esp_command_topic': 'wyrd/rtls/esp/all/command'
         }
 
         config['BedMQTT'] = {
-            'bed_mqtt_host': '172.28.74.51',
+            'bed_mqtt_host': '172.28.74.144',
             'bed_mqtt_port': '1883',
-            'bed_mqtt_user': 'usuario_hillrom',
-            'bed_mqtt_pass': 'senha_hillrom',
+            'bed_mqtt_user': 'test',
+            'bed_mqtt_pass': 'test',
             'facility_id': 'HBAX'
         }
         
         config['Dispatcher'] = {
-            'final_ip': '127.0.0.1',
-            'final_port': '9500'
+            'final_ip': '172.28.74.144',
+            'final_port': '12000'
         }
 
         config['Aggregator'] = {
@@ -55,7 +55,8 @@ def load_configuration():
             'pending_timeout_sec': '1800',
             'dispatch_delay_after_wifi_sec': '5',
             'state_log_interval_sec': '30',
-            'enable_pending_alert': 'true',        
+            'enable_pending_alert': 'true',    
+            'delay_mirth_http': '20'   
         }
         
         config['Tasks'] = {
