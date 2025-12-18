@@ -103,7 +103,8 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map_s
                 
                 if new_raw_status == "CONFIRMADO":
                     final_status = "GET"
-                    status_desc = "Conectado"
+                    if not status_desc: 
+                        status_desc = "Conectado"
                 elif new_raw_status == "PENDENTE": 
                     # Se caiu aqui, é pq veio de CONFIRMADO (Cabo soltou)
                     final_status = "ALERTA" 
@@ -146,9 +147,9 @@ async def batch_update_asset_assignments(db: Session, changes: list, asset_map_s
         # Despacho HTTP
         loop = asyncio.get_running_loop()
         for event in events_to_dispatch:
-            if event.action == "GET" and event.status_detail == "Cabo Confirmado + HTTP OK.":
-                    # Este evento já foi validado e enviado pelo aggregator!
-                    continue
+            if event.action == "GET" and "HTTP OK" in (event.status_detail or ""):
+                logger.info(f"[SERVICES] Ignorando envio duplicado para {event.ativo} (Já validado).")
+                continue
             q_obj = db.query(Quarto).filter(Quarto.nome == event.quarto_nome).first()
             c_id = q_obj.connecta_id if q_obj else None
             nome_ativo = asset_map_snapshot.get(event.ativo, {}).get("nome_ativo", event.ativo)

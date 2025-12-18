@@ -404,7 +404,7 @@ def _load_maps_from_db():
             a.mac_beacon: {
                 "id": a.id, "nome_ativo": a.nome_ativo, "quarto_id": a.quarto_id, 
                 "location_status": a.location_status,
-                "is_connected": a.is_connected,
+                "is_connected": a.is_connected, "modelo": a.modelo,
                 "updated_on_ts": a.location_status_updated_on.timestamp() if a.location_status_updated_on else None,
             } for a in assets
         }
