@@ -1,0 +1,14 @@
+10/10/2025 13:10:35 - INFO - [root] - INFO: Sistema de logging configurado. Fuso horário: São Paulo.
+10/10/2025 13:10:36 - INFO - [app.main] - [main] Módulo carregado para a versão MULTI-ATIVO.
+10/10/2025 13:10:37 - INFO - [app.main] - [main] Startup: Iniciando serviços em background.
+10/10/2025 13:10:37 - INFO - [app.mqtt_client] - [MQTT] Iniciando cliente...
+10/10/2025 13:10:39 - ERROR - [app.mqtt_client] - [MQTT] Não foi possível conectar ao broker: [WinError 10061] Nenhuma conexão pôde ser feita porque a máquina de destino as recusou ativamente
+10/10/2025 13:10:39 - INFO - [app.aggregator] - [RTLS] Motor de localização (v. com EMA) iniciado.
+10/10/2025 13:10:39 - INFO - [app.aggregator] - [RTLS] Cache (re)carregado: 0 ESPs, 0 Ativos. Configs: {'process_interval_sec': 2.0, 'reading_timeout_sec': 10, 'default_rssi_threshold': -75, 'conflict_margin_db': 5, 'inertia_entrada_ms': 3000, 'inertia_saida_ms': 10000, 'ema_alpha': 0.4, 'disappearance_tolerance_cycles': 10}
+10/10/2025 13:10:39 - INFO - [app.main] - [BATCH-UPDATE-ESP] Serviço de atualização de status de embarcados iniciado.
+10/10/2025 13:10:44 - INFO - [app.main] - [main] Startup: Enviando comando de reconfiguração para todas as ESPs.
+10/10/2025 13:10:44 - INFO - [app.main] - [main] Startup: Comando de sincronização enviado.
+10/10/2025 13:11:07 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=23628), ID: a2ecfeff-1d1d-4e09-8c63-03b773b14b3c
+10/10/2025 13:11:20 - INFO - [app.main] - [WebSocket] Nova conexão estabelecida. Cliente: Address(host='127.0.0.1', port=35146), ID: 0eaf3e8d-f5b0-46a8-a65f-6e6163cb62d9
+10/10/2025 13:11:20 - INFO - [app.main] - [WebSocket] Conexão com o cliente a2ecfeff-1d1d-4e09-8c63-03b773b14b3c limpa e encerrada.
+10/10/2025 13:16:21 - INFO - [app.main] - [WebSocket] Conexão com o cliente 0eaf3e8d-f5b0-46a8-a65f-6e6163cb62d9 limpa e encerrada.
